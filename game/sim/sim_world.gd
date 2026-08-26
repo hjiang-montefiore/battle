@@ -16,6 +16,7 @@ const SIM_HZ := 20.0        ## docs/06 tick budget: simulation 20-30 Hz
 const SENSOR_HZ := 5.0      ## docs/06 tick budget: sensor solve 5-10 Hz
 
 var entities: SimEntities
+var terrain: SimTerrain = null
 var solver: SimSensorSolver
 var munitions: SimMunitions
 var rng: SimRng
@@ -36,6 +37,14 @@ func _init(seed_value: int = 12345) -> void:
 	solver = SimSensorSolver.new(entities)
 	rng = SimRng.new(seed_value)
 	munitions = SimMunitions.new(entities, solver, rng.fork(0x4D))
+
+
+## Load a theatre. Without one the world is a featureless plane, which is what
+## the proving ground and most unit tests want.
+func set_theatre(key: String) -> SimTerrain:
+	terrain = SimTheatre.build(key, rng.state())
+	solver.terrain = terrain
+	return terrain
 
 
 ## Advance by wall-clock dt. Presentation calls this; it is the only entry point.

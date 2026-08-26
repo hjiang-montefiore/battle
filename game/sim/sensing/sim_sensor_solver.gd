@@ -14,6 +14,9 @@ const P := preload("res://sim/sensing/sim_propagation.gd")
 const LAYER_DEPTH_M := 120.0
 
 var entities: SimEntities
+## The ground. Null means a featureless plane, which is what the proving ground
+## and most unit tests want.
+var terrain: SimTerrain = null
 ## faction id -> SimTrackTable
 var tables: Dictionary = {}
 
@@ -75,6 +78,37 @@ func solve(dt: float, tick: int = 0) -> void:
 		table_for(f).decay_all(dt)
 
 
+## Acoustic sensing happens underwater and is not masked by hills; everything
+## that travels through air is.
+func _has_line_of_sight(observer: int, sensor: SimSensorDef, target: int) -> bool:
+	if terrain == null:
+		return true
+	match sensor.domain:
+		SimTypes.Domain.ACOUSTIC_ACTIVE, SimTypes.Domain.ACOUSTIC_PASSIVE, \
+		SimTypes.Domain.MAGNETIC:
+			return true
+	# The sensor sits mount_height above the GROUND it is standing on, which is
+	# where high ground pays (docs/12: "free range on high ground").
+	var oy := entities.pos_y[observer]
+	if entities.category[observer] != SimTypes.Category.AIR:
+		oy = terrain.ground_under(entities.pos_x[observer],
+			entities.pos_z[observer]) + maxf(sensor.mount_height_m, 0.0)
+	return terrain.has_line_of_sight(
+		entities.pos_x[observer], oy, entities.pos_z[observer],
+		entities.pos_x[target], entities.pos_y[target], entities.pos_z[target])
+
+
+## Effective sensor altitude: an airborne unit flies at its own y, a ground one
+## stands on whatever the terrain gives it.
+func _sensor_altitude(observer: int, sensor: SimSensorDef) -> float:
+	if terrain == null or entities.category[observer] == SimTypes.Category.AIR:
+		return maxf(sensor.mount_height_m, 0.0) \
+			if entities.category[observer] != SimTypes.Category.AIR \
+			else entities.pos_y[observer]
+	return terrain.ground_under(entities.pos_x[observer],
+		entities.pos_z[observer]) + maxf(sensor.mount_height_m, 0.0)
+
+
 func _run_sensor(observer: int, sensor: SimSensorDef, table: SimTrackTable) -> void:
 	# A unit under EMCON SILENT will not switch on anything that transmits.
 	if sensor.emits and not sensor.is_passive() \
@@ -92,6 +126,13 @@ func _run_sensor(observer: int, sensor: SimSensorDef, table: SimTrackTable) -> v
 		var r_km := entities.range_km(observer, target)
 		var reach := _reach_km(observer, sensor, target)
 		if reach <= 0.0 or r_km > reach:
+			continue
+
+		# Terrain masking, docs/02 §1: "Line of sight blocked -> no RF/IR/visual
+		# detection AT ALL." Not a range penalty and not a probability. Checked
+		# only after the range test, because marching a ray across a theatre is
+		# far more expensive than comparing two numbers.
+		if not _has_line_of_sight(observer, sensor, target):
 			continue
 
 		last_detections += 1
@@ -114,7 +155,8 @@ func _reach_km(observer: int, sensor: SimSensorDef, target: int) -> float:
 					sensor.mount_height_m, entities.pos_y[target]):
 				return 0.0
 			reach = _apply_jamming(observer, sensor, target, reach)
-			reach = minf(reach, P.horizon_km(sensor.mount_height_m,
+			reach = minf(reach, P.horizon_km(
+					_sensor_altitude(observer, sensor),
 					entities.pos_y[target]))
 
 		SimTypes.Domain.RF_PASSIVE:
@@ -123,19 +165,22 @@ func _reach_km(observer: int, sensor: SimSensorDef, target: int) -> float:
 				return 0.0   # a silent target gives ESM nothing to hear
 			reach = P.passive_range_km(sensor.reference_range_km, power)
 			reach *= P.esm_advantage(_target_radar_gen(target), sensor.esm_gen)
-			reach = minf(reach, P.horizon_km(sensor.mount_height_m,
+			reach = minf(reach, P.horizon_km(
+					_sensor_altitude(observer, sensor),
 					entities.pos_y[target]))
 
 		SimTypes.Domain.IR:
 			reach = P.passive_range_km(sensor.reference_range_km,
 					entities.effective_ir(target))
-			reach = minf(reach, P.horizon_km(sensor.mount_height_m,
+			reach = minf(reach, P.horizon_km(
+					_sensor_altitude(observer, sensor),
 					entities.pos_y[target]))
 
 		SimTypes.Domain.EO:
 			reach = P.passive_range_km(sensor.reference_range_km,
 					entities.visual_m2[target] / 10.0)
-			reach = minf(reach, P.horizon_km(sensor.mount_height_m,
+			reach = minf(reach, P.horizon_km(
+					_sensor_altitude(observer, sensor),
 					entities.pos_y[target]))
 
 		SimTypes.Domain.ACOUSTIC_ACTIVE:

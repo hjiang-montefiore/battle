@@ -39,6 +39,7 @@ func _init() -> void:
 	_suite_nothing_stays_forever()
 	_suite_asw()
 	_suite_torpedoes()
+	_suite_terrain()
 
 	print("  " + "-".repeat(66))
 	if _failed == 0:
@@ -1114,3 +1115,93 @@ func _noisemaker_case(seeker: int, trial: int) -> bool:
 	w.munitions.deploy_noisemakers(prey, 40.0)
 	w.run_ticks(int(300.0 * SimWorld.SIM_HZ))
 	return t.termination == SimMunitionDef.Termination.DEFEATED_DECOY
+
+
+# ── docs/02 §1, §4 -- terrain masking, and the theatres ─────────────────────
+
+func _suite_terrain() -> void:
+	_suite("Terrain masking and the theatre maps (docs/02, docs/08)")
+
+	# All four theatres build, deterministically.
+	var built := 0
+	for key in SimTheatre.ALL:
+		var t := SimTheatre.build(key)
+		if t.extent_x_m() > 100000.0:
+			built += 1
+	_ok("all four docs/08 theatres build at theatre scale", built == 4)
+	var a := SimTheatre.build(SimTheatre.TAIWAN_STRAIT)
+	var b := SimTheatre.build(SimTheatre.TAIWAN_STRAIT)
+	_ok("and are deterministic -- same seed, same ground",
+		a.height_at(12345.0, -6789.0) == b.height_at(12345.0, -6789.0))
+
+	# Geography that matters, not decoration.
+	var tw := SimTheatre.build(SimTheatre.TAIWAN_STRAIT)
+	_ok("the Taiwan Strait is water between the mainland and the island",
+		tw.is_water(-20000.0, 0.0), "%.0f m" % tw.height_at(-20000.0, 0.0))
+	_ok("and the Central Mountain Range stands over 3 km",
+		tw.height_at(128000.0, 0.0) > 3000.0,
+		"%.0f m" % tw.height_at(128000.0, 0.0))
+	var na := SimTheatre.build(SimTheatre.NORTH_ATLANTIC)
+	_ok("the North Atlantic is deep water", na.depth_at(-150000.0, 0.0) > 3000.0,
+		"%.0f m deep" % na.depth_at(-150000.0, 0.0))
+	_ok("and its mid-ocean ridge stays submerged",
+		na.height_at(-10000.0, 0.0) < 0.0,
+		"%.0f m" % na.height_at(-10000.0, 0.0))
+
+	# THE claim: "Line of sight blocked -> no RF/IR/visual detection at all",
+	# and "an airborne sensor sees into valleys that a hilltop radar cannot."
+	var ground_sees := _mask_case(false)
+	var air_sees := _mask_case(true)
+	_ok("a ground radar cannot see a vehicle behind the mountain range",
+		not ground_sees)
+	_ok("an AEW aircraft over the same ground can",
+		air_sees)
+
+	# docs/12: a fixed radar station gets "free range on high ground", because
+	# mount height is measured from the terrain under it.
+	var low := _horizon_from(0.0)
+	var high := _horizon_from(3500.0)
+	_ok("a radar on high ground has a longer horizon than one on the plain",
+		high > low * 1.5, "%.0f km from 3500 m vs %.0f km from sea level" % [high, low])
+
+	# Blocking is absolute, not a penalty.
+	var t2 := SimTerrain.new(64, 64, 500.0, "ridge")
+	t2.fill(0.0)
+	t2.add_ridge(0.0, -16000.0, 0.0, 16000.0, 800.0, 2000.0)
+	_ok("a ray under the crest is blocked",
+		not t2.has_line_of_sight(-8000.0, 30.0, 0.0, 8000.0, 30.0, 0.0))
+	_ok("and a ray over it is not",
+		t2.has_line_of_sight(-8000.0, 4000.0, 0.0, 8000.0, 4000.0, 0.0))
+	_ok("two units on the same side of a ridge still see each other",
+		t2.has_line_of_sight(-8000.0, 30.0, 0.0, -4000.0, 30.0, 0.0))
+
+
+## A vehicle sits behind the Central Mountain Range from a west-coast radar.
+## Returns whether the observing faction ends up holding a track on it.
+func _mask_case(airborne: bool) -> bool:
+	var w := SimWorld.new(77)
+	w.set_theatre(SimTheatre.TAIWAN_STRAIT)
+	var e := w.entities
+	var obs_y := 9000.0 if airborne else 0.0
+	# Same station-keeping position for both, so ALTITUDE is the only variable.
+	# At 9 km and 100 km out the ray would clip the crest anyway, which is
+	# correct physics and would make this an unfair comparison.
+	var obs := e.add("observer", 0, 105000.0, obs_y, 0.0,
+		SimSignature.new(100.0),
+		[SimSensorDef.new({"name": "search", "domain": SimTypes.Domain.RF_ACTIVE,
+			"reference_range_km": 400.0,
+			"mount_height_m": 9000.0 if airborne else 20.0,
+			"max_quality": SimTypes.TrackQuality.TRACK, "radar_gen": 4})],
+		SimTypes.Category.AIR if airborne else SimTypes.Category.GROUND)
+	# Behind the range, on the eastern side of the island.
+	var hidden := e.add("hidden", 1, 160000.0, 30.0, 0.0,
+		SimSignature.new(30.0), [], SimTypes.Category.GROUND)
+	w.run_ticks(12)
+	var t := w.track_table_for(0)._track_for_truth(hidden)
+	return t != null and t.quality > SimTypes.TrackQuality.NONE
+
+
+## Horizon in km for a 20 m mast standing on ground of the given elevation.
+func _horizon_from(ground_m: float) -> float:
+	const P := preload("res://sim/sensing/sim_propagation.gd")
+	return P.horizon_km(ground_m + 20.0, 30.0)
