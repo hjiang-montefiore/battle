@@ -224,8 +224,14 @@ func _command_slot() -> void:
 		if not _command_is_authorised(cmd):
 			commands.note_rejected()
 			continue
-		_execute_command(cmd)
-		commands.note_executed()
+		# An authorised order can still be IMPOSSIBLE -- a move order to a
+		# mobility-killed tank, a build the player cannot afford. Those count as
+		# rejected too, so the counters mean "orders that changed something"
+		# rather than "orders that were allowed to try".
+		if _execute_command(cmd):
+			commands.note_executed()
+		else:
+			commands.note_rejected()
 
 
 func _command_is_authorised(c: SimCommandQueue.Command) -> bool:
@@ -239,28 +245,33 @@ func _command_is_authorised(c: SimCommandQueue.Command) -> bool:
 	return entities.owner[c.unit] == c.issuer
 
 
-func _execute_command(c: SimCommandQueue.Command) -> void:
+## Returns true when the order actually changed something.
+func _execute_command(c: SimCommandQueue.Command) -> bool:
 	match c.kind:
 		SimTypes.OrderKind.MOVE:
-			movement.order_move(c.unit, c.x, c.z)
+			return movement.order_move(c.unit, c.x, c.z)
 		SimTypes.OrderKind.STOP:
 			movement.order_stop(c.unit)
+			return true
 		SimTypes.OrderKind.SET_EMCON:
 			entities.emcon[c.unit] = c.value
+			return true
 		SimTypes.OrderKind.SET_MOVE_STATE:
 			entities.move_state[c.unit] = c.value
+			return true
 		SimTypes.OrderKind.PRODUCE:
-			economy.queue_production(c.issuer, c.unit, c.key)
+			return economy.queue_production(c.issuer, c.unit, c.key)
 		SimTypes.OrderKind.BUILD:
-			economy.spawn_unit(c.issuer, c.key, c.x, c.z)
+			return economy.spawn_unit(c.issuer, c.key, c.x, c.z) >= 0
 		SimTypes.OrderKind.ATTACK_TRACK:
 			# CALL SITE: fire control. The combat agent hangs the engagement
 			# order here -- assign the track to the unit's weapon, and let slot
 			# 8 run the gate and the launch. Deliberately NOT resolved to an
 			# entity: docs/09 §1.3, a track is a hypothesis, not a pointer.
-			pass
+			return false
 		SimTypes.OrderKind.CANCEL:
-			pass
+			return false
+	return false
 
 
 ## Slot 3. docs/06's 1-2 Hz logistics tier. `dt` here is the elapsed seconds
@@ -282,8 +293,10 @@ func _combat_slot(dt: float) -> void:
 	# terminations, snapshotted, with the facet already derived from impact
 	# geometry (docs/10 §6). This is the seam that was missing: rounds flew,
 	# guided and arrived, and nothing happened.
-	for im in munitions.arrivals():
+	for im in munitions.last_impacts:
 		var impact := im as SimImpact
+		if not impact.is_arrival():
+			continue
 		if not entities.is_alive(impact.target):
 			continue
 		var pen := SimArmor.penetration_at_range_mm(

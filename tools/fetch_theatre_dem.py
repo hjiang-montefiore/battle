@@ -35,8 +35,28 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "game", "assets", "terrain")
 CACHE_DIR = os.path.join(ROOT, ".dem_cache")
 
-API = "https://api.opentopodata.org/v1/gebco2020"
-BATCH = 100          # the public endpoint's hard limit
+# ── sources, best first ──────────────────────────────────────────────────────
+# GMRT (Global Multi-Resolution Topography) is the finest reachable source with
+# no login. Its GridServer scales resolution to the requested box, so a whole
+# theatre comes back in ONE request at 486 m -- roughly four times finer than
+# ETOPO1 and enough to support a 1 km game grid without inventing detail.
+# Checked against known ground: Yushan 3723 m (3952 m real), the Taiwan Strait
+# -62 m, the Philippine Sea -4882 m, Taipei 21 m, and no nodata at all.
+GMRT = "https://www.gmrt.org/services/GridServer"
+GMRT_RESOLUTION = "med"     # low ~970 m, med ~490 m, high ~240 m and 36 MB
+
+# ── sources ──────────────────────────────────────────────────────────────────
+# ERDDAP griddap serves a whole rectangular subset in ONE request, which is both
+# kinder to the service and far finer than sampling point by point: the entire
+# Taiwan box comes back as 84,537 samples at 1 arc-minute in under a second,
+# against 369 rate-limited calls for a coarser result.
+ERDDAP = "https://coastwatch.pfeg.noaa.gov/erddap/griddap/etopo360.csv"
+ERDDAP_SPACING_DEG = 1.0 / 60.0
+
+# The per-point API is kept as a fallback: it uses GEBCO 2020, which is finer
+# than ETOPO1, and is the only route if ERDDAP is unreachable.
+POINT_API = "https://api.opentopodata.org/v1/gebco2020"
+BATCH = 100          # the point endpoint's hard limit
 DELAY_S = 1.05       # one call a second, with a little headroom
 
 # Geographic boxes, chosen so each theatre contains what makes it that theatre.
@@ -94,11 +114,147 @@ def sample_points(spec, grid):
     return pts
 
 
+def fetch_gmrt(spec, resolution=None):
+    """Whole box in one request, as ESRI ASCII. Returns (lats, lons, grid).
+
+    Latitudes ascend, so grid[0] is the SOUTHERN row -- the file itself stores
+    rows north first, which is flipped here."""
+    lat0, lat1, lon0, lon1 = box_for(spec)
+    url = ("%s?minlongitude=%.5f&maxlongitude=%.5f&minlatitude=%.5f"
+           "&maxlatitude=%.5f&format=esriascii&resolution=%s"
+           % (GMRT, lon0, lon1, lat0, lat1, resolution or GMRT_RESOLUTION))
+    proc = subprocess.run(["curl", "-s", "-m", "300", url],
+                          capture_output=True, text=True)
+    text = proc.stdout
+    if not text.startswith("ncols"):
+        raise RuntimeError("GMRT returned something unexpected: " + text[:200])
+
+    lines = text.splitlines()
+    hdr = {}
+    for i in range(6):
+        k, v = lines[i].split()
+        hdr[k.lower()] = float(v)
+    nc = int(hdr["ncols"]); nr = int(hdr["nrows"])
+    x0 = hdr["xllcorner"]; y0 = hdr["yllcorner"]
+    cs = hdr["cellsize"]; nodata = hdr["nodata_value"]
+
+    rows = []
+    for ln in lines[6:]:
+        if not ln.strip():
+            continue
+        rows.append([float(x) for x in ln.split()])
+    if len(rows) != nr:
+        raise RuntimeError("GMRT row count %d != header %d" % (len(rows), nr))
+
+    # North-first in the file, ascending latitude in memory.
+    grid = [rows[nr - 1 - i] for i in range(nr)]
+
+    # GMRT is gap-free over these boxes, but a NODATA cell would otherwise be a
+    # -2 billion metre cliff, so patch any from the nearest real neighbour.
+    holes = 0
+    for i in range(nr):
+        for j in range(nc):
+            if grid[i][j] == nodata:
+                holes += 1
+                grid[i][j] = _nearest_real(grid, i, j, nodata, nr, nc)
+    if holes:
+        print("    patched %d NODATA cell(s)" % holes)
+
+    lats = [y0 + (i + 0.5) * cs for i in range(nr)]
+    lons = [x0 + (j + 0.5) * cs for j in range(nc)]
+    return lats, lons, grid
+
+
+def _nearest_real(grid, i, j, nodata, nr, nc):
+    for r in range(1, 12):
+        for di in (-r, 0, r):
+            for dj in (-r, 0, r):
+                a, b = i + di, j + dj
+                if 0 <= a < nr and 0 <= b < nc and grid[a][b] != nodata:
+                    return grid[a][b]
+    return 0.0
+
+
+def fetch_bulk(spec):
+    """Whole box in one ERDDAP request. Returns (lats, lons, values[lat][lon]).
+
+    Latitudes come back ascending; the caller flips as needed."""
+    lat0, lat1, lon0, lon1 = box_for(spec)
+    url = ("%s?altitude%%5B(%.5f):1:(%.5f)%%5D%%5B(%.5f):1:(%.5f)%%5D"
+           % (ERDDAP, lat0, lat1, lon0, lon1))
+    proc = subprocess.run(["curl", "-s", "-m", "180", url],
+                          capture_output=True, text=True)
+    body = proc.stdout
+    if not body.startswith("latitude"):
+        raise RuntimeError("ERDDAP returned something unexpected: " + body[:200])
+    lat_index = {}
+    lon_index = {}
+    cells = {}
+    for i, line in enumerate(body.splitlines()):
+        if i < 2:
+            continue
+        parts = line.split(",")
+        if len(parts) != 3:
+            continue
+        try:
+            la = float(parts[0]); lo = float(parts[1]); v = float(parts[2])
+        except ValueError:
+            continue
+        if la not in lat_index:
+            lat_index[la] = True
+        if lo not in lon_index:
+            lon_index[lo] = True
+        cells[(la, lo)] = v
+    lats = sorted(lat_index)
+    lons = sorted(lon_index)
+    if len(lats) < 2 or len(lons) < 2:
+        raise RuntimeError("ERDDAP subset too small: %d x %d" % (len(lats), len(lons)))
+    grid = [[cells.get((la, lo), 0.0) for lo in lons] for la in lats]
+    return lats, lons, grid
+
+
+def _bilinear(lats, lons, grid, lat, lon):
+    """Sample the source grid. Clamps at the edges rather than wrapping."""
+    def span(arr, v):
+        if v <= arr[0]:
+            return 0, 0, 0.0
+        if v >= arr[-1]:
+            n = len(arr) - 1
+            return n, n, 0.0
+        lo, hi = 0, len(arr) - 1
+        while hi - lo > 1:
+            mid = (lo + hi) // 2
+            if arr[mid] <= v:
+                lo = mid
+            else:
+                hi = mid
+        t = (v - arr[lo]) / (arr[hi] - arr[lo])
+        return lo, hi, t
+    i0, i1, ti = span(lats, lat)
+    j0, j1, tj = span(lons, lon)
+    a = grid[i0][j0]; b = grid[i0][j1]
+    c = grid[i1][j0]; d = grid[i1][j1]
+    return (a + (b - a) * tj) * (1.0 - ti) + (c + (d - c) * tj) * ti
+
+
+def resample(spec, grid_n, lats, lons, src):
+    """Onto the game grid, row-major from the NORTH edge."""
+    lat0, lat1, lon0, lon1 = box_for(spec)
+    out = []
+    for r in range(grid_n):
+        lat = lat1 - (lat1 - lat0) * (r + 0.5) / grid_n
+        for c in range(grid_n):
+            lon = lon0 + (lon1 - lon0) * (c + 0.5) / grid_n
+            out.append(_bilinear(lats, lons, src, lat, lon))
+    return out
+
+
 def fetch_batch(points):
     locs = "|".join("%.6f,%.6f" % (a, b) for a, b in points)
     for attempt in range(5):
         proc = subprocess.run(
-            ["curl", "-s", "-m", "60", "-G", "--data-urlencode", "locations=" + locs, API],
+            ["curl", "-s", "-m", "60", "-G", "--data-urlencode",
+             "locations=" + locs, POINT_API],
             capture_output=True, text=True)
         try:
             doc = json.loads(proc.stdout)
@@ -133,8 +289,30 @@ def write_hf(path, name, grid, cell_size_m, heights, lat=0.0, lon=0.0):
                             *[max(-32768, min(32767, int(round(h)))) for h in heights]))
 
 
-def fetch(key, grid):
+def fetch(key, grid, use_bulk=True):
     spec = THEATRES[key]
+    if use_bulk:
+        try:
+            lats, lons, src = fetch_gmrt(spec)
+            source = "GMRT"
+        except Exception as e:
+            print("    GMRT unavailable (%s); falling back to ERDDAP" % str(e)[:80])
+            lats, lons, src = fetch_bulk(spec)
+            source = "ERDDAP/ETOPO1"
+        heights = resample(spec, grid, lats, lons, src)
+        os.makedirs(OUT_DIR, exist_ok=True)
+        cell = spec["extent_km"] * 1000.0 / grid
+        out = os.path.join(OUT_DIR, "%s.hf" % key)
+        write_hf(out, spec["name"], grid, cell, heights, spec["lat"], spec["lon"])
+        lo, hi = min(heights), max(heights)
+        water = sum(1 for h in heights if h < 0) / float(len(heights)) * 100.0
+        src_m = (lats[1] - lats[0]) * 110574.0 if len(lats) > 1 else 0.0
+        print("  %-18s %d x %d @ %.0f m  from %s %d x %d @ %.0f m  "
+              "elevation %.0f..%.0f m  %.0f%% water"
+              % (key, grid, grid, cell, source, len(lons), len(lats), src_m,
+                 lo, hi, water))
+        return
+
     pts = sample_points(spec, grid)
     total = len(pts)
     os.makedirs(CACHE_DIR, exist_ok=True)
@@ -174,13 +352,29 @@ def fetch(key, grid):
           % (key, grid, grid, cell, lo, hi, water, os.path.relpath(out, ROOT)))
 
 
+# Grids matched to the 1 arc-minute source, so the game grid neither throws
+# away detail nor invents it.
+# Grids matched to GMRT's ~490 m source, so the game grid neither throws away
+# detail nor invents it. Roughly 1 km cells, which is where ridgeline masking
+# stops improving for theatres this size.
+DEFAULT_GRID = {
+    "taiwan_strait": 512,      # 1.00 km cells
+    "korean_peninsula": 384,   # 0.90 km
+    "central_europe": 512,     # 0.94 km
+    "north_atlantic": 512,     # 1.50 km
+}
+
+
 def main(argv):
-    grid = 128
+    grid = 0
     keys = []
+    use_bulk = True
     i = 0
     while i < len(argv):
         if argv[i] == "--grid":
             grid = int(argv[i + 1]); i += 2
+        elif argv[i] == "--points":
+            use_bulk = False; i += 1
         else:
             keys.append(argv[i]); i += 1
     if not keys:
@@ -189,11 +383,16 @@ def main(argv):
         if k not in THEATRES:
             print("unknown theatre:", k)
             return 1
-    calls = sum(math.ceil(grid * grid / BATCH) for _ in keys)
-    print("fetching %d theatre(s) at %dx%d -- about %d API calls, %.0f min"
-          % (len(keys), grid, grid, calls, calls * DELAY_S / 60.0))
+    if use_bulk:
+        print("fetching %d theatre(s) from ERDDAP -- one request each" % len(keys))
+    else:
+        n = grid or 128
+        calls = sum(math.ceil(n * n / BATCH) for _ in keys)
+        print("fetching %d theatre(s) point-by-point at %dx%d -- %d calls, %.0f min"
+              % (len(keys), n, n, calls, calls * DELAY_S / 60.0))
     for k in keys:
-        fetch(k, grid)
+        g = grid or DEFAULT_GRID.get(k, 128)
+        fetch(k, g, use_bulk)
     return 0
 
 

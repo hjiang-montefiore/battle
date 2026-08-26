@@ -97,6 +97,18 @@ func fire(munition: SimMunitionDef, shooter: int, target: int,
 	var launch_y: float = entities.pos_y[shooter] + 2.0
 	if munition.is_torpedo():
 		launch_y = minf(entities.pos_y[shooter], -2.0)
+	elif munition.tier == SimMunitionDef.Tier.B:
+		# SUPERELEVATION. A gun laid flat at a target 1.2 km away puts the round
+		# into the ground at 1.1 km -- gravity acts on it for the whole flight,
+		# so a ballistic weapon must be aimed ABOVE what it is shooting at. Real
+		# fire control does this from a ballistic table; this is the same
+		# calculation. Without it Tier B rounds can never arrive at all, and the
+		# entire docs/03 armour matrix never gets a chance to resolve.
+		#
+		# The aim point is raised rather than an angle being applied, so
+		# SimProjectile.launch() keeps its single "point it at this spot" rule.
+		ay = _ballistic_aim_y(entities.pos_x[shooter], launch_y,
+			entities.pos_z[shooter], ax, ay, az, munition)
 	p.launch(munition, entities.pos_x[shooter], launch_y,
 		entities.pos_z[shooter], ax, ay, az, shooter,
 		entities.faction[shooter], target,
@@ -426,3 +438,45 @@ func arrivals() -> Array:
 		if (im as SimImpact).is_arrival():
 			out.append(im)
 	return out
+
+
+## Where to aim a ballistic round so it ARRIVES at (tx, ty, tz).
+##
+## The low-arc solution to the vacuum trajectory, then a drag correction. The
+## vacuum answer is
+##
+##     tan(theta) = (v^2 - sqrt(v^4 - g(g R^2 + 2 h v^2))) / (g R)
+##
+## with R the horizontal range and h the height difference. Quadratic drag then
+## bleeds speed over the flight, so the round falls shorter than the vacuum
+## solution predicts; the correction below scales the elevation by the ratio of
+## the vacuum time of flight to the drag-slowed one, which is accurate enough
+## inside direct-fire range and degrades gracefully beyond it.
+##
+## A target beyond the weapon's maximum ballistic range returns a 45-degree aim
+## -- the round then falls short, which is the correct outcome and is visible in
+## the combat log rather than being silently clamped into a hit.
+func _ballistic_aim_y(sx: float, sy: float, sz: float,
+		tx: float, ty: float, tz: float, munition: SimMunitionDef) -> float:
+	var dx := tx - sx
+	var dz := tz - sz
+	var r := sqrt(dx * dx + dz * dz)
+	if r < 1.0:
+		return ty
+	var v := munition.muzzle_velocity
+	var h := ty - sy
+	var g := SimProjectile.G
+
+	# Drag correction: average speed over the flight, from the quadratic law
+	# integrated crudely over the vacuum time of flight.
+	var t_vac := r / maxf(v, 1.0)
+	var v_avg: float = maxf(v - 0.5 * munition.drag_coefficient * v * v * t_vac, v * 0.35)
+	var ve := (v + v_avg) * 0.5
+
+	var v2 := ve * ve
+	var disc := v2 * v2 - g * (g * r * r + 2.0 * h * v2)
+	if disc < 0.0:
+		# Out of ballistic range. Aim at 45 degrees and let it fall short.
+		return sy + r
+	var tan_theta := (v2 - sqrt(disc)) / (g * r)
+	return sy + r * tan_theta

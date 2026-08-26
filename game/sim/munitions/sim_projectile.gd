@@ -69,6 +69,10 @@ var launch_z: float = 0.0
 
 var _prev_range: float = INF
 var _launch_range: float = 0.0
+## Closest approach measured along the SEGMENT the round flew this tick, not at
+## the tick boundaries. See _segment_miss() for why that distinction decides
+## whether tank guns work at all.
+var _min_miss: float = INF
 
 
 func launch(munition: SimMunitionDef, from_x: float, from_y: float, from_z: float,
@@ -110,6 +114,7 @@ func launch(munition: SimMunitionDef, from_x: float, from_y: float, from_z: floa
 	vz = dz / d * speed
 	_launch_range = d
 	_prev_range = INF
+	_min_miss = INF
 
 
 func speed() -> float:
@@ -235,6 +240,15 @@ func step(dt: float, guide_x: float, guide_y: float, guide_z: float,
 		var dy := truth_y - y
 		var dz := truth_z - z
 		var r := sqrt(dx * dx + dy * dy + dz * dz)
+		# SUB-TICK MISS DISTANCE. A tank round leaves the tube at 1700 m/s and
+		# the sim ticks at 20 Hz, so it advances 85 m between samples. Measuring
+		# the miss only at those samples means a direct hit is invisible unless
+		# the target happens to sit within 1.5 m of a tick boundary -- so a
+		# contact-fuzed round would essentially NEVER register, and the whole of
+		# docs/03 would never fire. The round did pass through the intervening
+		# space; measure against the segment it actually swept.
+		_min_miss = minf(_min_miss, _segment_miss(
+			x - vx * dt, y - vy * dt, z - vz * dt, truth_x, truth_y, truth_z))
 		# Resolve at closest approach only when this is genuinely a terminal
 		# pass: the round must actually be near the target. A torpedo chasing a
 		# fleeing ship opens the range for the whole of its acceleration, and
@@ -242,7 +256,7 @@ func step(dt: float, guide_x: float, guide_y: float, guide_z: float,
 		# 14 km -- before the weapon had even reached running speed.
 		var window: float = maxf(def.lethal_radius_m * 25.0, 150.0)
 		if r > _prev_range and _prev_range < window:
-			_resolve_terminal(_prev_range)
+			_resolve_terminal(minf(_prev_range, _min_miss))
 			return
 		_prev_range = minf(_prev_range, r) if _prev_range < INF else r
 		if def.tier == SimMunitionDef.Tier.A and not seeker_active \
@@ -427,3 +441,28 @@ func distance_flown_m() -> float:
 	var dy := y - launch_y
 	var dz := z - launch_z
 	return sqrt(dx * dx + dy * dy + dz * dz)
+
+
+## Distance from the target to the segment the round swept this tick: from
+## (ax, ay, az), where it was at the start of the tick, to (x, y, z), where it
+## is now.
+##
+## The target is treated as stationary across the tick. At 20 Hz that is a
+## 0.05 s approximation -- under a metre even for a fast jet, and far smaller
+## than the 85 m sampling error it removes.
+func _segment_miss(ax: float, ay: float, az: float,
+		px: float, py: float, pz: float) -> float:
+	var sx := x - ax
+	var sy := y - ay
+	var sz := z - az
+	var len2 := sx * sx + sy * sy + sz * sz
+	var wx := px - ax
+	var wy := py - ay
+	var wz := pz - az
+	if len2 < 1e-9:
+		return sqrt(wx * wx + wy * wy + wz * wz)
+	var t: float = clampf((wx * sx + wy * sy + wz * sz) / len2, 0.0, 1.0)
+	var cx := wx - t * sx
+	var cy := wy - t * sy
+	var cz := wz - t * sz
+	return sqrt(cx * cx + cy * cy + cz * cz)
