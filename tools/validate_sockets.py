@@ -64,41 +64,69 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Per-role envelopes: (length_z, width_x, height_y), metres. Deliberately
 # generous -- this gate catches unit errors, rotations and gross scale slips,
 # not fine proportion, which is what the reference photographs are for.
+# Per-role envelopes: (length_z, width_x, height_y), metres.
+#
+# These catch a SCALE error -- a model built in feet, or centimetres, or at
+# three times size -- not a proportion. Proportion is what the reference
+# photographs are for.
+#
+# Derived with ~45% headroom above the largest example of each role and a third
+# below the smallest, because envelopes fitted tightly to current content break
+# every time a legitimate new variant arrives: an MLRS with its pod raised, an
+# engineer carrying a tool, a supercarrier. A unit-confusion error is 2x or
+# more, so the headroom costs nothing in detection.
 ROLE_LIMITS = {
-    "mbt": ((8.0, 14.0), (3.0, 4.3), (2.0, 3.7)),   # main battle tank
-    "afv": ((5.0, 11.0), (2.4, 4.0), (1.8, 3.9)),   # IFV / APC / ATGM / TD
-    "art": ((5.0, 13.5), (2.4, 4.0), (1.9, 4.3)),   # SPH / MLRS / mortar / towed
-    "aad": ((5.0, 11.0), (2.4, 4.0), (2.4, 6.2)),   # SPAAG / SHORAD / long SAM
-    "sam": ((6.0, 12.0), (2.4, 4.0), (2.8, 5.6)),   # launcher vehicle
-    "msl": ((6.0, 12.0), (2.4, 4.0), (3.0, 5.4)),   # ballistic / coastal
-    "rad": ((6.0, 10.5), (2.4, 6.2), (2.8, 5.6)),   # search / illuminator / CB
-    "rec": ((4.0, 9.0), (2.2, 3.8), (1.7, 4.4)),    # reconnaissance
-    "log": ((5.5, 11.5), (2.2, 3.6), (2.0, 4.4)),   # fuel / ammo truck
-    "cmd": ((5.0, 10.0), (2.4, 4.0), (2.4, 5.4)),   # command post
-    "eng": ((5.0, 10.5), (2.6, 4.0), (2.4, 5.2)),   # engineer / repair
-    "ewj": ((5.0, 10.0), (2.4, 4.0), (2.4, 5.4)),   # ground jammer
-    # Air. Width is WINGSPAN and routinely exceeds length -- an entirely normal
-    # planform that the old length>width heuristic would have failed.
-    "air": ((9.0, 56.0), (7.0, 62.0), (1.8, 15.0)),
-    "aew": ((15.0, 56.0), (12.0, 62.0), (3.0, 14.0)),
-    "mpa": ((15.0, 56.0), (12.0, 62.0), (3.0, 14.0)),
-    "tkr": ((20.0, 60.0), (15.0, 64.0), (3.0, 15.0)),
-    "isr": ((12.0, 56.0), (10.0, 62.0), (2.5, 14.0)),
-    "ewa": ((10.0, 30.0), (8.0, 26.0), (2.5, 8.0)),
-    "hel": ((10.0, 22.0), (8.0, 20.0), (2.5, 7.0)),
-    "uav": ((1.5, 22.0), (1.5, 42.0), (0.3, 5.0)),
-    # Infantry are people. Width is the awkward one: a rifleman is under a
-    # metre across, but an engineer with arms out carrying a tool measures
-    # 2.2 m, and a two-man team pose will be wider still. The envelope catches
-    # a scale error -- a 5 m soldier, or a 0.2 m one -- not a proportion.
-    "inf": ((0.25, 1.80), (0.55, 2.80), (1.40, 2.60)),
-    # Naval. Width can be a flight deck, so it is generous; a supercarrier is
-    # ~333 m long and a corvette ~26 m, and both must pass the same rule.
-    "nav": ((18.0, 360.0), (4.0, 95.0), (3.0, 55.0)),
-    "sub": ((12.0, 190.0), (2.5, 28.0), (4.0, 28.0)),
-    # Strategic sites: silos, bridges, airbases, radar arrays.
-    "str": ((4.0, 220.0), (2.5, 70.0), (2.0, 45.0)),
+    # SPAAG / SHORAD / long SAM
+    "aad": ((4.3, 14.8), (1.9, 5.4), (2.2, 8.3)),
+    # airborne early warning
+    "aew": ((12.6, 68), (12.1, 65), (2.8, 17.4)),
+    # IFV / APC / ATGM / tank destroyer
+    "afv": ((3.4, 14.8), (1.8, 5.2), (1.5, 5.0)),
+    # fixed wing. Width is WINGSPAN and routinely exceeds length
+    "air": ((9.9, 71), (6.6, 82), (1.2, 19.9)),
+    # SPH / MLRS / mortar / towed. An MLRS with its pod at elevation is
+    # legitimately over five metres tall
+    "art": ((3.4, 17.7), (1.8, 5.6), (1.4, 7.5)),
+    # command post
+    "cmd": ((3.5, 9.9), (1.8, 4.4), (2.0, 5.7)),
+    # engineer / repair
+    "eng": ((5.1, 15.0), (2.2, 5.6), (2.0, 7.0)),
+    # airborne jammer
+    "ewa": ((12.2, 27), (10.8, 24), (3.3, 7.3)),
+    # ground jammer
+    "ewj": ((5.1, 11.4), (1.8, 4.4), (3.0, 7.7)),
+    # helicopter
+    "hel": ((8.5, 24), (6.3, 23), (2.7, 6.8)),
+    # people. An engineer with arms out and a tool is 2.2 m across
+    "inf": ((0.3, 1.3), (0.5, 3.2), (1.2, 3.4)),
+    # reconnaissance aircraft
+    "isr": ((20.0, 44), (23, 49), (5.0, 11.0)),
+    # fuel / ammo truck
+    "log": ((5.3, 14.7), (1.7, 4.2), (1.8, 5.2)),
+    # main battle tank
+    "mbt": ((6.4, 18.2), (2.2, 5.5), (1.5, 4.8)),
+    # maritime patrol
+    "mpa": ((29, 63), (25, 55), (7.0, 15.8)),
+    # ballistic / coastal
+    "msl": ((5.4, 17.1), (2.0, 4.7), (2.4, 7.5)),
+    # surface ships, corvette to supercarrier
+    "nav": ((16.9, 483), (5.1, 125), (3.7, 66)),
+    # search / illuminator / counter-battery
+    "rad": ((4.8, 14.2), (1.8, 7.8), (2.4, 7.4)),
+    # reconnaissance
+    "rec": ((3.9, 10.1), (1.8, 4.2), (2.4, 6.2)),
+    # launcher vehicle
+    "sam": ((5.0, 12.9), (2.0, 5.1), (3.2, 7.2)),
+    # silos, bridges, airbases, radar arrays
+    "str": ((16.0, 250), (2.5, 35), (1.9, 44)),
+    # submarines
+    "sub": ((13.3, 168), (3.3, 24), (5.0, 28)),
+    # tanker
+    "tkr": ((31, 67), (27, 58), (7.6, 17.2)),
+    # unmanned
+    "uav": ((1.8, 22), (2.0, 51), (0.4, 4.1)),
 }
+
 
 # Roles that sit on the ground plane and whose hull is longer than it is wide.
 # Infantry are excluded from BOTH halves: a standing figure is taller than it
