@@ -1,0 +1,26 @@
+{
+ "_note": "Measured by verify_shape.py --null, not authored. 'max' is the best IoU any model that is NOT the subject reaches on this declared region; a score at or below it does not distinguish the model from a wrong one. Regenerate after changing the sidecar rect/rot/mirror or the model pool.",
+ "top": {
+  "max": 0.7546,
+  "max_model": "air_e4_us_stealth",
+  "n": 11,
+  "pool": [
+   "air_",
+   "hel_"
+  ],
+  "scores": {
+   "air_e1_us_bomber": 0.1841,
+   "air_e1_us_cas": 0.4422,
+   "air_e1_us_interceptor": 0.7274,
+   "air_e2_us_sead": 0.6394,
+   "air_e4_us_stealth": 0.7546,
+   "air_e4_us_stealthbomber": 0.2431,
+   "air_e4_us_strike": 0.6534,
+   "air_e4_us_superiority": 0.6508,
+   "hel_e2_us_asw": 0.3821,
+   "hel_e2_us_transport": 0.304,
+   "hel_e3_us_attack": 0.317
+  },
+  "subject": "air_e4_us_multirole"
+ }
+}

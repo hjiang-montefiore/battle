@@ -35,6 +35,10 @@ public-affairs photograph below falls under that provision. Several carry an exp
 | `m1a2_side.jpg` | M1A2 SEPv3, side | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Cav._M1A2_SEPv3.jpg) | Public domain |
 | `t72_side.jpg` | T-72A on parade | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:T-72A_tank_on_parade.jpg) | Public domain |
 | `leo2a6_side.jpg` | Leopard 2A6M, left side | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Leo2A6M_li.jpg) | Public domain |
+| `3v_m113.png` | M113A1G (Bundeswehr), orthographic **side line drawing** (SVG rendered to PNG at 1920 px, alpha flattened onto white) | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:M113_BW.svg) | Public domain |
+| `3v_m113_side.png` | the same drawing, mirrored to match the render orientation of `tools/verify_shape.py` and cropped above the whip antennas | derived from `3v_m113.png` | Public domain |
+| `3v_m577.png` | M577 command post carrier, orthographic **side line drawing** (SVG rendered to PNG at 1920 px, alpha flattened onto white) | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:M577.svg) | Public domain |
+| `3v_m577_side.png` | the same drawing, mirrored to match `tools/verify_shape.py`'s render orientation | derived from `3v_m577.png` | Public domain |
 
 ## Unverified — provenance not recorded
 

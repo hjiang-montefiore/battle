@@ -30,3 +30,7 @@ venv/
 # is not byte-reproducible (two runs of the unmodified script emit different
 # GLBs for identical geometry), so the generated art cannot be rebuilt exactly
 # and has to be versioned rather than regenerated.
+.dem_cache/
+
+# Per-unit child scripts written by tools/build_all.py, removed after each run.
+tools/.build_*.py

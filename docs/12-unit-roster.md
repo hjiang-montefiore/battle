@@ -214,3 +214,109 @@ roster for a playable single-epoch Skirmish is **fourteen roles**:
 That set exercises all seven pillars — armor generations, radar-cued fire, the SEAD duel,
 jamming, fuel, AEW horizon, and munition flight — in one 20-minute match. Everything else
 is breadth.
+
+---
+
+## Infantry: the kit ladder (implemented)
+
+392 variants — 7 epochs × 8 factions × 7 roles, less MANPADS in epoch 1 —
+built by `tools/infantry_models.py` from three merged tables. Researched and
+consistency-checked 2026-08-26. Pixel scale throughout: a 1.8 m soldier at
+30 px means **1 px = 0.060 m**, and anything under ~0.015 m is declared
+invisible and never used as a tell.
+
+### Infantry does not have seven silhouettes. It has three.
+
+| | epochs | reads as |
+|---|---|---|
+| **First** | 1–3 | steel pot with a brim, long rifle, flat chest, load on the belt |
+| **Second** | 4–5 | composite helmet, the load climbs to the chest, plates arrive |
+| **Third** | 6–7 | short carbine with an optic, plate-carrier bulk, NVG |
+
+Epochs 1 and 2 are declared **visually identical** for the rifleman, engineer
+and mortar. The M1 helmet ran unchanged from 1941 to 1985 and the flak vest of
+1952 was no bulkier than the one that replaced it. Inventing a difference there
+would be a lie the player can't see anyway. Epoch 2 is carried entirely by the
+AT role, whose launcher collapses from a 1.53 m bazooka to a 0.88 m LAW — an
+11 px change and the single largest event anywhere in the ladder.
+
+### What actually carries the read, in order
+
+1. **Weapon length.** 1.10 m of Garand is 18 px of horizontal line held clear
+   of the body against 13 px for a modern carbine. That 5 px is worth more than
+   the helmet and the armour combined, because it is the only feature that
+   projects outside the body outline where nothing can occlude it.
+2. **The magazine box.** It turns the weapon from a plain bar into an **L**, and
+   a shape change survives downsampling far better than a length change does.
+   One box makes the epoch 2→3 break visible and then pays forward to every
+   assault weapon after it.
+3. **The brim, and the neck gap.** A pot helmet makes the head the widest thing
+   above the shoulders — a narrow body with a mushroom on top. A composite
+   helmet deletes the brim and closes the neck gap so the head runs continuous
+   into the shoulders. That is the exact inverse, and it is the whole of epoch 4.
+4. **The waist-to-chest inversion.** Through epochs 1–4 the load rides on the
+   belt, so the widest point of the body is the hips. From epoch 5 it moves to
+   the chest and the belt narrows. A 1955 soldier is a triangle on its base; a
+   2015 soldier is the same triangle inverted.
+5. **Body armour is the weakest channel.** A 0.02 m flak vest is a third of a
+   pixel. Epochs 1–4 are deliberately flat at 0.020 and the cliff is put where
+   the real cliff was: Interceptor with rifle plates, epoch 5. **Armour
+   thickness steps under about 0.035 m are not worth encoding on any axis.**
+
+### Nationality is colour, plus four shapes
+
+The earlier silhouette test held: the outline separates role and generation,
+not nationality. Four national shape differences survive at 30 px:
+
+| | |
+|---|---|
+| **bullpup** | UK SA80 from epoch 5, France FAMAS from 4, China QBZ-95 at 6 — absolute lengths (785/757/746 mm), never a multiplier |
+| **dome helmet** | ru / cn / kp — no brim box at all. Presence or absence of the brim is the most robust low-resolution read available, and it is a *lineage* cue, not a generational one |
+| **turtle helmet** | UK epochs 1–2, brim exaggerated well past life |
+| **the L1A1 held late** | UK keeps a 1.14 m battle rifle through epoch 4 while everyone else is at 1.00 m — it wins by borrowing the *generational* channel, not by national difference |
+
+The eight-colour palette is spread across five luma tiers with real blue-channel
+separation. That is **not** what these armies look like: US woodland, Russian
+flora and PLA type-07 are much the same green in life. Reproducing that
+faithfully would leave a player unable to tell three armies apart on one map, so
+legibility wins. Recorded here rather than hidden.
+
+**Camouflage pattern is rejected outright, and not merely as invisible.** At
+30 px a two-tone dither averages toward its own mean, which *reduces* a
+faction's contrast against the other seven — painting camo would undo the
+separation the palette exists to create.
+
+Also rejected, with the arithmetic, so they are not re-proposed: pouch and
+webbing layout (0.3–0.7 px), helmet covers (no geometry at all), boots and
+legwear, national mean height (reads as a scaling bug, and unpleasant), rank
+insignia, mortar tube 81 vs 82 mm (1 px, and the real asymmetry is an ammunition
+one that belongs in the munitions doc), and weapon bore by calibre (millimetres).
+A national carry pose is rejected on a different ground: docs/14 pins every
+infantry unit to one shared clip set, and eight carry poses would multiply the
+clip library by eight. That one stays rejected even if it later looks legible.
+
+### One clip library, 392 meshes
+
+`inf_rig_clips.glb` holds the 20-bone skeleton and all 11 clips, once, at
+151 KB. Every variant exports the same skeleton and its mesh with **no
+animation at all**, ~40 KB and ~320 triangles. Embedding the clips in each
+variant instead would ship the same keyframes 392 times — roughly 60 MB of
+duplication for geometry that is 320 triangles.
+
+Verified at both ends, because bone-name agreement is not proof:
+
+- `tools/verify_clip_share.py` — rest transforms and every posed joint across
+  all 11 clips agree to **0.000 mm** between the library rig and each variant.
+- `game/scripts/infantry_test.gd` — in Godot: 19/19 animation tracks resolve
+  against a variant's node paths, and `walk` really rotates `thigh_l`.
+
+Two traps found doing this, both of which reported success while being wrong:
+
+- **Blender 4.4 slotted actions.** Assigning an action to a second rig leaves it
+  at rest unless the action *slot* is bound. The first run of the share check
+  reported 3.5 m of divergence for assets that were correct.
+- **Rest-space kit inherits the arm.** Anything rigidly bound to a hand inherits
+  the ~−95° elbow of the carry pose, so a rifle modelled horizontal at rest
+  ships pointing at the sky. Author it in the *posed* frame and invert back
+  through the skinning transform. The mine detector hit the identical bug
+  separately, and pointed at the sky for the same reason.

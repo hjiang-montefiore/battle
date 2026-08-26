@@ -42,8 +42,18 @@ func _ready() -> void:
 	_spawn_roster()
 	_build_hud()
 	_run_self_test()
-	if "--shot" in OS.get_cmdline_user_args():
+	var argv := OS.get_cmdline_user_args()
+	# --test runs the checks and leaves. --shot additionally saves a framing
+	# render, which needs a real framebuffer: headless has none, so _capture()
+	# awaits a frame_post_draw that never arrives and the process hangs with
+	# its stdout still buffered — which made the self-test unreadable in CI
+	# even though it had already run and printed.
+	if "--shot" in argv and DisplayServer.get_name() != "headless":
 		_capture()
+	elif "--shot" in argv or "--test" in argv:
+		if "--shot" in argv:
+			print("(headless: skipping the framing render, no framebuffer)")
+		get_tree().quit(1 if _report.any(func(l): return l.begins_with("FAIL")) else 0)
 
 
 func _capture() -> void:

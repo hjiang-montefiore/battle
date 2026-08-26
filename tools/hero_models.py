@@ -70,10 +70,16 @@ def subdivide_large_faces(obj, max_area=0.30, rounds=3):
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     for _ in range(rounds):
-        big = [f for f in bm.faces if f.calc_area() > max_area]
+        big = sorted((f for f in bm.faces if f.calc_area() > max_area),
+                     key=lambda f: f.index)
         if not big:
             break
-        edges = list({e for f in big for e in f.edges})
+        # A set of BMEdge hashes by memory address, so iteration order varied
+        # between runs AND drifted within a session as addresses shifted. That
+        # changed subdivision order, which changed face/vertex order, which
+        # changed indices, normals, UVs and therefore the baked AO image —
+        # while POSITION stayed identical. Sort by index to pin it.
+        edges = sorted({e for f in big for e in f.edges}, key=lambda e: e.index)
         bmesh.ops.subdivide_edges(bm, edges=edges, cuts=1, use_grid_fill=True)
     bm.to_mesh(obj.data)
     bm.free()

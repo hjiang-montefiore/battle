@@ -1,0 +1,49 @@
+{
+ "_note": "Measured by verify_shape.py --null, not authored. 'max' is the best IoU any model that is NOT the subject reaches on this declared region; a score at or below it does not distinguish the model from a wrong one. Regenerate after changing the sidecar rect/rot/mirror or the model pool.",
+ "side": {
+  "max": 0.7674,
+  "max_model": "air_e4_us_strike",
+  "n": 11,
+  "pool": [
+   "air_",
+   "hel_"
+  ],
+  "scores": {
+   "air_e1_us_bomber": 0.475,
+   "air_e1_us_cas": 0.5871,
+   "air_e1_us_interceptor": 0.6222,
+   "air_e2_us_sead": 0.6968,
+   "air_e4_us_stealth": 0.5676,
+   "air_e4_us_stealthbomber": 0.2892,
+   "air_e4_us_strike": 0.7674,
+   "air_e4_us_superiority": 0.6754,
+   "hel_e2_us_asw": 0.4089,
+   "hel_e2_us_transport": 0.4891,
+   "hel_e3_us_attack": 0.4671
+  },
+  "subject": "air_e4_us_multirole"
+ },
+ "top": {
+  "max": 0.7572,
+  "max_model": "air_e4_us_stealth",
+  "n": 11,
+  "pool": [
+   "air_",
+   "hel_"
+  ],
+  "scores": {
+   "air_e1_us_bomber": 0.1843,
+   "air_e1_us_cas": 0.4392,
+   "air_e1_us_interceptor": 0.7275,
+   "air_e2_us_sead": 0.6351,
+   "air_e4_us_stealth": 0.7572,
+   "air_e4_us_stealthbomber": 0.2426,
+   "air_e4_us_strike": 0.6493,
+   "air_e4_us_superiority": 0.6462,
+   "hel_e2_us_asw": 0.3808,
+   "hel_e2_us_transport": 0.3027,
+   "hel_e3_us_attack": 0.3152
+  },
+  "subject": "air_e4_us_multirole"
+ }
+}

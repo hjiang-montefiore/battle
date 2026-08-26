@@ -1,0 +1,37 @@
+{
+  "_rect_origin": "top-left",
+  "_convention": "rect is [x, y, w, h] in TOP-DOWN sheet pixels (origin top-left, y counted DOWN). Sheet is 1920 x 1420. rot is degrees counter-clockwise as the picture is seen, applied to the top-down-ordered crop as np.rot90(crop, rot // 90); mirror is a left-right flip applied AFTER the rotation. The pair maps the drawn view into the orientation render_silhouette() produces and into the render mask's row order.",
+  "_migrated": "This file previously stated its rects in a BOTTOM-UP frame (y measured up from the bottom edge), which disagreed with 3v_a10.json / 3v_apache.json / 3v_b52.json. Rects were converted to the canonical top-left frame (top [65,49,...]->[65,534,...], side [58,963,...]->[58,45,...], front [1443,46,...]->[1443,531,...]); the region of the sheet selected is unchanged. rot/mirror were then re-derived against the rendered model orientation by inspection of the extracted mask, not by maximising a score: 'side' must come out nose-LEFT and upright (fin up, ventral fins down), 'top' nose-UP.",
+  "_source": "F-16 three-view line drawing, 1920x1420, PNG colour-type 4 (greyscale+alpha), fully opaque. Reference dimensions 15.06 m long / 9.96 m span from tools/air_models.py multirole(); height 5.09 m from the published F-16C figure. Sheet scale measured at 84.04 px/m from the plan-view span.",
+  "_front_warning": "render_silhouette() implements only 'top' and 'side' cameras. The 'front' entry below is declared from the sheet, not measured against a render; verify_shape.py refuses to score it for that reason. The drawing also shows the landing gear extended; the model has none.",
+  "top": {
+    "rect": [
+      65,
+      534,
+      1273,
+      837
+    ],
+    "rot": 270,
+    "mirror": false
+  },
+  "side": {
+    "rect": [
+      58,
+      45,
+      1322,
+      412
+    ],
+    "rot": 0,
+    "mirror": false
+  },
+  "front": {
+    "rect": [
+      1443,
+      531,
+      419,
+      843
+    ],
+    "rot": 90,
+    "mirror": false
+  }
+}

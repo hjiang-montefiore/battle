@@ -1,0 +1,14 @@
+{
+  "_rect_origin": "top-left",
+  "_note": "Region sidecar for 3v_f16_top.png (420x640). rect is [x,y,w,h] in TOP-DOWN image pixels (origin top-left). rot is degrees counter-clockwise applied to the cropped region array as np.rot90(region, rot/90) AFTER the image is loaded row-0-at-bottom by _load_rgba, to bring it into the orientation render_silhouette() produces. mirror is np.fliplr applied before the rotation. This sheet is a SINGLE-VIEW crop (the plan view of 3v_f16.png rotated nose-down); it carries no side or front elevation, so only 'top' is declared.",
+  "top": {
+    "rect": [
+      0,
+      0,
+      420,
+      640
+    ],
+    "rot": 180,
+    "mirror": false
+  }
+}

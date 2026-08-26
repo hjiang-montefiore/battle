@@ -117,3 +117,92 @@ Animation is not on the critical path until infantry exist. From [06](06-archite
 | 14 (Skirmish) | **The full infantry clip set.** The first point at which it is required |
 
 So the infantry rig can be commissioned late, and it only has to be commissioned **once**.
+
+---
+
+## Locomotion: how it is actually built (implemented)
+
+`tools/gait.py` builds the four upright cycles; `tools/verify_gait.py` measures
+them on the rigged soldier. The construction inverts the usual authoring order.
+
+**Contact first, joints second.** Instead of posing the hips and knees and
+hoping the foot lands somewhere plausible, the weight-bearing point is placed
+on the ground and the leg is solved to reach it. In body-local space that point
+travels backward at exactly the body speed, so zero slip is a property of the
+construction rather than something to tune.
+
+**The sole is rigid.** A combat boot has no toe joint, and that single fact
+decides which point carries the weight:
+
+| ankle | pivot | why |
+|---|---|---|
+| toes down (plantarflexed) | **toe** | pivoting on the ball drives the toe through the ground |
+| toes up (dorsiflexed) | **heel** | pivoting on the ball drives the heel through the ground |
+| flat | either | both are on the ground; hand over here |
+
+**Walk vaults, run compresses.** Walking is highest at mid-stance (the body
+vaults over a straight leg) and lowest at double support. Running is the
+opposite — lowest at mid-stance as the leg compresses, highest in flight.
+Inverting that is what makes a run read as a fast walk.
+
+**Armed infantry do not swing their arms.** Both hands stay on the weapon and
+the torso absorbs the gait. Free arm swing is what civilians do, and using it
+here makes a squad read as a crowd. The sole exception is the sprint, where the
+weapon drops to one hand and the free arm pumps.
+
+### The clip/game contract
+
+Every clip publishes the speed it was authored for, in
+`art/blockout/e4_infantry/clips.json`. The game plays it at
+
+```
+rate = unit_speed / clip.speed
+```
+
+Stride length is fixed in the mesh, so scaling the rate scales time only and
+the no-slip property survives at any speed. **Infantry locomotion must never be
+driven from a wall-clock timer** — that is the one change that reintroduces
+sliding at every speed except the authored one.
+
+### Measured
+
+`Blender -b --python tools/verify_gait.py` walks forward kinematics through the
+posed armature — the same matrices the exporter writes — and checks three
+things. It deliberately shares no assumptions with `gait.py`; that independence
+is the whole point, and it is what caught every bug below.
+
+| clip | slip | sink | stance | double support | flight |
+|---|---|---|---|---|---|
+| walk | 1.64 mm | 0.00 mm | 66% | 31% | 0% |
+| walk_crouch | 0.00 mm | 0.00 mm | 72% | 45% | 0% |
+| run | 0.00 mm | 0.00 mm | 33% | 0% | 38% |
+| sprint | 0.00 mm | 0.00 mm | 25% | 0% | 50% |
+
+The stance columns are the check that catches sign errors the slip number
+cannot: a walk must have double support and no flight, a run the reverse. If
+both legs move together, one of those collapses to zero and the gait is a hop.
+
+### What the verifier caught
+
+Worth recording, because each one measured as fine somewhere else first:
+
+1. **Clips inherited un-keyed channels.** `walk` never keyed the root rotation,
+   so it kept the 84-degree face-down rotation authored by `prone` — the
+   soldier walked while lying down. Fix: key every bone in every clip. The same
+   hole exists in the engine whenever one clip follows another.
+2. **Euler algebra was always *almost* right.** Each joint rotates about its own
+   local axis, and every rotation upstream tilts that axis: the pelvis yaw tilts
+   the hip, the hip abduction tilts the knee, the knee tilts the ankle. Three
+   successive hand-derived corrections each left a few millimetres. Fix: read
+   the matrices Blender actually computed and place each joint in world space.
+3. **The planted foot tracked the pelvis sway.** `foot()` returned an ankle X
+   that followed the pelvis, so the foot slid sideways under a swaying body
+   instead of the body swaying over a fixed foot. Invisible because `gait.py`'s
+   own slip check only compared Y and Z.
+4. **The weapon inherited the elbow.** Rigid binding means the rifle inherits
+   every rotation from shoulder to hand — about -95 degrees at the ready — so a
+   rifle modelled horizontal at rest ships pointing at the sky. Fix: author it
+   in the posed frame and invert back through the skinning transform.
+5. **The arm was too short to hold a rifle.** 0.51 m shoulder-to-wrist on a
+   1.8 m body against a real 0.61 m. The left arm solved to 97% extension and
+   locked straight, and no amount of pose tuning would have fixed it.

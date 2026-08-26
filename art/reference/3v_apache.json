@@ -1,0 +1,33 @@
+{
+  "_rect_origin": "top-left",
+  "top": {
+    "rect": [
+      33,
+      59,
+      211,
+      309
+    ],
+    "rot": 0,
+    "mirror": true
+  },
+  "side": {
+    "rect": [
+      241,
+      202,
+      331,
+      108
+    ],
+    "rot": 0,
+    "mirror": false
+  },
+  "front": {
+    "rect": [
+      272,
+      72,
+      275,
+      94
+    ],
+    "rot": 0,
+    "mirror": false
+  }
+}

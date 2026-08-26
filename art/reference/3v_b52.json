@@ -1,0 +1,47 @@
+{
+  "_rect_origin": "top-left",
+  "_meta": {
+    "subject": "Boeing B-52H Stratofortress",
+    "sheet": "1920x1959, PNG colour-type 4 (grey+alpha); the grey channel is 0 everywhere and the line art lives entirely in alpha, so the sheet MUST be read through the alpha-compositing loader",
+    "rect_origin": "top-left: rect=[x,y,w,h] with y counted DOWN from the top row of the image. Convert to a bottom-up (Blender) array as y_bottom = image_height - (y + h).",
+    "rot": "degrees COUNTER-CLOCKWISE as the picture is seen, applied to the cropped region BEFORE mirror; np.rot90(crop_top_left_origin, rot/90)",
+    "mirror": "horizontal (left-right) flip applied AFTER the rotation",
+    "target_orientation": "the orientation render_silhouette() produces: top = nose UP with span horizontal; side = nose LEFT with up = image up (both verified by rendering air_e1_us_bomber)",
+    "scale_px_per_m": 26.38,
+    "real_dims_m": {
+      "length": 48.5,
+      "span": 56.4,
+      "height": 12.4
+    }
+  },
+  "top": {
+    "rect": [
+      535,
+      434,
+      1329,
+      1488
+    ],
+    "rot": 90,
+    "mirror": false
+  },
+  "side": {
+    "rect": [
+      535,
+      45,
+      1329,
+      303
+    ],
+    "rot": 0,
+    "mirror": true
+  },
+  "front": {
+    "rect": [
+      76,
+      436,
+      304,
+      1483
+    ],
+    "rot": 270,
+    "mirror": false
+  }
+}
