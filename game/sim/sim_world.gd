@@ -57,6 +57,7 @@ func _sim_step(dt: float) -> void:
 	tick += 1
 	elapsed_s += dt
 	_integrate(dt)
+	entities.decay_transients(dt)
 	# Tier A runs at the full simulation rate: the guidance loop is
 	# re-validated every tick, not just at launch (docs/10 §4, §9).
 	munitions.step(dt)

@@ -38,6 +38,7 @@ func _init() -> void:
 	_suite_munitions()
 	_suite_nothing_stays_forever()
 	_suite_asw()
+	_suite_torpedoes()
 
 	print("  " + "-".repeat(66))
 	if _failed == 0:
@@ -907,3 +908,148 @@ func _asw_case(range_km: float, below_layer: bool, sub_speed: float,
 	w.run_ticks(12)
 	var t := w.track_table_for(0)._track_for_truth(sub)
 	return t if t != null else SimTrack.new()
+
+
+# ── docs/10 §7 -- torpedoes, the slow-motion case ───────────────────────────
+
+func _suite_torpedoes() -> void:
+	_suite("Torpedoes (docs/10 §7)")
+
+	# "They are slow. A torpedo run takes minutes, not seconds, and everything
+	# follows from that."
+	var slow := SimMunitionDef.torpedo_heavyweight(28.0)
+	var reach_s := 20000.0 / slow.run_speed_ms
+	_ok("a 20 km run takes minutes, not seconds", reach_s > 120.0,
+		"%.0f s at %.0f kn" % [reach_s, 28.0])
+
+	# The speed/range trade: pillar 4 at projectile scale. A heavyweight runs
+	# far at low speed or much less far at high speed.
+	var fast := SimMunitionDef.torpedo_heavyweight(50.0)
+	_ok("running fast costs range", fast.run_range_m() < slow.run_range_m(),
+		"%.1f km at 50 kn vs %.1f km at 28 kn" % [
+			fast.run_range_m() / 1000.0, slow.run_range_m() / 1000.0])
+	_ok("a 28 kn heavyweight reaches a realistic ~50 km",
+		slow.run_range_m() > 40000.0 and slow.run_range_m() < 60000.0,
+		"%.1f km" % (slow.run_range_m() / 1000.0))
+
+	# "A ship with enough speed and enough head start can genuinely OUTRUN a
+	# torpedo, which turns 'torpedo in the water' into a chase."
+	# Fired at the 50 kn setting, which is exactly where the trade bites: it
+	# closes faster but only carries 28 km of fuel, and the chase needs more.
+	var outran := _torpedo_case(14000.0, 18.0, 50.0, false, false)
+	_ok("a fast ship with a head start outruns the torpedo",
+		outran.termination == SimMunitionDef.Termination.MISS_ENERGY,
+		outran.log_line())
+	var caught := _torpedo_case(6000.0, 3.0, 30.0, false, false)
+	_ok("a slow one close in does not",
+		caught.termination != SimMunitionDef.Termination.MISS_ENERGY,
+		caught.log_line())
+
+	# "Firing is loud. A torpedo launch is a detectable acoustic event."
+	var w := SimWorld.new(31)
+	var boat := w.entities.add("submarine", 0, 0, -60, 0,
+		SimSignature.new(50.0, 0.1, 96.0), [], SimTypes.Category.SUBSURFACE)
+	# Far enough that the boat is inaudible while it is quiet. A transient
+	# raises detection RANGE, not track quality -- a passive array is
+	# bearing-only and capped at CONTACT however loud the target is.
+	var prey := w.entities.add("frigate", 1, 60000, -6, 0,
+		SimSignature.new(3000.0, 1.0, 118.0),
+		[SimSensorDef.new({"name": "towed array",
+			"domain": SimTypes.Domain.ACOUSTIC_PASSIVE,
+			"reference_range_km": 55.0, "mount_height_m": -8.0,
+			"max_quality": SimTypes.TrackQuality.TRACK})],
+		SimTypes.Category.SURFACE)
+	w.entities.depth_m[boat] = 60.0
+	w.run_ticks(12)
+	var before := w.track_table_for(1)._track_for_truth(boat)
+	var quiet_q: int = before.quality if before else SimTypes.TrackQuality.NONE
+	w.munitions.fire(SimMunitionDef.torpedo_heavyweight(), boat, prey, null)
+	w.run_ticks(12)
+	var after := w.track_table_for(1)._track_for_truth(boat)
+	var loud_q: int = after.quality if after else SimTypes.TrackQuality.NONE
+	_ok("launching gives the target a contact on the shooter",
+		loud_q > quiet_q,
+		"%s -> %s" % [SimTypes.quality_name(quiet_q), SimTypes.quality_name(loud_q)])
+
+	# Wire guidance is an enormous commitment: the launcher must stay slow and
+	# hold course for the whole run, or the wire parts.
+	var held := _wire_case(0.0)
+	_ok("a boat that stays slow and straight keeps the wire", held)
+	var sprinted := _wire_case(14.0)
+	_ok("a boat that sprints cuts its own wire", not sprinted)
+
+	# Noisemakers seduce a listening or pinging torpedo. A wake-homer ignores
+	# them, because a noisemaker is not a wake.
+	var seduced := 0
+	var wake_seduced := 0
+	for i in range(24):
+		if _noisemaker_case(SimMunitionDef.TorpedoSeeker.PASSIVE, i):
+			seduced += 1
+		if _noisemaker_case(SimMunitionDef.TorpedoSeeker.WAKE, i):
+			wake_seduced += 1
+	_ok("noisemakers often defeat a passive torpedo", seduced > 6,
+		"%d/24" % seduced)
+	_ok("and never a wake-homer", wake_seduced == 0, "%d/24" % wake_seduced)
+
+	# A wake-homer is useless against a submerged submarine: no wake to follow.
+	var vs_sub := _torpedo_case(4000.0, 4.0, 40.0, true, true)
+	_ok("a wake-homer cannot engage a submerged submarine",
+		vs_sub.termination == SimMunitionDef.Termination.DEFEATED_DECOY,
+		vs_sub.log_line())
+
+	# And nothing stays in the water forever.
+	_ok("a torpedo that reaches nothing runs out of fuel and stops",
+		outran.termination == SimMunitionDef.Termination.MISS_ENERGY
+		and not outran.alive)
+
+
+func _torpedo_case(range_m: float, target_speed: float, torp_kn: float,
+		target_submerged: bool, wake: bool) -> SimProjectile:
+	var w := SimWorld.new(17)
+	var e := w.entities
+	var boat := e.add("shooter", 0, 0, -60, 0, SimSignature.new(50.0, 0.1, 96.0),
+		[], SimTypes.Category.SUBSURFACE)
+	e.depth_m[boat] = 60.0
+	var prey := e.add("target", 1, range_m, -6.0 if not target_submerged else -80.0, 0,
+		SimSignature.new(3000.0, 1.0, 118.0), [],
+		SimTypes.Category.SUBSURFACE if target_submerged else SimTypes.Category.SURFACE)
+	if target_submerged:
+		e.depth_m[prey] = 80.0
+	e.set_velocity(prey, target_speed, 0.0, 0.0)     # running directly away
+	var d := SimMunitionDef.torpedo_wake_homing() if wake \
+		else SimMunitionDef.torpedo_heavyweight(torp_kn, SimMunitionDef.TorpedoSeeker.ACTIVE)
+	var t := w.munitions.fire(d, boat, prey, null)
+	# Long enough for the whole run at any setting.
+	w.run_ticks(int(1200.0 * SimWorld.SIM_HZ))
+	return t
+
+
+func _wire_case(launcher_speed: float) -> bool:
+	var w := SimWorld.new(23)
+	var e := w.entities
+	var boat := e.add("shooter", 0, 0, -60, 0, SimSignature.new(50.0, 0.1, 96.0),
+		[], SimTypes.Category.SUBSURFACE)
+	e.depth_m[boat] = 60.0
+	e.set_velocity(boat, 2.0, 0.0, 0.0)
+	var prey := e.add("target", 1, 9000, -6, 0, SimSignature.new(3000.0, 1.0, 118.0),
+		[], SimTypes.Category.SURFACE)
+	var t := w.munitions.fire(SimMunitionDef.torpedo_heavyweight(28.0), boat, prey, null)
+	w.run_ticks(40)
+	e.set_velocity(boat, launcher_speed if launcher_speed > 0.0 else 2.0, 0.0, 0.0)
+	w.run_ticks(60)
+	return t.wire_intact
+
+
+func _noisemaker_case(seeker: int, trial: int) -> bool:
+	var w := SimWorld.new(400 + seeker * 7919 + trial * 104729)
+	var e := w.entities
+	var boat := e.add("shooter", 0, 0, -60, 0, SimSignature.new(50.0, 0.1, 96.0),
+		[], SimTypes.Category.SUBSURFACE)
+	e.depth_m[boat] = 60.0
+	var prey := e.add("target", 1, 3000, -6, 0, SimSignature.new(3000.0, 1.0, 118.0),
+		[], SimTypes.Category.SURFACE)
+	var d := SimMunitionDef.torpedo_heavyweight(35.0, seeker)
+	var t := w.munitions.fire(d, boat, prey, null)
+	w.munitions.deploy_noisemakers(prey, 40.0)
+	w.run_ticks(int(300.0 * SimWorld.SIM_HZ))
+	return t.termination == SimMunitionDef.Termination.DEFEATED_DECOY

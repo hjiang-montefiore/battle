@@ -18,6 +18,10 @@ extends RefCounted
 
 const G := 9.80665
 const AIR_SCALE_HEIGHT := 8500.0
+## Torpedoes run between the surface and the seabed. Broaching is not modelled;
+## hitting the bottom is.
+const SEABED_M := -600.0
+const MIN_RUN_DEPTH_M := -1.0
 
 var def: SimMunitionDef
 var alive: bool = false
@@ -44,6 +48,14 @@ var seeker_active: bool = false
 var went_ballistic: bool = false
 var flare_resolved_seq: int = 0
 var chaff_resolved_seq: int = 0
+var noisemaker_resolved_seq: int = 0
+## Torpedo fuel, in seconds of running at the selected speed. The speed/range
+## trade lives here: endurance falls with the square of speed.
+var fuel_s: float = 0.0
+## A wire-guided torpedo is steered from the launcher. Cutting the wire drops
+## it to its own seeker, which is a real downgrade rather than a kill.
+var wire_intact: bool = true
+var launcher_heading: float = 0.0
 
 var _prev_range: float = INF
 var _launch_range: float = 0.0
@@ -68,6 +80,9 @@ func launch(munition: SimMunitionDef, from_x: float, from_y: float, from_z: floa
 	went_ballistic = false
 	flare_resolved_seq = 0
 	chaff_resolved_seq = 0
+	noisemaker_resolved_seq = 0
+	wire_intact = true
+	fuel_s = munition.endurance_s() if munition.is_torpedo() else 0.0
 
 	var dx := aim_x - from_x
 	var dy := aim_y - from_y
@@ -95,6 +110,10 @@ func speed() -> float:
 func g_available() -> float:
 	var v := speed()
 	var speed_factor: float = clampf(v / maxf(def.optimum_speed, 1.0), 0.0, 1.0)
+	if def.is_torpedo():
+		# Water does not thin out, and a torpedo's control authority is a
+		# straightforward function of how fast it is going.
+		return maxf(def.g_available_max * speed_factor * speed_factor, 0.4)
 	var density := exp(-maxf(y, 0.0) / AIR_SCALE_HEIGHT)
 	var g := def.g_available_max * speed_factor * speed_factor * density
 	# Control surfaces bite from the moment it leaves the rail. Without a floor
@@ -146,15 +165,34 @@ func step(dt: float, guide_x: float, guide_y: float, guide_z: float,
 			went_ballistic = false
 			_guide(dt, guide_x, guide_y, guide_z, guide_vx, guide_vy, guide_vz)
 
-	# gravity acts on everything
-	vy -= G * dt
+	if def.is_torpedo():
+		# ── terminator: fuel. A torpedo is not thrust-limited, it is RANGE
+		# limited, and running out is the commonest way one ends.
+		fuel_s -= dt
+		if fuel_s <= 0.0:
+			terminate(SimMunitionDef.Termination.MISS_ENERGY,
+				"ran out of fuel after %.1f km" % (time_s * def.run_speed_ms / 1000.0))
+			return
+	else:
+		# gravity acts on everything in the air
+		vy -= G * dt
 
 	x += vx * dt
 	y += vy * dt
 	z += vz * dt
 
-	# ── terminator 2: ground ────────────────────────────────────────────────
-	if y <= 0.0:
+	# ── terminator 2: the bottom, or the ground ─────────────────────────────
+	if def.is_torpedo():
+		if y < SEABED_M:
+			terminate(SimMunitionDef.Termination.GROUND_IMPACT,
+				"ran into the seabed at T+%.0f s" % time_s)
+			return
+		# It cannot leave the water.
+		if y > MIN_RUN_DEPTH_M:
+			y = MIN_RUN_DEPTH_M
+			if vy > 0.0:
+				vy = 0.0
+	elif y <= 0.0:
 		y = 0.0
 		if went_ballistic:
 			terminate(SimMunitionDef.Termination.DEFEATED_GUIDANCE,
@@ -185,10 +223,16 @@ func step(dt: float, guide_x: float, guide_y: float, guide_z: float,
 		var dy := truth_y - y
 		var dz := truth_z - z
 		var r := sqrt(dx * dx + dy * dy + dz * dz)
-		if r > _prev_range and _prev_range < INF:
+		# Resolve at closest approach only when this is genuinely a terminal
+		# pass: the round must actually be near the target. A torpedo chasing a
+		# fleeing ship opens the range for the whole of its acceleration, and
+		# resolving on the first tick the range grew called that a miss at
+		# 14 km -- before the weapon had even reached running speed.
+		var window: float = maxf(def.lethal_radius_m * 25.0, 150.0)
+		if r > _prev_range and _prev_range < window:
 			_resolve_terminal(_prev_range)
 			return
-		_prev_range = r
+		_prev_range = minf(_prev_range, r) if _prev_range < INF else r
 		if def.tier == SimMunitionDef.Tier.A and not seeker_active \
 				and r <= def.seeker_activation_km * 1000.0:
 			if def.guidance == SimTypes.Guidance.ARH:
@@ -263,8 +307,9 @@ func _guide(dt: float, tx: float, ty: float, tz: float,
 
 	# Real autopilots add a gravity bias so the round flies the guidance
 	# solution rather than a ballistic arc under it. Without this an ATGM
-	# lawn-darts short of its target.
-	ay += G
+	# lawn-darts short of its target. A neutrally buoyant torpedo needs none.
+	if not def.is_torpedo():
+		ay += G
 
 	# Clamp to what the airframe actually has left.
 	var amag := sqrt(ax * ax + ay * ay + az * az)

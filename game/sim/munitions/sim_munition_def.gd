@@ -19,6 +19,19 @@ enum Phase { BOOST, SUSTAIN, COAST, TERMINAL, DEAD }
 ## docs/10 §6.
 enum Fuze { CONTACT, PROXIMITY, DELAYED, AIRBURST }
 
+## Air or water. A torpedo is not a slow missile: no gravity, no air drag, a
+## fuel budget instead of a motor burn, and a speed/range trade that is pillar 4
+## at projectile scale (docs/10 §7).
+enum Medium { AIR, WATER }
+
+## docs/10 §7. How a torpedo finds the target, and what defeats it.
+enum TorpedoSeeker {
+	WIRE,      ## steered from the launcher. Best accuracy, huge commitment
+	PASSIVE,   ## listens. Defeated by a quiet target and by noisemakers
+	ACTIVE,    ## pings -- and announces itself to the target
+	WAKE,      ## follows the wake. Very hard to decoy. Surface ships only
+}
+
 ## docs/10 §10. Every Tier A projectile carries one of these, and it is what
 ## reaches the combat log. "That log is the tutorial."
 enum Termination {
@@ -83,6 +96,40 @@ var min_useful_speed: float = 90.0
 # ── Tier B ───────────────────────────────────────────────────────────────────
 var muzzle_velocity: float = 1700.0
 var dispersion_mrad: float = 0.3
+
+# ── torpedoes, docs/10 §7 ────────────────────────────────────────────────────
+var medium: int = Medium.AIR
+var torpedo_seeker: int = TorpedoSeeker.PASSIVE
+## Selected at launch. The whole point of the trade: run far and slow, or
+## fast and much less far.
+var run_speed_ms: float = 14.4          ## ~28 kn
+var reference_speed_ms: float = 14.4
+var endurance_at_reference_s: float = 3470.0
+## A wire-guided torpedo constrains its launcher for the ENTIRE run: the boat
+## must stay below this speed and hold course, or the wire parts.
+var wire_max_launcher_speed_ms: float = 8.0
+var wire_max_launcher_turn_rad: float = 0.35
+## Launching is a loud, detectable acoustic event. Shooting reveals you.
+var launch_transient_db: float = 150.0
+var acoustic_db: float = 130.0          ## its own radiated noise while running
+
+
+func is_torpedo() -> bool:
+	return medium == Medium.WATER
+
+
+## Endurance falls with the square of speed, so range = v * endurance falls
+## with speed. A heavyweight runs ~50 km at 28 kn or ~35 km at 40 kn, which is
+## what turns "torpedo in the water" into a chase rather than a verdict.
+func endurance_s() -> float:
+	if run_speed_ms <= 0.0:
+		return 0.0
+	var r := reference_speed_ms / run_speed_ms
+	return endurance_at_reference_s * r * r
+
+
+func run_range_m() -> float:
+	return run_speed_ms * endurance_s()
 
 
 func _init(p: Dictionary = {}) -> void:
@@ -195,6 +242,52 @@ static func tank_apfsds() -> SimMunitionDef:
 		"muzzle_velocity": 1700.0, "dispersion_mrad": 0.3,
 		"fuze": Fuze.CONTACT, "lethal_radius_m": 0.0,
 		"drag_coefficient": 0.00008, "max_flight_seconds": 12.0})
+
+
+# ── torpedoes ────────────────────────────────────────────────────────────────
+
+static func torpedo_heavyweight(speed_kn := 28.0,
+		seeker := TorpedoSeeker.WIRE) -> SimMunitionDef:
+	## Submarine-launched heavyweight. Wire-guided by default, which is the
+	## best accuracy available and the largest commitment in the game: the boat
+	## is slow, straight and vulnerable for the whole run.
+	return SimMunitionDef.new({
+		"name": "heavyweight torpedo", "medium": Medium.WATER,
+		"guidance": SimTypes.Guidance.SACLOS, "torpedo_seeker": seeker,
+		"run_speed_ms": speed_kn * 0.514444,
+		"reference_speed_ms": 14.4, "endurance_at_reference_s": 3470.0,
+		"boost_seconds": 6.0, "boost_accel": 4.0, "launch_speed": 6.0,
+		"max_speed": speed_kn * 0.514444, "g_available_max": 4.0,
+		"optimum_speed": speed_kn * 0.514444,
+		"fuze": Fuze.PROXIMITY, "lethal_radius_m": 15.0,
+		"min_useful_speed": 3.0, "max_flight_seconds": 3600.0,
+		"drag_coefficient": 0.0, "nav_constant": 3.5,
+		"rcs_m2": 0.0, "acoustic_db": 132.0})
+
+
+static func torpedo_lightweight_asw() -> SimMunitionDef:
+	## Helicopter- or ship-dropped ASW weapon. Short-legged and fast, dropped
+	## onto a datum rather than run out to one.
+	return SimMunitionDef.new({
+		"name": "lightweight torpedo", "medium": Medium.WATER,
+		"guidance": SimTypes.Guidance.ARH, "torpedo_seeker": TorpedoSeeker.ACTIVE,
+		"run_speed_ms": 23.2, "reference_speed_ms": 23.2,
+		"endurance_at_reference_s": 480.0,
+		"boost_seconds": 4.0, "boost_accel": 6.0, "launch_speed": 4.0,
+		"max_speed": 23.2, "g_available_max": 6.0, "optimum_speed": 23.2,
+		"fuze": Fuze.PROXIMITY, "lethal_radius_m": 9.0,
+		"min_useful_speed": 3.0, "max_flight_seconds": 900.0,
+		"drag_coefficient": 0.0, "seeker_activation_km": 2.0,
+		"rcs_m2": 0.0, "acoustic_db": 128.0})
+
+
+static func torpedo_wake_homing() -> SimMunitionDef:
+	## Follows the target's wake. Very hard to decoy -- a noisemaker is not a
+	## wake -- and useless against a submerged submarine, which leaves none.
+	var t := torpedo_heavyweight(30.0, TorpedoSeeker.WAKE)
+	t.name = "wake-homing torpedo"
+	t.guidance = SimTypes.Guidance.IR_EO   # gated by its own seeker, not the net
+	return t
 
 
 static func artillery_he() -> SimMunitionDef:

@@ -29,6 +29,12 @@ var throttle := PackedFloat32Array()     ## 0..1, scales IR hard
 var depth_m := PackedFloat32Array()      ## >0 = below surface (submarines)
 var below_layer := PackedInt32Array()    ## 1 when beneath the thermocline
 var jammer_power := PackedFloat32Array() ## 0 = not jamming
+## A loud, short-lived acoustic event -- a torpedo leaving the tube, a hatch,
+## a transient. docs/10 §7: "Firing is loud. Shooting reveals you." Modelled as
+## a signature bump so the ordinary passive-sonar path hears it, rather than as
+## a special case bolted onto the solver.
+var acoustic_transient_db := PackedFloat32Array()
+var acoustic_transient_s := PackedFloat32Array()
 var names := PackedStringArray()
 
 ## index -> Array[SimSensorDef]
@@ -68,6 +74,8 @@ func add(unit_name: String, p_faction: int, x: float, y: float, z: float,
 	depth_m.append(0.0)
 	below_layer.append(0)
 	jammer_power.append(0.0)
+	acoustic_transient_db.append(0.0)
+	acoustic_transient_s.append(0.0)
 	names.append(unit_name)
 	sensors[i] = unit_sensors
 	_count += 1
@@ -135,7 +143,25 @@ func effective_ir(target: int) -> float:
 func effective_acoustic_db(target: int) -> float:
 	var v := sqrt(vel_x[target] * vel_x[target] + vel_z[target] * vel_z[target])
 	var knots := v * 1.94384
-	return acoustic_db[target] + 12.0 * log(maxf(knots, 1.0)) / log(10.0)
+	var db := acoustic_db[target] + 12.0 * log(maxf(knots, 1.0)) / log(10.0)
+	if acoustic_transient_s[target] > 0.0:
+		db = maxf(db, acoustic_transient_db[target])
+	return db
+
+
+## Raise a transient. The loudest wins; they do not stack.
+func add_acoustic_transient(i: int, db: float, seconds: float) -> void:
+	if db >= acoustic_transient_db[i] or acoustic_transient_s[i] <= 0.0:
+		acoustic_transient_db[i] = db
+	acoustic_transient_s[i] = maxf(acoustic_transient_s[i], seconds)
+
+
+func decay_transients(dt: float) -> void:
+	for i in range(_count):
+		if acoustic_transient_s[i] > 0.0:
+			acoustic_transient_s[i] -= dt
+			if acoustic_transient_s[i] <= 0.0:
+				acoustic_transient_db[i] = 0.0
 
 
 ## Is this unit radiating anything an ESM receiver could hear?

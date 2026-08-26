@@ -33,6 +33,8 @@ var _chaff: Dictionary = {}
 var _flare_seq: Dictionary = {}
 var _chaff_seq: Dictionary = {}
 var _aps: Dictionary = {}      ## entity index -> intercepts remaining
+var _noise: Dictionary = {}    ## entity index -> seconds remaining
+var _noise_seq: Dictionary = {}
 
 var launched: int = 0
 var terminated: int = 0
@@ -82,10 +84,19 @@ func fire(munition: SimMunitionDef, shooter: int, target: int,
 		ax = track.pos_x + track.vel_x * tof
 		ay = track.pos_y + track.vel_y * tof
 		az = track.pos_z + track.vel_z * tof
-	p.launch(munition, entities.pos_x[shooter], entities.pos_y[shooter] + 2.0,
+	var launch_y: float = entities.pos_y[shooter] + 2.0
+	if munition.is_torpedo():
+		launch_y = minf(entities.pos_y[shooter], -2.0)
+	p.launch(munition, entities.pos_x[shooter], launch_y,
 		entities.pos_z[shooter], ax, ay, az, shooter,
 		entities.faction[shooter], target,
 		track.track_id if track != null else -1)
+	if munition.is_torpedo():
+		# docs/10 §7: firing is loud. The launch is a detectable acoustic event,
+		# so shooting reveals you -- the same emitter logic as radar and active
+		# sonar, one more time.
+		entities.add_acoustic_transient(shooter, munition.launch_transient_db, 12.0)
+		p.launcher_heading = atan2(entities.vel_x[shooter], entities.vel_z[shooter])
 	launched += 1
 	return p
 
@@ -104,6 +115,27 @@ func deploy_chaff(target: int, seconds := 4.0) -> void:
 
 func arm_hard_kill(target: int, intercepts := 2) -> void:
 	_aps[target] = intercepts
+
+
+## Noisemakers -- the underwater chaff. They seduce a torpedo that is LISTENING
+## or PINGING. A wake-homing weapon ignores them completely, because a
+## noisemaker is not a wake (docs/10 §5, §7).
+func deploy_noisemakers(target: int, seconds := 25.0) -> void:
+	_noise[target] = seconds
+	_noise_seq[target] = _noise_seq.get(target, 0) + 1
+
+
+func _noisemaker_defeats(seeker_mode: int) -> bool:
+	match seeker_mode:
+		SimMunitionDef.TorpedoSeeker.WAKE:
+			return false                      # a decoy leaves no wake
+		SimMunitionDef.TorpedoSeeker.WIRE:
+			return rng.next_float() < 0.15    # the operator can see through it
+		SimMunitionDef.TorpedoSeeker.PASSIVE:
+			return rng.next_float() < 0.65
+		SimMunitionDef.TorpedoSeeker.ACTIVE:
+			return rng.next_float() < 0.45
+	return false
 
 
 ## Flares are a HARD counter in epochs 1-3, a coin flip in 4-5, and near
@@ -218,6 +250,43 @@ func _pre_flight_checks(p: SimProjectile, _dt: float) -> bool:
 					"seeker transferred to chaff at %.0f m" % r)
 				return true
 
+	# ── torpedoes ───────────────────────────────────────────────────────────
+	if p.def.is_torpedo():
+		# Wire guidance is an enormous commitment: to keep the wire intact the
+		# launcher must stay slow and hold course for the ENTIRE run, which
+		# leaves it constrained and vulnerable for minutes. Cutting the wire
+		# does not kill the weapon -- it drops it to its own seeker.
+		if p.def.torpedo_seeker == SimMunitionDef.TorpedoSeeker.WIRE and p.wire_intact:
+			if not entities.is_alive(p.shooter):
+				p.wire_intact = false
+			else:
+				var lv := sqrt(entities.vel_x[p.shooter] * entities.vel_x[p.shooter]
+					+ entities.vel_z[p.shooter] * entities.vel_z[p.shooter])
+				var lh := atan2(entities.vel_x[p.shooter], entities.vel_z[p.shooter])
+				if lv > p.def.wire_max_launcher_speed_ms \
+						or (lv > 0.5 and absf(angle_difference(lh, p.launcher_heading))
+							> p.def.wire_max_launcher_turn_rad):
+					p.wire_intact = false
+		# A wake-homer needs a wake, and a submerged submarine leaves none.
+		if p.def.torpedo_seeker == SimMunitionDef.TorpedoSeeker.WAKE \
+				and entities.depth_m[p.target_truth] > 5.0:
+			p.terminate(SimMunitionDef.Termination.DEFEATED_DECOY,
+				"wake-homer lost the wake -- the target submerged")
+			return true
+		var nseq: int = _noise_seq.get(p.target_truth, 0)
+		if _noise.get(p.target_truth, 0.0) > 0.0 and p.noisemaker_resolved_seq < nseq:
+			p.noisemaker_resolved_seq = nseq
+			var mode: int = p.def.torpedo_seeker
+			if p.wire_intact and mode == SimMunitionDef.TorpedoSeeker.WIRE:
+				mode = SimMunitionDef.TorpedoSeeker.WIRE
+			elif mode == SimMunitionDef.TorpedoSeeker.WIRE:
+				mode = SimMunitionDef.TorpedoSeeker.PASSIVE
+			if _noisemaker_defeats(mode):
+				p.terminate(SimMunitionDef.Termination.DEFEATED_DECOY,
+					"seduced by a noisemaker at %.0f m" % r)
+				return true
+		return false
+
 	# Notching: turning perpendicular to a pulse-Doppler seeker puts closure
 	# near zero, where its own clutter filter discards the return. Geometry,
 	# not a stat check -- and later seeker generations partially defeat it.
@@ -287,7 +356,7 @@ func _retire(idx: int, p: SimProjectile) -> void:
 
 
 func _decay_countermeasures(dt: float) -> void:
-	for d in [_flares, _chaff]:
+	for d in [_flares, _chaff, _noise]:
 		var keys: Array = d.keys()
 		keys.sort()
 		for k in keys:
