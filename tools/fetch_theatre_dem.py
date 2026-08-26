@@ -67,7 +67,7 @@ THEATRES = {
 }
 
 HF_MAGIC = b"BTHF"
-HF_VERSION = 1
+HF_VERSION = 2
 
 
 def box_for(spec):
@@ -114,12 +114,17 @@ def fetch_batch(points):
     raise RuntimeError("gave up on a batch after 5 attempts")
 
 
-def write_hf(path, name, grid, cell_size_m, heights):
-    """int16 metres. GEBCO spans about -11000..8800, which fits with room."""
+def write_hf(path, name, grid, cell_size_m, heights, lat=0.0, lon=0.0):
+    """int16 metres. GEBCO spans about -11000..8800, which fits with room.
+
+    The centre lat/lon is stored so the sim can ask for a place by name --
+    without it a heightfield is just a picture and nothing can be checked
+    against the real world."""
     nb = name.encode("utf-8")
     with open(path, "wb") as f:
         f.write(HF_MAGIC)
-        f.write(struct.pack("<HIIfH", HF_VERSION, grid, grid, cell_size_m, len(nb)))
+        f.write(struct.pack("<HIIfffH", HF_VERSION, grid, grid, cell_size_m,
+                            lat, lon, len(nb)))
         f.write(nb)
         f.write(struct.pack("<%dh" % len(heights),
                             *[max(-32768, min(32767, int(round(h)))) for h in heights]))
@@ -158,7 +163,7 @@ def fetch(key, grid):
     os.makedirs(OUT_DIR, exist_ok=True)
     cell = spec["extent_km"] * 1000.0 / grid
     out = os.path.join(OUT_DIR, "%s.hf" % key)
-    write_hf(out, spec["name"], grid, cell, done)
+    write_hf(out, spec["name"], grid, cell, done, spec["lat"], spec["lon"])
 
     lo, hi = min(done), max(done)
     water = sum(1 for h in done if h < 0) / float(total) * 100.0

@@ -27,7 +27,25 @@ const STRESSES := {
 }
 
 
+## Where fetched heightfields live.
+const DEM_DIR := "res://assets/terrain/"
+
+
+## Real GEBCO data if it has been fetched, otherwise the procedural stand-in.
+## The procedural version is not a fallback nobody sees -- it is what unit tests
+## and a fresh clone use, so it has to keep working.
 static func build(key: String, seed_value := 20260826) -> SimTerrain:
+	var real := SimTerrain.load_heightfield(DEM_DIR + key + ".hf")
+	if real != null:
+		return real
+	return build_procedural(key, seed_value)
+
+
+static func has_real_dem(key: String) -> bool:
+	return FileAccess.file_exists(DEM_DIR + key + ".hf")
+
+
+static func build_procedural(key: String, seed_value := 20260826) -> SimTerrain:
 	var rng := SimRng.new(seed_value)
 	match key:
 		TAIWAN_STRAIT: return _taiwan_strait(rng)

@@ -1134,19 +1134,56 @@ func _suite_terrain() -> void:
 	_ok("and are deterministic -- same seed, same ground",
 		a.height_at(12345.0, -6789.0) == b.height_at(12345.0, -6789.0))
 
-	# Geography that matters, not decoration.
-	var tw := SimTheatre.build(SimTheatre.TAIWAN_STRAIT)
+	# ── real GEBCO elevation, checked against the actual world ─────────────
+	if SimTheatre.has_real_dem(SimTheatre.TAIWAN_STRAIT):
+		var real := SimTheatre.build(SimTheatre.TAIWAN_STRAIT)
+		_ok("the fetched heightfield is georeferenced", real.georeferenced)
+		# Yushan, 3952 m, the highest point in Taiwan. Sampled on a 4 km grid,
+		# so a summit reads lower than its true peak -- but it is a mountain.
+		var yushan := real.height_at_latlon(23.47, 120.96)
+		_ok("Yushan reads as high ground", yushan > 2000.0, "%.0f m" % yushan)
+		# Taipei sits on a coastal basin.
+		var taipei := real.height_at_latlon(25.03, 121.56)
+		_ok("Taipei is near sea level", taipei > -30.0 and taipei < 400.0,
+			"%.0f m" % taipei)
+		# The strait is shallow -- poor submarine water, good mine water.
+		var strait := real.height_at_latlon(24.30, 119.00)
+		_ok("the strait is shallow water", strait < 0.0 and strait > -200.0,
+			"%.0f m" % strait)
+		# And the Philippine Sea drops away hard just east of the island.
+		var trench := real.height_at_latlon(22.60, 122.40)
+		_ok("the Philippine Sea east of Taiwan is deep", trench < -2000.0,
+			"%.0f m" % trench)
+
+		var kr := SimTheatre.build(SimTheatre.KOREAN_PENINSULA)
+		var yellow := kr.height_at_latlon(37.20, 125.60)
+		_ok("the Yellow Sea is shallow", yellow < 0.0 and yellow > -120.0,
+			"%.0f m" % yellow)
+		var taebaek := kr.height_at_latlon(37.75, 128.55)
+		_ok("the Taebaek range is high ground", taebaek > 600.0, "%.0f m" % taebaek)
+
+		var na := SimTheatre.build(SimTheatre.NORTH_ATLANTIC)
+		_ok("the GIUK gap is almost entirely water",
+			_water_fraction(na) > 0.85, "%.0f%% water" % (_water_fraction(na) * 100.0))
+	else:
+		_ok("no fetched DEM present -- procedural terrain in use", true,
+			"run tools/fetch_theatre_dem.py")
+
+	# The procedural stand-in must keep working: it is what a fresh clone and
+	# the unit tests use before anyone fetches anything.
+	var tw := SimTheatre.build_procedural(SimTheatre.TAIWAN_STRAIT)
 	_ok("the Taiwan Strait is water between the mainland and the island",
 		tw.is_water(-20000.0, 0.0), "%.0f m" % tw.height_at(-20000.0, 0.0))
 	_ok("and the Central Mountain Range stands over 3 km",
 		tw.height_at(128000.0, 0.0) > 3000.0,
 		"%.0f m" % tw.height_at(128000.0, 0.0))
-	var na := SimTheatre.build(SimTheatre.NORTH_ATLANTIC)
-	_ok("the North Atlantic is deep water", na.depth_at(-150000.0, 0.0) > 3000.0,
-		"%.0f m deep" % na.depth_at(-150000.0, 0.0))
+	var pna := SimTheatre.build_procedural(SimTheatre.NORTH_ATLANTIC)
+	_ok("the procedural North Atlantic is deep water",
+		pna.depth_at(-150000.0, 0.0) > 3000.0,
+		"%.0f m deep" % pna.depth_at(-150000.0, 0.0))
 	_ok("and its mid-ocean ridge stays submerged",
-		na.height_at(-10000.0, 0.0) < 0.0,
-		"%.0f m" % na.height_at(-10000.0, 0.0))
+		pna.height_at(-10000.0, 0.0) < 0.0,
+		"%.0f m" % pna.height_at(-10000.0, 0.0))
 
 	# THE claim: "Line of sight blocked -> no RF/IR/visual detection at all",
 	# and "an airborne sensor sees into valleys that a hilltop radar cannot."
@@ -1178,9 +1215,19 @@ func _suite_terrain() -> void:
 
 ## A vehicle sits behind the Central Mountain Range from a west-coast radar.
 ## Returns whether the observing faction ends up holding a track on it.
+func _water_fraction(t: SimTerrain) -> float:
+	var w := 0
+	for h in t.heights:
+		if h < 0.0:
+			w += 1
+	return float(w) / float(t.heights.size())
+
+
 func _mask_case(airborne: bool) -> bool:
 	var w := SimWorld.new(77)
-	w.set_theatre(SimTheatre.TAIWAN_STRAIT)
+	# Procedural: this case depends on where the ridge is.
+	w.terrain = SimTheatre.build_procedural(SimTheatre.TAIWAN_STRAIT)
+	w.solver.terrain = w.terrain
 	var e := w.entities
 	var obs_y := 9000.0 if airborne else 0.0
 	# Same station-keeping position for both, so ALTITUDE is the only variable.

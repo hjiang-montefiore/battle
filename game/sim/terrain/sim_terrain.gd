@@ -22,6 +22,11 @@ var cell_size_m: float = 800.0
 var heights := PackedFloat32Array()
 
 var name: String = "flat"
+## Geographic anchor, set when a real heightfield is loaded. Lets a test or a
+## scenario ask for a place by name rather than by cell index.
+var centre_lat: float = 0.0
+var centre_lon: float = 0.0
+var georeferenced: bool = false
 ## Sampling step for the line-of-sight march, in metres.
 var los_step_m: float = 400.0
 
@@ -282,6 +287,73 @@ func carve_sea_coast(x0: float, z0: float, x1: float, z1: float, depth_m: float,
 				continue
 			var i := cz * cells_x + cx
 			heights[i] = minf(heights[i], -depth_m)
+
+
+## Load a heightfield written by tools/fetch_theatre_dem.py.
+##
+## Real GEBCO elevation and bathymetry: the same array masks radar and gives
+## the acoustic layer its depth, which is why one dataset carrying both matters
+## more here than a finer land-only one would.
+##
+## Format: "BTHF", u16 version, u32 cells_x, u32 cells_z, f32 cell_size_m,
+## u16 name length, name, then cells_x*cells_z int16 metres, row-major from the
+## NORTH edge so +z is north.
+static func load_heightfield(path: String) -> SimTerrain:
+	if not FileAccess.file_exists(path):
+		return null
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return null
+	if f.get_buffer(4).get_string_from_ascii() != "BTHF":
+		push_error("not a heightfield: " + path)
+		return null
+	var version := f.get_16()
+	var w := int(f.get_32())
+	var h := int(f.get_32())
+	var cell := f.get_float()
+	var lat := 0.0
+	var lon := 0.0
+	if version >= 2:
+		lat = f.get_float()
+		lon = f.get_float()
+	var nl := f.get_16()
+	var terrain_name := f.get_buffer(nl).get_string_from_utf8()
+	if w <= 0 or h <= 0 or w > 8192 or h > 8192:
+		push_error("implausible heightfield dimensions in " + path)
+		return null
+	var t := SimTerrain.new(w, h, cell, terrain_name)
+	t.centre_lat = lat
+	t.centre_lon = lon
+	t.georeferenced = version >= 2
+	# The file stores rows NORTH first, but cell row 0 sits at the most negative
+	# z. Reading straight through would make +z point south, and every
+	# latitude lookup would land in the sea on the wrong side of the map.
+	for r in range(h):
+		var dest := (h - 1 - r) * w
+		for c in range(w):
+			# get_16() is unsigned; these are signed metres.
+			var v := f.get_16()
+			if v >= 32768:
+				v -= 65536
+			t.heights[dest + c] = float(v)
+	f.close()
+	return t
+
+
+## World position of a latitude/longitude, in metres from the theatre centre.
+## +z is north, +x is east, which is how the fetcher lays the rows out.
+func world_of(lat: float, lon: float) -> Vector2:
+	if not georeferenced:
+		return Vector2.ZERO
+	var dz := (lat - centre_lat) * 110574.0
+	var dx := (lon - centre_lon) * 111320.0 * cos(deg_to_rad(centre_lat))
+	return Vector2(dx, dz)
+
+
+## Elevation at a real place. Metres, negative is water.
+func height_at_latlon(lat: float, lon: float) -> float:
+	var w := world_of(lat, lon)
+	return height_at(w.x, w.y)
 
 
 func describe() -> String:
