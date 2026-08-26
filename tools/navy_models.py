@@ -22,19 +22,38 @@ WATERLINE IS z = 0, and it means the same thing for every hull in the file:
                       nothing at all is modelled below z = 0. A surface hull's
                       bounding box therefore starts at exactly 0.00.
       Submarines      are bodies of revolution whose axis sits BELOW the sea.
-                      A surfaced boat shows only a strip of casing: the axis
-                      goes at z = B/2 - draught, so the hull bottom is at
-                      -draught and the crown of the casing stands B - draught
-                      proud. Everything below z = 0 IS modelled, because the
-                      shape of the visible strip comes from the round hull and
-                      because submerging is then a translation in z, not a
-                      different model.
+                      sub_hull() is given the SURFACED FREEBOARD — how much of
+                      the round hull stands proud amidships — and puts the axis
+                      at z = freeboard - B/2, so the crown is at +freeboard and
+                      the modelled section reaches freeboard - B. Everything
+                      below z = 0 IS modelled, because the shape of the visible
+                      strip comes from the round hull and because submerging is
+                      then a translation in z, not a different model.
 
-    This was the bug in the first pass: _sub() put the axis at z = +B/2, so
-    the whole pressure hull, both stern planes and the propeller sat in the
-    air. The nuclear boat rode 9.15 m high and read as a torpedo lying on the
-    sea. sub_hull() now owns the arithmetic so it cannot be got wrong again.
-    Measured draughts are in the SUBMARINES section.
+    TWO BUGS, BOTH MEASURED, BOTH FIXED HERE.
+
+      Pass 1 put the axis at z = +B/2, so the whole pressure hull, both stern
+      planes and the propeller sat in the AIR. The nuclear boat rode 9.15 m
+      high and read as a torpedo lying on the sea.
+
+      Pass 2 over-corrected: it drove the axis from the PUBLISHED DRAUGHT, as
+      z = B/2 - draught. That is wrong because a submarine's published draught
+      is keel-to-waterline INCLUDING the sonar dome, ballast keel and lower
+      fairings that hang below the circular pressure-hull section — structure
+      this file does not model at all. Feeding it to a bare cylinder buries the
+      cylinder. Measured on the render: the SSN showed a strip of hull 5.13 m
+      wide with a 4.65 m casing plank laid on top of it, i.e. 0.24 m of hull
+      visible either side, and it read as a raft, not a boat.
+
+      So freeboard is now stated per boat from the surfaced photographs and the
+      published draught stays as documentation in each boat's docstring. The
+      keel of the modelled section then sits 0.2-1.2 m shallower than the
+      published draught, and that gap IS the unmodelled keel structure:
+
+          SSN     freeboard 1.90  hull shows 7.89 m  keel -8.20  (draught 9.4)
+          SSK     freeboard 1.20  hull shows 4.90 m  keel -5.00  (draught 5.5)
+          AIP     freeboard 1.30  hull shows 5.44 m  keel -5.70  (draught 6.0)
+          midget  freeboard 0.80  hull shows 3.10 m  keel -3.00  (draught 3.2)
 
     The one deliberate exception is the LCAC, which is an air-cushion vehicle:
     on cushion it genuinely does sit ON the water, skirt at z = 0.
@@ -56,12 +75,69 @@ MATERIAL GROUPS — measured on the actual render, not assumed. The body camo
     rather than bare use() — a builder that forgets to switch back to "body"
     silently recolours everything built after it.
 
-TRIANGLE BUDGET at LOD0, measured AFTER the bevel modifier:
-      carrier, amphib, oiler         40 000
-      destroyer, cruiser, frigate    26 000
-      corvette, minehunter, missile
-        boat, patrol, LCAC           12 000
-      SSN 14 000 · SSK/AIP 10 000 · midget 6 000
+────────────────────────────────────────────────────────────────────────────
+WHAT DETAIL COSTS — MEASURED, AND NOT WHAT YOU WOULD GUESS
+────────────────────────────────────────────────────────────────────────────
+COST IS OBJECT COUNT, NOT SIZE. The LOD0 bevel is 3 segments on every edge
+over 24 degrees, so a convex box costs about 188 triangles whether it is a
+0.9 m liferaft or a 300 m hull side, and an extruded plate about 330. That
+inverts the intuition completely:
+
+      the whole 333 m carrier hull, 3 plates            996 tris
+      twelve liferafts down a destroyer's deck edge   3 008 tris
+
+so the cheap-looking clutter costs three times the ship it sits on. Budget by
+counting objects. Price list at LOD0, after the bevel, measured:
+
+      ship_hull 155 x 20 with sheer     2 056     vls 8x8, 64 cells    3 010
+      ship_hull 333 x 41 carrier          996     vls 4x8, 32 cells    1 880
+      superstructure, 3 tiers           1 128     gun_mount            2 140
+      lattice_mast open, 4 bays         5 304     ciws                 1 500
+      lattice_mast solid=True           1 732     planar_array           376
+      funnel, 2 uptakes                 1 328     air_search             948
+      hangar, 2 doors                     564     arm_launcher           944
+      helipad                           1 136     canisters n=2          376
+      boat_bay                            752     missile_tubes n=2    2 288
+      kingpost                          1 040     torpedo_tubes n=3    1 428
+      gantry                            1 040     breakwater             376
+      clutter, one escort               ~3 000     team_patch             188
+      sub_hull SSN                      3 420     sail, 3 masts        1 892
+      stern_planes, either style          752     propulsor screw      1 888
+      casing                              188     propulsor pumpjet      856
+
+      railing(), 100 m of run          12 784  <- see the note at the bottom
+
+Two of those are the whole story. An OPEN lattice_mast costs three times a
+solid one because it is 27 separate members; pass solid=True unless the ship
+is pre-1980. And vls() was 12 220 for a 64-cell farm until it was rebuilt as a
+slab with ribs — see the note on vls() itself.
+
+TRIANGLE BUDGET at LOD0, and the headroom actually left, measured on the
+current build. The capitals are the ships with room; the escorts are the ships
+that are tight, which is the opposite of how it looks:
+
+      carrier      40 000    20 848    +19 152 of headroom
+      amphib       40 000    20 504    +19 496
+      oiler        40 000    21 260    +18 740
+      destroyer    32 000    30 632     +1 368
+      cruiser      44 000    41 232     +2 768   two 64-cell farms and two masts
+      frigate      28 000    26 116     +1 884
+      missileboat  18 000    17 276       +724
+      minehunter   18 000    16 604     +1 396
+      corvette     16 000    13 560     +2 440
+      patrol       14 000    11 416     +2 584
+      LCAC         12 000     7 308     +4 692
+      SSN          16 000    15 224       +776
+      SSK          10 000     8 896     +1 104
+      AIP          10 000     7 296     +2 704
+      midget        9 000     8 412       +588
+
+The escort ceilings were raised from a flat 26 000 because that number was
+guessed in the first pass and the ships had already blown through it — the
+cruiser measured 60 216 before vls() and ciws() were repriced. They are now
+set just above what each hull costs today, so an addition has to be paid for
+by a saving. If you need more than the headroom above, the money is in
+lattice_mast(solid=True) and in deleting clutter, not in shaving cylinders.
 
 ────────────────────────────────────────────────────────────────────────────
 ONE EXCLUSIVE IDENTIFYING FEATURE PER SHIP
@@ -107,15 +183,17 @@ EVERY HULL IS PINNED TO A NAMED REAL CLASS
     oiler         Henry J. Kaiser T-AO-187   206.5 x 29.7 m, draught 10.7 m
     minehunter    Avenger MCM-1               68.3 x 11.9 m, draught  3.7 m
     LCAC          LCAC-1                      26.8 x 14.3 m on cushion
-    SSK           Type 209/1400               62.0 x  6.2 m, draught  5.5 m
-    SSN           Los Angeles 688i           110.3 x 10.1 m, draught  9.4 m
-    AIP           Type 212A                   57.2 x  7.0 m, draught  6.0 m
-    midget        Sang-O                      34.0 x  3.8 m, draught  3.2 m
+    SSK           Type 209/1400               62.0 x  6.2 m, freeboard 1.20 m
+    SSN           Los Angeles 688i           110.3 x 10.1 m, freeboard 1.90 m
+    AIP           Type 212A                   57.2 x  7.0 m, freeboard 1.30 m
+    midget        Sang-O                      34.0 x  3.8 m, freeboard 0.80 m
 
 Freeboard is quoted amidships to the weather deck; the forecastle carries an
 extra `sheer` on top of it, which is why the bow deck of every escort stands
-higher than its waist. Draught is documentation for the surface ships (nothing
-below the waterline is built) and is load-bearing for the submarines.
+higher than its waist. For a surface ship the draught is pure documentation —
+nothing below the waterline is built. For a submarine the SURFACED FREEBOARD is
+the load-bearing number and the published draught is the documentation, which
+is the reverse of what pass 2 assumed.
 """
 import bpy, contextlib, math, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -350,23 +428,39 @@ def funnel(x, y, z, l, w, h, rake=10.0, uptakes=2, cap=True, name="fnl"):
 
 # ══ weapons and sensors ════════════════════════════════════════════
 def vls(x, y, z, cols, rows, cell=1.05, name="vls"):
-    """Vertical launch cells: a light coaming with BLACK cell mouths inset.
+    """Vertical launch cells: a light coaming, ONE black cell field, and the
+    grid drawn on it as light ribs.
 
     From overhead this is the single most legible thing on a modern warship —
     a regular dark grid on a light deck — and it is the reason the destroyer
     and the cruiser cannot be mistaken for the frigate, which has none.
+
+    BUILT INSIDE OUT FROM PASS 1, FOR TWO MEASURED REASONS.
+
+      Cost. Pass 1 built one bevelled box per cell. A 64-cell farm came to
+      12 220 triangles after the LOD0 bevel — more than the whole carrier hull
+      and superstructure together — and the cruiser carries two of them, which
+      is 41% of that ship's entire budget spent on a flat rectangle. Slab plus
+      (cols-1)+(rows-1) ribs draws the same pattern for about 3 000.
+
+      Read. 64 separated dark squares average out to mid-grey the moment the
+      cells stop resolving, and the ship's `body` camo is a fine checker that
+      is already competing at that frequency. A solid dark field survives all
+      the way down and simply gets cleaner as the ribs drop out, which is the
+      behaviour you want from the feature that separates two grey escorts.
     """
     out = []
-    with mat("deck"):
-        out.append(cube((x, y, z + 0.17),
-                        (cols * cell + 0.9, rows * cell + 0.9, 0.34)))
-    with mat("gunbore"):
-        for c in range(cols):
-            for r_ in range(rows):
-                out.append(cube((x - (cols - 1) * cell / 2 + c * cell,
-                                 y - (rows - 1) * cell / 2 + r_ * cell,
-                                 z + 0.36),
-                                (cell * 0.80, cell * 0.80, 0.14)))
+    W, D = cols * cell, rows * cell
+    with mat("deck"):                                   # coaming
+        out.append(cube((x, y, z + 0.17), (W + 0.9, D + 0.9, 0.34)))
+    with mat("gunbore"):                                # the cell field
+        out.append(cube((x, y, z + 0.40), (W, D, 0.24)))
+    with mat("deck"):                                   # the grid, as ribs
+        t = cell * 0.22
+        for c in range(1, cols):
+            out.append(cube((x - W / 2.0 + c * cell, y, z + 0.50), (t, D, 0.12)))
+        for r_ in range(1, rows):
+            out.append(cube((x, y - D / 2.0 + r_ * cell, z + 0.50), (W, t, 0.12)))
     return out
 
 
@@ -407,14 +501,18 @@ def ciws(x, y, z, r=1.05, elev=22.0, aft=False, name="ciws"):
     """
     out = []
     s = -1.0 if aft else 1.0
+    # v is deliberately low: this is a 2 m object that every escort carries two
+    # of and the carrier three. At v=14 it cost 2 540 triangles after the LOD0
+    # bevel, as much as a whole three-tier superstructure, for a shape that is
+    # four pixels across. v=8/10 is visually identical at the game camera.
     with mat("gun"):
-        out.append(cyl((x, y, z + 0.35), r * 0.95, 0.70, v=14))
-        out.append(cyl((x, y, z + 1.30), r * 0.78, 1.30, v=14))
+        out.append(cyl((x, y, z + 0.35), r * 0.95, 0.70, v=8))
+        out.append(cyl((x, y, z + 1.30), r * 0.78, 1.30, v=8))
     with mat("deck"):
-        out.append(dome((x, y, z + 2.05), r * 0.92, r * 0.92, r * 1.20, v=14))
+        out.append(dome((x, y, z + 2.05), r * 0.92, r * 0.92, r * 1.20, v=10))
     with mat("gunbore"):
         out.append(cyl((x, y + s * r * 1.05, z + 1.55), r * 0.30, r * 2.0,
-                       rot=(R(90 - elev), 0, 0), v=10))
+                       rot=(R(90 - elev), 0, 0), v=8))
     return out
 
 
@@ -668,24 +766,43 @@ SUB_STATIONS = ((0.00, 0.26), (0.03, 0.56), (0.07, 0.80), (0.13, 0.94),
                 (0.94, 0.50), (1.00, 0.18))
 
 
-def sub_axis_z(B, draught):
-    """THE waterline rule for submarines. A surfaced boat floats with its
-    pressure hull almost entirely submerged: bottom at -draught, so the axis
-    sits at B/2 - draught, which is NEGATIVE for every real boat."""
-    return B / 2.0 - draught
+def sub_axis_z(B, freeboard):
+    """THE waterline rule for submarines, in one line.
+
+    `freeboard` is how much of the round hull stands above the sea amidships
+    when surfaced, so the axis goes half a beam below the crown. It is
+    NEGATIVE for every real boat. Do NOT pass a published draught here — see
+    the two-bug note in the module docstring; a published draught is measured
+    to a keel this file does not model.
+    """
+    return freeboard - B / 2.0
 
 
-def sub_hull(L, B, draught, stations=SUB_STATIONS, v=24, name="sub"):
+def sub_hull(L, B, freeboard, stations=SUB_STATIONS, v=24, name="sub"):
     """Surfaced submarine hull. Returns (parts, axis_z, casing_z).
 
     casing_z is the crown of the hull — the deck a sail, a hatch or a launch
-    tube sits on. For a Los Angeles that is 0.66 m above the sea and for a
-    Type 209 it is 0.70 m; the boat is meant to look nearly awash, because it
-    is. Geometry below z = 0 is intentional and the sea plane hides it.
+    tube sits on — and equals `freeboard` by construction. Geometry below
+    z = 0 is intentional and the sea plane hides it; submerging the boat is a
+    translation in z and not a second model.
+
+    The number that decides whether the boat reads as a boat is how wide the
+    hull shows in PLAN, which is 2*sqrt((B/2)^2 - (B/2 - freeboard)^2). It has
+    to beat the width of the casing laid on top of it or the casing is all you
+    see; sub_hull asserts that, because getting it wrong is invisible in code
+    and obvious in the render.
     """
+    assert 0.0 < freeboard < B, f"{name}: freeboard {freeboard} outside 0..B"
     use("body")
-    parts = revolve(L, B / 2.0, stations, z=sub_axis_z(B, draught), v=v)
-    return parts, sub_axis_z(B, draught), sub_axis_z(B, draught) + B / 2.0
+    az = sub_axis_z(B, freeboard)
+    parts = revolve(L, B / 2.0, stations, z=az, v=v)
+    return parts, az, az + B / 2.0
+
+
+def sub_show_width(B, freeboard):
+    """How wide the round hull shows in plan at the waterline. The casing must
+    be narrower than this or the boat reads as a plank."""
+    return 2.0 * math.sqrt(max((B / 2.0) ** 2 - (B / 2.0 - freeboard) ** 2, 0.0))
 
 
 def casing(y0, y1, w, z, h=0.42, name="csg"):
@@ -707,10 +824,15 @@ def sail(y, l, h, w, z, planes=True, masts=3, name="sail"):
             out.append(cyl((0.0, y - l * 0.42 - k * l * 0.13, z + h + 1.6 - k * 0.35),
                            0.20, 3.4 - k * 0.6, v=8))
     if planes:
+        # Fairwater planes, sized off the real thing. The first cut reached
+        # w*2.80 from the centreline, which on the SSN is 9.05 m of plane on a
+        # 10.1 m beam — in plan the boat read as a giant cross with a hull
+        # somewhere underneath it. A 688's fairwater planes span about 7 m tip
+        # to tip, so the tip belongs at roughly 0.36 of the beam.
         use("body")
         for s in (-1, 1):
-            out.append(cube((s * w * 1.55, y - l * 0.55, z + h * 0.52),
-                            (w * 2.5, l * 0.44, 0.36)))
+            out.append(cube((s * w * 0.55, y - l * 0.55, z + h * 0.52),
+                            (w * 1.20, l * 0.44, 0.36)))
     use("body")
     return out
 
@@ -790,9 +912,14 @@ def destroyer_aaw():
     p += lattice_mast(0, L * 0.015, top, 15.0, foot=4.2, head=1.4, solid=True,
                       yards=((0.42, 11.0), (0.70, 7.0)), radome=1.9)
     p += funnel(0, L * 0.005, fb + 2.6, 9.0, 7.6, 8.2, rake=8)
-    p += funnel(0, -L * 0.150, fb + 2.6, 9.0, 7.6, 8.2, rake=8)
+    p += funnel(0, -L * 0.113, fb + 2.6, 9.0, 7.6, 8.2, rake=8)
     p += vls(0, L * 0.315, fb + SH, 4, 8)              # 32 cells, forecastle
-    p += vls(0, -L * 0.235, fb, 8, 8)                  # 64 cells, aft
+    # 64 cells aft. Measured in plan: at -0.235L the 9.3 m coaming ran from
+    # -31.8 to -41.1 and the hangar from -33.6 to -59.6, so 7.6 m of the farm —
+    # 82% of it — was inside the hangar and the ship's loudest overhead feature
+    # did not render at all. The farm moved forward to clear the hangar and the
+    # after funnel moved forward to clear the farm.
+    p += vls(0, -L * 0.180, fb, 8, 8)
     p += gun_mount(L * 0.393, fb + SH, r=2.05, barrel_l=6.6)
     p += breakwater(L * 0.345, B * 0.72, fb + SH)
     p += ciws(0, L * 0.145, top - 4.2, 1.10)
@@ -990,15 +1117,16 @@ def patrol_vessel():
 
 # ══ submarines ═════════════════════════════════════════════════════
 def sub_diesel():
-    """Type 209/1400 — 62.0 x 6.2 m, draught 5.5 m, so 0.70 m of casing
-    stands above the sea. Quiet on the battery, loud snorkelling (docs/11 Q1).
+    """Type 209/1400 — 62.0 x 6.2 m, published draught 5.5 m; the round hull
+    stands 1.20 m proud when surfaced and shows 4.90 m wide in plan. Quiet on the battery, loud snorkelling (docs/11 Q1).
 
     EXCLUSIVE FEATURE: the snorkel induction and diesel exhaust masts raised
     abaft the sail. It is the only boat here showing masts that are not on the
     sail centreline, and snorkelling is the thing that gets it killed.
     """
-    L, B, DR = 62.0, 6.2, 5.5
-    p, axis, deck = sub_hull(L, B, DR, name="ssk")
+    L, B, FB = 62.0, 6.2, 1.20            # published draught 5.5 m to the keel
+    assert sub_show_width(B, FB) > B * 0.52
+    p, axis, deck = sub_hull(L, B, FB, name="ssk")
     p += casing(L * 0.30, -L * 0.34, B * 0.52, deck - 0.10)
     p += sail(L * 0.20, 7.4, 4.2, B * 0.36, deck, planes=True, masts=2)
     with mat("gun"):                                    # the exclusive
@@ -1013,21 +1141,27 @@ def sub_diesel():
 
 
 def sub_nuclear():
-    """Los Angeles 688i — 110.3 x 10.1 m, draught 9.4 m, so 0.66 m of casing
-    is proud. Fast and long-legged — and in epoch 2 NOISIER than the diesels
+    """Los Angeles 688i — 110.3 x 10.1 m, published draught 9.4 m; the round
+    hull stands 1.90 m proud when surfaced and shows 7.89 m wide in plan. Fast and long-legged — and in epoch 2 NOISIER than the diesels
     it replaced (docs/11).
 
     EXCLUSIVE FEATURE: twelve vertical-launch tube caps in the bow casing, two
     rows of six forward of the sail. Nothing else underwater has a hatch grid.
     """
-    L, B, DR = 110.3, 10.1, 9.4
-    p, axis, deck = sub_hull(L, B, DR, name="ssn")
+    L, B, FB = 110.3, 10.1, 1.90          # published draught 9.4 m to the keel
+    assert sub_show_width(B, FB) > B * 0.46
+    p, axis, deck = sub_hull(L, B, FB, name="ssn")
     p += casing(L * 0.36, -L * 0.30, B * 0.46, deck - 0.12)
     p += sail(L * 0.215, 11.6, 5.8, B * 0.32, deck, planes=True, masts=3)
-    with mat("gunbore"):                                # the exclusive
+    # The exclusive. It has to sit ON the casing, not in it: the first cut put
+    # the caps at deck - 0.02 with the casing spanning deck - 0.12 to deck + 0.30,
+    # so all twelve were buried inside it and the boat's identifying feature
+    # rendered as nothing. They also started 0.6 m forward of the casing and
+    # overhung its edge by 0.2 m either side.
+    with mat("gunbore"):
         for s in (-1, 1):
             for k in range(6):
-                p.append(cyl((s * 1.9, L * 0.365 - k * 2.05, deck - 0.02),
+                p.append(cyl((s * 1.55, L * 0.330 - k * 2.05, deck + 0.40),
                              0.62, 0.30, v=12))
     p += stern_planes(L, B, axis, "cross")
     p += propulsor(L, B, axis, "screw")
@@ -1037,7 +1171,8 @@ def sub_nuclear():
 
 
 def sub_aip():
-    """Type 212A — 57.2 x 7.0 m, draught 6.0 m, 1.00 m of casing proud.
+    """Type 212A — 57.2 x 7.0 m, published draught 6.0 m; 1.30 m of hull
+    proud when surfaced, showing 5.44 m wide in plan.
     Air-independent propulsion: near-silent at creep, the best ambusher and
     the worst pursuer in the game (docs/08, Germany).
 
@@ -1045,8 +1180,9 @@ def sub_aip():
     rudder — from overhead a diagonal cross where every other boat shows a
     horizontal bar.
     """
-    L, B, DR = 57.2, 7.0, 6.0
-    p, axis, deck = sub_hull(L, B, DR, name="aip")
+    L, B, FB = 57.2, 7.0, 1.30            # published draught 6.0 m to the keel
+    assert sub_show_width(B, FB) > B * 0.44
+    p, axis, deck = sub_hull(L, B, FB, name="aip")
     p += casing(L * 0.30, -L * 0.30, B * 0.44, deck - 0.10)
     p += sail(L * 0.175, 6.6, 3.8, B * 0.30, deck, planes=False, masts=3)
     p += stern_planes(L, B, axis, "x")                  # the exclusive
@@ -1061,7 +1197,8 @@ def sub_aip():
 
 
 def sub_midget():
-    """Sang-O — 34.0 x 3.8 m, draught 3.2 m, 0.60 m of casing proud. The KPA's
+    """Sang-O — 34.0 x 3.8 m, published draught 3.2 m; 0.80 m of hull proud
+    when surfaced, showing 3.10 m wide in plan. The KPA's
     asymmetric tool: tiny acoustic signature, tiny range.
 
     EXCLUSIVE FEATURE: two external stores cradles clamped to the casing
@@ -1069,8 +1206,9 @@ def sub_midget():
     OUTSIDE, which is exactly what a swimmer-delivery and mine-laying boat
     does, and the pair of cylinders makes a 34 m hull identifiable.
     """
-    L, B, DR = 34.0, 3.8, 3.2
-    p, axis, deck = sub_hull(L, B, DR, v=18, name="mid")
+    L, B, FB = 34.0, 3.8, 0.80            # published draught 3.2 m to the keel
+    assert sub_show_width(B, FB) > B * 0.50
+    p, axis, deck = sub_hull(L, B, FB, v=18, name="mid")
     p += casing(L * 0.26, -L * 0.28, B * 0.50, deck - 0.06)
     p += sail(L * 0.150, 3.0, 1.9, B * 0.34, deck, planes=False, masts=2)
     with mat("gun"):                                    # the exclusive
@@ -1138,10 +1276,17 @@ def carrier():
     p += ciws(isl_x, -L * 0.115, fdz + 1.2, 1.15, aft=True)
     p += ciws(-DECK_W * 0.46, -L * 0.470, fdz + 1.2, 1.15, aft=True)
     p += ciws(DECK_W * 0.44, L * 0.300, fdz + 1.2, 1.15)
-    with mat("deck"):                                   # four deck-edge lifts
-        for (lx, ly) in ((DECK_W * 0.50, L * 0.180), (DECK_W * 0.50, -L * 0.150),
-                         (DECK_W * 0.50, -L * 0.330), (-DECK_W * 0.50, L * 0.075)):
-            p.append(cube((lx, ly, fdz - 0.35), (10.5, 21.0, 1.1)))
+    # Four deck-edge lifts. Sat on the deck EDGE line in the first cut, which
+    # put half of each 10.5 m platform over open water: they rendered as light
+    # rafts alongside the ship rather than as part of it. A raised lift is
+    # flush with the deck, so they are pulled inboard to overhang by 1.9 m,
+    # which is enough to notch the deck outline without detaching.
+    with mat("deck"):
+        LW = 10.5
+        for (lx, ly) in ((1, L * 0.180), (1, -L * 0.150),
+                         (1, -L * 0.330), (-1, L * 0.075)):
+            p.append(cube((lx * (DECK_W * 0.50 - LW * 0.5 + 1.9), ly,
+                           fdz - 0.25), (LW, 21.0, 1.1)))
     with mat("gunbore"):                                # hangar-side openings
         for s in (-1, 1):
             for k in range(3):
@@ -1194,9 +1339,11 @@ def amphibious_assault():
     with mat("gunbore"):                                # the exclusive: the gate
         p.append(cube((0, -L * 0.492, fb - FD * 0.42), (B * 0.66, 3.4, FD * 0.44)))
         p.append(cube((0, -L * 0.455, fb - FD * 0.60), (B * 0.60, L * 0.09, 1.2)))
-    with mat("deck"):                                   # deck-edge lift, port
-        p.append(cube((-DECK_W * 0.50, -L * 0.300, fdz - 0.35), (9.5, 18.0, 1.1)))
-        p.append(cube((DECK_W * 0.50, -L * 0.130, fdz - 0.35), (9.5, 18.0, 1.1)))
+    with mat("deck"):                                   # deck-edge lifts
+        LW = 9.5                                        # inboard: see carrier()
+        for (sx, ly) in ((-1, -L * 0.300), (1, -L * 0.130)):
+            p.append(cube((sx * (DECK_W * 0.50 - LW * 0.5 + 1.7), ly,
+                           fdz - 0.25), (LW, 18.0, 1.1)))
     p.append(team_patch(-L * 0.460, fdz, 7.0, 8.4, x=DECK_W * 0.12))
     return p, ship_meta(L, DECK_W, fdz, top + 14.0, gun_y=0.0, gun_z=fdz + 2.0)
 
@@ -1322,6 +1469,43 @@ def mine_warfare():
                  spacing=9.0, size=(0.9, 1.6, 0.75))
     p.append(team_patch(-L * 0.060, fb, 2.8, 3.4))
     return p, ship_meta(L, B, fb, top + 8.4, gun_y=L * 0.40, gun_z=fb + 2.4)
+
+
+# ══════════════════════════════════════════════════════════════════
+# THE NOTE AT THE BOTTOM OF THE FILE: RAILINGS DO NOT SURVIVE
+# ══════════════════════════════════════════════════════════════════
+# The brief asked for deck-edge railings "if they survive at zoom — test
+# whether they do; if not, say so and do not add them." Tested twice, and the
+# answer is no, twice.
+#
+# SCALE. tools/navy_render.py renders navy_plan_escort.png at 200 m of ortho
+# span across 1900 px, which is 9.5 px per metre, and then re-renders the same
+# frame at 110 px high, which is 1.1 px per metre and is about what the game
+# camera gives a 155 m destroyer. A railing stanchion is 0.10 m. It is
+# ONE NINTH OF A PIXEL. Even the top rail, at 0.10 m, is the same. Nothing
+# about anti-aliasing rescues a feature an order of magnitude under a pixel;
+# it contributes a faint grey haze along the deck edge and shimmers when the
+# ship moves.
+#
+# COST. railing() over 100 m of run measures 12 784 triangles after the LOD0
+# bevel, because it is 68 separate members and cost here is object count. An
+# escort's two sides and transom is roughly 330 m of run, so railing one
+# destroyer costs about 42 000 triangles — MORE THAN THE ENTIRE SHIP (30 632)
+# and more than the carrier's whole budget.
+#
+# WHAT TO DO INSTEAD. The deck edge is already carried for free by the
+# material step from the light `deck` plate to the dark `body` hull side, and
+# clutter() walks liferaft canisters down it for 3 000. That is the same read
+# for a fourteenth of the price. railing() is kept for close-up cinematics and
+# NO SHIP IN THIS FILE CALLS IT. Do not be the agent who adds it.
+#
+# The same measurement disposes of a second temptation: at 1.1 px per metre
+# nothing under about 3 m resolves at all. On the zoom sheet the CIWS mounts,
+# the gun mounts, the torpedo tubes, the funnels and the masts have all gone,
+# and what still reads is the hull outline, the superstructure mass, the VLS
+# field, and the helipad — every one of them a DECK-PLAN feature 8 m or larger
+# in a material that contrasts with the hull. Detail smaller than that is for
+# the three-quarter band sheets and for nothing else.
 
 
 NAVY = [

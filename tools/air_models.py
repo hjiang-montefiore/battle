@@ -112,37 +112,162 @@ def _kit(span, length, z, canopy=True, tanks=0, seats=1):
     return p
 
 
+
+def _prop(cx, cy, cz, dia, blades=4, phase=10.0, chord=0.30, pitch=38.0,
+          spinner=(0.30, 0.74)):
+    """A PROPELLER disc, spinning in the XZ plane with thrust along +Y.
+
+    Every other lifting or rotating surface in this file lies flat, so a
+    propeller is the one primitive that stands on edge. What it contributes
+    to the top-down plan is: a spinner projecting forward of the wing
+    leading edge, and the near-horizontal blade pair reaching a full radius
+    out each side of its nacelle. `pitch` twists each blade out of the plane
+    of rotation the way a real blade is set, so from directly overhead the
+    horizontal pair shows a real chord instead of a zero-width edge.
+
+    Restores the caller's material group on the way out — it is called from
+    inside loops that are already in a group.
+    """
+    prev = H.CURRENT
+    out = []
+    use("gun")
+    sr, sl = spinner
+    out.append(cyl((cx, cy, cz), sr, sl, rot=(R(90), 0, 0), v=14, taper=0.30))
+    r = dia / 2.0
+    th = max(0.04, dia * 0.022)
+    for i in range(blades):
+        a = R(i * (360.0 / blades) + phase)
+        out.append(cube((cx + math.cos(a) * r * 0.5, cy,
+                         cz + math.sin(a) * r * 0.5),
+                        (r, th, chord), rot=(R(pitch), -a, 0)))
+    use(prev)
+    return out
+
+
 # ── combat ─────────────────────────────────────────────────────────
 def interceptor():
-    """Epoch 1. Short, sharply swept wing, one big intake. Fast, short-legged."""
-    L, SPAN = 19.2, 11.7
-    p = fuselage(L, 0.82, 0.5, 0.42)
-    p += wings(1.2, SPAN, 5.2, 1.6, 4.4, 0.30, 0.0, "w")
-    p += wings(-5.8, 6.6, 2.4, 0.9, 1.9, 0.24, 0.0, "h")
-    p.append(fin(-5.4, 3.2, 3.0, 1.1, 2.0, 0.24, 0.35))
+    """Epoch 1 point-defence interceptor: CONVAIR F-106A DELTA DART.
+
+    21.55 m long, 11.67 m span, 61.5 m2 of wing, aspect ratio 2.21, leading
+    edge swept 60 deg, ONE engine, ONE fin and NO horizontal tail. Those five
+    facts are the identification, and not one of them is shared with any other
+    aircraft in the roster.
+
+    This replaces an F-4E Phantom. The Phantom was dimensionally exact but it
+    was the wrong aeroplane for the slot -- a twin-engine, two-seat, tailed
+    fighter-bomber of 1961 standing in for a 1950s point-defence interceptor --
+    and it put a SIXTH swept tapered trapezoid into a family that already had
+    five. It measured 0.714 IoU against the F-16 and 0.656 against the stealth
+    jet on planform alone. The F-106 is what the role actually is: the USAF's
+    dedicated all-weather interceptor, armed only for air-to-air, tied to a
+    ground radar network -- which is the docs/02-detection.md pillar this unit
+    exists to carry.
+
+    A tailless delta is the one planform in the fast-jet family that cannot be
+    read as a trapezoid-plus-tailplane at 60 px. The plan is a single triangle
+    from 41 % of the length back to the trailing edge at 88 %, and behind it
+    there is nothing but the fin -- no stabilator, no second surface, no notch.
+
+    Geometry, from the F-106A three-view:
+        wing      apex 8.90 m aft, root chord 10.30 m, tip 0.30 m, LE 60.0 deg
+                  61.9 m2, AR 2.20   (real 61.52 m2, AR 2.21, LE 60 deg)
+        intakes   dorsal, on the wing-root shoulders, 10.6 - 14.2 m aft, which
+                  is far further back than any other jet here carries them
+        fin       LE 14.4 m aft, root chord 5.60 m, single
+        fuselage  area-ruled -- a real coke-bottle waist at 66 % of the length
+    """
+    L, SPAN = 21.55, 11.67
+    N = L / 2.0
+    SWP = math.tan(math.radians(60.0)) * (SPAN / 2.0 - 0.30)      # 9.587
+    p = fuselage(L, 0.86, 0.5, 0.45,
+                 stations=((0.00, 0.05), (0.05, 0.30), (0.12, 0.58),
+                           (0.20, 0.80), (0.30, 0.96), (0.42, 1.00),
+                           (0.56, 0.86), (0.66, 0.84), (0.78, 0.96),
+                           (0.90, 0.84), (1.00, 0.52)))
+    p += wings(N - 8.90, SPAN, 10.30, 0.30, SWP, 0.30, 0.0, "w")
+    p.append(fin(N - 14.40, 3.20, 5.60, 1.70, 3.60, 0.26, 0.55))
     use("deck")
-    p.append(cyl((0, L * 0.44, 0), 0.66, 0.30, rot=(R(90), 0, 0), v=14))
+    for s in (-1, 1):                                   # shoulder intake ducts
+        p.append(cube((s * 1.05, N - 12.40, 0.44), (0.86, 3.60, 0.92)))
+        p.append(cube((s * 1.52, N - 12.60, 0.44), (0.14, 3.10, 0.80)))  # ramp
+        p.append(cube((s * 3.10, N - 18.40, 0.16), (2.60, 1.30, 0.22)))  # elevon
     use("gun")
-    p.append(cyl((0, -L * 0.47, 0), 0.62, 1.10, rot=(R(90), 0, 0), v=14))
+    p.append(cyl((0, -N + 0.75, 0), 0.62, 1.30, rot=(R(90), 0, 0), v=16))
+    p.append(cyl((0, N - 0.55, 0.02), 0.16, 1.10, rot=(R(90), 0, 0), v=10))
     use("body")
     p += _kit(SPAN, L, 0)
     return p, dict(top=0.9, hull_l=L, hull_w=SPAN, turret_top=1.9,
-                   gun_z=0.2, gun_y=L * 0.35)
+                   gun_z=0.2, gun_y=L * 0.30)
 
 
 def air_superiority():
-    """Large twin-tail fighter. Broad wing, wide-spaced engines."""
-    L, SPAN = 19.4, 13.05
-    p = fuselage(L, 0.92, 0.48, 0.62)
-    p += wings(2.2, SPAN, 6.4, 2.0, 4.0, 0.32, 0.0, "w")
-    p += wings(-5.4, 8.6, 3.0, 1.1, 2.0, 0.26, 0.0, "h")
+    """Epoch 4 air superiority: McDONNELL DOUGLAS F-15C EAGLE.
+
+    19.43 x 13.05 m, wing 56.5 m2, aspect ratio 3.01, leading edge swept
+    45 deg, stabilator span 8.61 m, twin VERTICAL fins.
+
+    The dimensions were already right; the WING was not. The old model swept
+    the leading edge 32.7 deg, which is not an Eagle -- an F-15 wing is swept
+    45 deg on the leading edge (38.7 deg at quarter chord). Correcting it to
+    the real number is what breaks this aircraft out of the superiority /
+    strike / SEAD clique: the Super Hornet next to it is swept 29 deg and the
+    Tornado 24 deg, so the three of them were within 8 deg of each other and
+    measured 0.88 and 0.77 IoU. 45 deg puts 16 deg of daylight between the
+    Eagle and its nearest neighbour.
+
+    Everything else here is the other half of the same correction -- the F-15
+    is not a tube with wings, it is TWO ENGINE BOXES with a wing bridged across
+    them:
+
+        nacelles   two flat-sided boxes on 2.20 m centres running 2.6 m aft of
+                   the nose datum to the nozzles, so the aft two-thirds of the
+                   plan is a 3.42 m wide flat slab. Nothing else in the family
+                   has a rear plan that is wider than its own nose section.
+        intakes    the square variable ramps, standing proud outboard at
+                   +/-1.79 m, 4.7 - 7.6 m aft. Square shoulders, seen overhead.
+        fins       VERTICAL, not canted. The audit's point 7 was that
+                   superiority, strike and SEAD all wore twin fins canted 6-8
+                   deg and read as three identical Vs from above. An F-15's
+                   fins really are upright; the Hornet's really are canted 20.
+        stabilator 8.61 m span, LE swept 50 deg, mounted OUTBOARD of the fins
+                   and reaching the aft-most point of the aircraft. That is
+                   66 % of the wingspan in tailplane -- the largest ratio of
+                   any jet in the roster, and it makes the rear of the plan a
+                   second wing rather than a pair of trim tabs.
+
+        wing       root LE 8.30 m aft, root chord 7.20 m, tip 1.46 m,
+                   56.5 m2, AR 3.01, LE 45.0 deg   (real 56.5 m2, AR 3.01)
+    """
+    L, SPAN = 19.43, 13.05
+    N = L / 2.0
+    SWP = math.tan(math.radians(45.0)) * (SPAN / 2.0 - 0.30)      # 6.225
+    p = fuselage(L, 0.86, 0.48, 0.62,
+                 stations=((0.00, 0.06), (0.05, 0.36), (0.12, 0.68),
+                           (0.20, 0.88), (0.32, 1.00), (0.56, 0.98),
+                           (0.74, 0.84), (0.88, 0.72), (1.00, 0.50)))
+    p += wings(N - 8.30, SPAN, 7.20, 1.46, SWP, 0.34, 0.0, "w")
+    p += wings(N - 13.62, 8.61, 3.55, 1.04, 4.77, 0.28, 0.0, "h")
+    for s in (-1, 1):                                   # stabilator SNAG
+        y0 = N - 13.62 - (2.60 - 0.30) * 1.1911         # LE at 60 % semispan
+        y1 = N - 13.62 - (4.305 - 0.30) * 1.1911
+        pts = [(s * 2.60, y0 + 0.35), (s * 4.305, y1 + 0.35),
+               (s * 4.305, y1), (s * 2.60, y0)]
+        if s < 0:
+            pts.reverse()
+        p.append(plate(pts, 0.26, 0.0, f"snag_{s}"))
     for s in (-1, 1):
-        f = fin(-4.6, 3.5, 3.2, 1.2, 2.2, 0.24, cant=8 * s, offset_x=s * 1.15)
-        p.append(f)
+        p.append(fin(N - 12.72, 3.10, 4.20, 1.55, 2.70, 0.24, 0.55,
+                     cant=0.0, offset_x=s * 1.30))
+    use("deck")
+    for s in (-1, 1):                                   # engine nacelle boxes
+        p.append(cube((s * 1.10, -3.00, -0.10), (1.22, 11.20, 1.20)))
+        p.append(cube((s * 1.12, N - 6.10, -0.14), (1.34, 2.90, 1.06)))  # intake
+        p.append(cube((s * 1.66, N - 6.30, -0.10), (0.20, 2.60, 0.90)))  # ramp
+        p.append(cube((s * 1.10, -5.60, 0.50), (1.00, 5.40, 0.14)))      # deck
     use("gun")
     for s in (-1, 1):
-        p.append(cyl((s * 0.72, -L * 0.44, -0.05), 0.52, 2.20,
-                     rot=(R(90), 0, 0), v=12))
+        p.append(cyl((s * 1.10, -N + 0.80, -0.05), 0.56, 1.60,
+                     rot=(R(90), 0, 0), v=14))
     use("body")
     p += _kit(SPAN, L, 0, tanks=2)
     return p, dict(top=0.95, hull_l=L, hull_w=SPAN, turret_top=2.1,
@@ -150,56 +275,77 @@ def air_superiority():
 
 
 def multirole():
-    """Single tail, blended body, one engine. Flexible, never best.
+    """Epoch 4 multirole: GENERAL DYNAMICS F-16C FIGHTING FALCON.
 
-    F-16 class: 15.06 m long, 9.96 m span, cropped delta with 40 deg of
-    leading-edge sweep and a STRAIGHT trailing edge, big all-moving tailplanes
-    right at the tail, and wingtip launch rails that stick out fore and aft of
-    the tip. The identifying feature from above is the pair of LERX strakes
-    running forward from the wing root along the fuselage — they are what make
-    an F-16 planform read as one continuous blended body rather than a tube
-    with wings bolted on.
+    15.06 x 9.96 m, wing 31.0 m2 gross, aspect ratio 3.20, leading edge swept
+    40 deg, trailing edge DEAD STRAIGHT, one engine, one fin.
+
+    Dimensions were exact and stay exact. Two things were wrong inside them.
+
+    1. The leading edge was swept 32.7 deg -- identical to two decimal places
+       with the F-15 next to it, and not an F-16, which is swept 40 deg. It is
+       now 40.0 deg.
+    2. The wing was a plain tapered trapezoid whose trailing edge swept aft.
+       An F-16 wing is a CROPPED DELTA and its trailing edge is unswept: it
+       runs straight across the aeroplane at 11.60 m aft, perpendicular to the
+       centreline, from wingtip to wingtip. root 5.07 m, tip 1.15 m, and
+       5.07 - 1.15 = 3.93 = exactly the leading-edge sweep offset, which is
+       what makes the trailing edge straight. That straight line is the
+       structural cue this aircraft was missing: every other jet in the family
+       has a trailing edge that sweeps, so at 60 px the F-16 is the only fast
+       jet whose back edge is a ruler line.
+
+    Third: the strakes. The LERX are what make an F-16 plan read as one
+    continuous blended body from radome to wingtip instead of a tube with
+    wings bolted to it, so they are now a four-point chine curving out from
+    +/-0.34 m at 3.90 m aft to +/-1.32 m where they meet the wing apex at
+    6.53 m, not the single flat triangle they were.
 
     Stations off the top view of art/reference/3v_f16_top.png (a crop of
     3v_f16.png, Wikimedia Commons), aft of the nose:
 
         body      +/-0.49 at 1.7 m, +/-0.94 at 5.1 m, +/-1.13 at 12 m
-        strakes   from 4.2 m out to +/-1.45 where they meet the wing at 7.7 m
-        wing      root LE 7.0 m, tip LE 10.0 m, TE 11.6 m straight across
-        rails     8.9 - 11.5 m at +/-4.9, outboard of the wingtip itself
-        tailplane 12.55 - 15.05 m, 5.98 m span, LE reaching +/-2.85 by 14.1 m
-
-    The old version had a bare +/-0.78 tube with no strakes and no rails, and
-    its two drop tanks hung 1.7 m forward of the wing leading edge where the
-    real jet has nothing.
+        strakes   3.90 m out to +/-1.32 where they meet the wing at 6.53 m
+        wing      root LE 6.53 m, LE 40.0 deg, TE 11.60 m STRAIGHT across
+        boom      aft fuselage 1.72 m across the speedbrake fairings -- 17 %
+                  of the span, against the F-15's 3.42 m slab at 26 %. The old
+                  model carried 2.26 m of aft body, as wide in proportion as
+                  the Eagle's twin nacelles, on a single-engine aeroplane
+        rails     wingtip launchers at +/-4.88, fore and aft of the tip chord
+        tailplane 12.18 m aft, 5.58 m span, LE 40.0 deg  (real span 5.58 m)
     """
     L, SPAN = 15.06, 9.96
     N = L / 2.0
-    p = fuselage(L, 0.92, 0.5, 0.55,
+    SWP = math.tan(math.radians(40.0)) * (SPAN / 2.0 - 0.30)      # 3.927
+    p = fuselage(L, 0.84, 0.5, 0.55,
                  stations=((0.00, 0.04), (0.03, 0.26), (0.08, 0.53),
                            (0.14, 0.67), (0.22, 0.85), (0.34, 1.00),
                            (0.50, 1.00), (0.62, 0.92), (0.78, 0.88),
                            (0.90, 0.80), (1.00, 0.62)))
-    for s in (-1, 1):                                   # LERX strakes
-        pts = [(s * 0.35, N - 4.20), (s * 1.45, N - 7.74), (s * 0.35, N - 7.74)]
+    for s in (-1, 1):                                   # LERX chine, blended
+        pts = [(s * 0.34, N - 3.90), (s * 0.62, N - 4.80), (s * 0.96, N - 5.60),
+               (s * 1.32, N - 6.53), (s * 0.34, N - 6.53)]
         if s < 0:
             pts.reverse()
         p.append(plate(pts, 0.24, 0.0, f"lerx_{s}"))
-    p += wings(N - 7.00, SPAN, 4.60, 1.60, 3.00, 0.28, 0.0, "w")
-    p += wings(N - 12.55, 5.98, 2.55, 0.75, 1.75, 0.22, 0.0, "h")
-    p.append(fin(N - 9.20, 3.20, 4.60, 1.30, 2.90, 0.24, 0.35))
+    p += wings(N - 6.53, SPAN, 5.07, 1.15, SWP, 0.28, 0.0, "w")
+    p += wings(N - 12.18, 5.58, 2.55, 0.76, 2.09, 0.22, 0.0, "h")
+    p.append(fin(N - 9.20, 3.10, 4.70, 1.30, 3.10, 0.24, 0.35))
     use("deck")
     for s in (-1, 1):                                   # aft body fairings
-        p.append(cube((s * 0.68, N - 12.10, 0.0), (0.90, 3.40, 0.90)))
-        p.append(cyl((s * 4.88, N - 10.20, 0.05), 0.11, 2.60,   # wingtip rail
+        p.append(cube((s * 0.55, N - 12.10, 0.0), (0.62, 3.40, 0.86)))
+        p.append(cyl((s * 4.88, N - 11.03, 0.05), 0.11, 3.40,   # wingtip rail
                      rot=(R(90), 0, 0), v=8))
-        p.append(cyl((s * 2.30, N - 10.00, -0.55), 0.32, 3.60,  # underwing tank
+        p.append(cyl((s * 2.30, N - 9.35, -0.55), 0.32, 3.60,   # underwing tank
                      rot=(R(90), 0, 0), v=10))
-        p.append(cube((s * 2.30, N - 9.60, -0.22), (0.22, 1.20, 0.52)))  # pylon
+        p.append(cube((s * 2.30, N - 8.95, -0.22), (0.22, 1.20, 0.52)))  # pylon
         p.append(fin(N - 11.60, -0.85, 1.60, 0.80, 0.90, 0.14, -0.55,
                      offset_x=s * 0.62))                        # ventral fin
     use("gun")
-    p.append(cyl((0, -N + 0.55, 0), 0.56, 1.60, rot=(R(90), 0, 0), v=12))
+    p.append(cyl((0, -N + 0.72, 0), 0.56, 1.45, rot=(R(90), 0, 0), v=12))
+    use("deck")                                         # the chin inlet
+    p.append(cube((0, N - 3.60, -0.78), (1.28, 2.60, 0.78)))
+    p.append(cyl((0, N - 4.80, -0.72), 0.62, 1.30, rot=(R(90), 0, 0), v=12))
     use("body")                                         # bubble canopy, PROUD
     p.append(dome((0, N - 4.30, 0.66), 0.56, 1.62, 0.46, v=16))
     use("glass")
@@ -211,41 +357,132 @@ def multirole():
 
 
 def strike():
-    """Two seats, heavy stores. Deep fuselage, big wing."""
-    L, SPAN = 17.0, 13.9
-    p = fuselage(L, 0.98, 0.52, 0.58)
-    p += wings(1.6, SPAN, 5.6, 2.2, 3.0, 0.32, 0.0, "w")
-    p += wings(-5.0, 8.0, 2.8, 1.1, 1.8, 0.26, 0.0, "h")
-    for s in (-1, 1):
-        p.append(fin(-4.4, 3.4, 3.0, 1.1, 2.0, 0.24, cant=6 * s, offset_x=s * 1.05))
-    use("deck")
-    use("glass")
-    p.append(dome((0, L * 0.20, 0.48), 0.50, 2.05, 0.34, v=16))
+    """Deep-penetration strike. GENERAL DYNAMICS F-111F AARDVARK, wings SPREAD.
+
+    Was: a Tornado-dimensioned airframe (13.90 x 17.00, LE sweep 24.3, AR 3.56,
+    twin canted fins, twin nozzles) that measured 0.8351 against sead() and
+    0.7709 against air_superiority() — the fast-jet clique. It was an F-15 in a
+    slightly different size, and no amount of stores was going to fix that.
+
+    The F-111F is what a US deep-penetration bomb truck actually is, and it is
+    a genuinely different airframe class from a fighter:
+
+        length   73 ft 6 in      = 22.40 m   (the longest fast jet in the game)
+        span     63 ft 0 in      = 19.20 m   spread, at the 16 deg wing setting
+                 31 ft 11 in     =  9.74 m   at the 72.5 deg setting
+        wing area 525 sq ft      = 48.77 m2  spread
+        span/length 0.857, aspect ratio 7.6
+
+    Modelled SPREAD, so both numbers above are the published spread pair, not a
+    partial-sweep figure invented to hit a target. Spread is also the honest
+    RTS pose: these are shown in cruise, and a swept F-111 would fold straight
+    back into the long-thin-arrowhead family this refinement exists to break up.
+
+    WHAT SEPARATES IT FROM ABOVE, in the brief's priority order:
+      1. planform  a CRANK. The fixed glove leading edge is swept 65 deg and
+         the pivoting outer panel only 16 deg, so the outline goes sharply back
+         then abruptly straight out — no other aircraft in the roster has a
+         leading-edge kink of 49 deg. Aspect ratio 7.4 against the fighters'
+         3.0-3.2.
+      2. proportion span/length 0.857 against superiority 0.673 and sead 0.502.
+      3. engines    two, buried side by side in a wide flat aft body, nozzles
+         only 1.7 m apart — against the F-15's 2.9 m spread pair.
+      4. tail       ONE fin. The clique's shared cue was three near-identical
+         twin-fin Vs; this aircraft leaves that group.
+      5. contrast   dark radome, dorsal spine and glove walkways on top.
+
+    Stations aft of the nose:
+        radome     0 - 2.2
+        capsule    2.5 - 5.9, and 1.9 m WIDE — side-by-side seating, so from
+                   overhead it is a broad flat glass rectangle, not a tube
+        glove      LE 5.30 at the body side, 9.20 at the pivot (BL 2.15)
+        wing       root LE 9.60, root chord 3.75; tip LE 12.27, tip chord 1.35
+        inlets     7.0 - 10.0 at +/-1.62, under the glove
+        tailplane  16.90 - 21.10, 9.10 m span
+        fin        LE 14.60, 4.60 m tall
+    """
+    L, SPAN = 22.40, 19.20
+    N = L / 2.0
+    p = fuselage(L, 1.25, 0.52, 0.58,
+                 stations=((0.00, 0.05), (0.04, 0.28), (0.09, 0.52),
+                           (0.15, 0.76), (0.23, 0.94), (0.34, 1.00),
+                           (0.52, 1.00), (0.70, 0.98), (0.84, 0.92),
+                           (1.00, 0.66)))
+    for s in (-1, 1):                       # the fixed glove — 65 deg LE
+        pts = [(s * 1.15, N - 5.30), (s * 3.00, N - 9.20),
+               (s * 3.00, N - 13.20), (s * 1.15, N - 14.30)]
+        if s < 0:
+            pts.reverse()
+        p.append(plate(pts, 0.40, 0.0, f"glove_{s}"))
+    # Pivoting outer panels. Built as one full-span surface: everything inboard
+    # of the BL 2.15 pivot is buried in the glove and the body, which is where
+    # the real wing carry-through box lives too. area = 9.30*(3.75+1.35) + 2.3
+    # = 49.7 m2 against the real 48.77, AR 7.42 against the real 7.56.
+    p += wings(N - 9.60, SPAN, 3.75, 1.35, 2.67, 0.34, 0.0, "w")
+    p += wings(N - 16.90, 9.10, 4.20, 1.20, 4.20, 0.30, 0.0, "h")
+    p.append(fin(N - 14.60, 4.60, 6.40, 2.20, 4.00, 0.32, z=0.55))
     use("gun")
-    for s in (-1, 1):
-        p.append(cyl((s * 0.68, -L * 0.44, -0.05), 0.50, 2.00,
+    for s in (-1, 1):                       # Triple Plow inlets, under the glove
+        p.append(cyl((s * 1.62, N - 8.30, -0.28), 0.66, 3.40,
                      rot=(R(90), 0, 0), v=12))
+        # nozzles: side by side and CLOSE. 1.70 m apart against the F-15's 2.90
+        p.append(cyl((s * 0.85, -N + 1.00, -0.05), 0.62, 2.00,
+                     rot=(R(90), 0, 0), v=12))
+        for k in range(2):                  # swivelling pylons + stores
+            y = N - (10.60 + k * 0.30)
+            p.append(cube((s * (2.10 + k * 0.95), y + 0.55, -0.46),
+                          (0.24, 1.40, 0.62)))
+            p.append(cyl((s * (2.10 + k * 0.95), y, -0.92), 0.28, 3.00,
+                         rot=(R(90), 0, 0), v=10))
+    use("deck")
+    p.append(dome((0, N - 1.10, 0.05), 0.72, 1.05, 0.62, v=16))       # radome
+    p.append(cube((0, N - 11.60, 1.30), (0.66, 7.20, 0.26)))          # spine
+    for s in (-1, 1):                                                 # walkway
+        p.append(cube((s * 1.70, N - 10.40, 0.24), (0.34, 4.20, 0.10)))
+    use("body")                             # side-by-side crew capsule, PROUD
+    # The escape capsule seats the pilot and the WSO SIDE BY SIDE, so the
+    # canopy is 1.9 m across instead of a fighter's 1.1 m — from directly
+    # overhead it is a broad flat glass panel, not a bubble on a spine.
+    p.append(cube((0, N - 4.20, 1.15), (1.92, 3.40, 0.46)))
+    use("glass")
+    p.append(dome((0, N - 4.26, 1.20), 0.88, 1.58, 0.30, v=16))
     use("body")
-    p += _kit(SPAN, L, 0, canopy=False, tanks=4)
-    return p, dict(top=1.0, hull_l=L, hull_w=SPAN, turret_top=2.1,
+    return p, dict(top=1.25, hull_l=L, hull_w=SPAN, turret_top=2.6,
                    gun_z=0.2, gun_y=L * 0.34)
 
 
 def cas():
-    """Close air support: STRAIGHT high-aspect wing, twin engines podded high
-    on the REAR fuselage, twin fins on the tips of a rectangular tailplane, and
-    the two main-gear pods that stick out FORWARD of the wing leading edge.
-    The most distinctive planform in the air roster.
+    """Close air support: FAIRCHILD A-10A THUNDERBOLT II. Straight high-aspect
+    wing, twin engines podded high on the REAR fuselage, twin fins on the tips
+    of a rectangular tailplane, and the two main-gear pods that stick out
+    FORWARD of the wing leading edge. The most distinctive planform in the air
+    roster and the only fast jet that already measured as separated — every one
+    of its six pairs sits below 0.52. So this pass does not touch the envelope:
+    16.26 x 17.53 m stays exactly as it was.
 
-    A-10A: length 16.26 m, span 17.53 m, tailplane span 6.1 m. Planform
-    stations below were read off the top view of art/reference/3v_a10_top.png
-    (a crop of 3v_a10.png), measured as distance aft of the nose:
+    A-10A: length 16.26 m, span 17.53 m, wing area 47.0 m2, aspect ratio 6.54,
+    tailplane span 6.1 m. Planform stations below were read off the top view of
+    art/reference/3v_a10_top.png (a crop of 3v_a10.png), measured as distance
+    aft of the nose:
 
         fuselage    ~1.5 m wide and near-CONSTANT from 1.8 m to 13 m aft
-        wing        LE 7.0 m aft at the root, TE 10.3 m; tip chord 1.6 m
+        wing        LE 6.8 m aft at the root, TE 10.3 m; tip chord 1.75 m
         gear pods   5.8 - 8.5 m aft at +/-2.55 m, i.e. AHEAD of the wing
         nacelles    9.9 - 13.0 m aft, outer edge +/-2.2 m
         tailplane   14.2 - 16.3 m aft, fins at +/-2.8 m
+
+    Refined this pass, all inside the real airframe:
+      - root chord 3.45 -> 3.55 m, which puts the wing area at 47.0 m2 and the
+        aspect ratio at 6.54, both the published A-10A figures exactly (it was
+        46.1 m2 / 6.66).
+      - the inboard TRAILING-EDGE KINK at +/-3.40 m. The real inner wing is
+        constant-chord — that is where the flaps are — and the taper only
+        starts outboard of the nacelle pylons. It was modelled as one
+        continuous taper from root to tip, so the kink that tells a viewer this
+        is a two-section wing and not a glider's was missing.
+      - the gun muzzle offset to PORT, which is where the firing barrel of a
+        GAU-8/A actually sits, and made proud enough to read.
+      - dark upper-surface walkways and nacelle crowns for camera contrast.
 
     The previous version hung the nacelles in mid-air with no pylon, so they
     were a detached island and the silhouette scorer dropped them entirely.
@@ -256,30 +493,48 @@ def cas():
                  stations=((0.00, 0.24), (0.04, 0.62), (0.09, 0.85),
                            (0.16, 0.97), (0.34, 1.00), (0.62, 1.00),
                            (0.80, 0.90), (0.90, 0.74), (1.00, 0.58)))
-    p += wings(N - 6.78, SPAN, 3.45, 1.75, 0.60, 0.34, -0.15, "w")
+    Y0 = N - 6.78                                 # wing root leading edge
+    p += wings(Y0, SPAN, 3.55, 1.75, 0.55, 0.34, -0.15, "w")
+    for s in (-1, 1):                             # inboard constant-chord kink
+        pts = [(s * 0.30, Y0 - 3.55), (s * 3.40, Y0 - 3.55 + 0.4576),
+               (s * 3.40, Y0 - 3.55 - 0.2014)]
+        if s < 0:
+            pts.reverse()
+        p.append(plate(pts, 0.34, -0.15, f"flap_{s}"))
     p += wings(N - 14.15, 6.10, 2.20, 1.90, 0.12, 0.26, 0.0, "h")
     for s in (-1, 1):                             # fins ON the tailplane tips
         p.append(fin(N - 13.90, 2.60, 2.40, 1.40, 0.95, 0.26,
                      offset_x=s * 2.80))
     use("gun")
     for s in (-1, 1):                             # podded TF34s + their pylons
-        p.append(cyl((s * 1.50, N - 11.45, 0.86), 0.70, 3.20,
+        p.append(cyl((s * 1.62, N - 11.45, 0.86), 0.68, 3.60,
                      rot=(R(90), 0, 0), v=14))
-        p.append(cube((s * 1.05, N - 11.45, 0.50), (1.20, 2.40, 0.60)))
-    p.append(cyl((0, N - 1.30, -0.10), 0.24, 2.60, rot=(R(90), 0, 0), v=10))
+        p.append(cube((s * 1.10, N - 11.45, 0.50), (1.20, 2.40, 0.60)))
+    # GAU-8/A. The gun is on the centreline but the barrel that FIRES is the
+    # one at nine o'clock, so the muzzle sits ~0.25 m to port of it — the one
+    # asymmetry a real A-10 has, and it reads at the close camera.
+    p.append(cyl((-0.24, N - 1.20, -0.12), 0.27, 2.40, rot=(R(90), 0, 0), v=12))
     use("deck")
     for s in (-1, 1):                             # main-gear pods, wing LE
         p.append(cyl((s * 2.55, N - 7.15, -0.42), 0.36, 2.80,
                      rot=(R(90), 0, 0), v=12))
+        p.append(cube((s * 1.35, N - 8.20, 0.06), (0.40, 3.40, 0.10)))  # walkway
+        p.append(cube((s * 1.62, N - 11.45, 1.48), (0.90, 3.00, 0.14)))  # crown
+    p.append(cube((0, N - 3.05, 0.78), (0.70, 1.30, 0.08)))       # anti-glare
+    use("body")                                   # bubble canopy, PROUD
+    p.append(dome((0, N - 4.20, 0.70), 0.60, 1.35, 0.50, v=16))
+    use("glass")
+    p.append(dome((0, N - 4.16, 0.74), 0.54, 1.24, 0.48, v=16))
     use("body")
-    p += _kit(SPAN, L, 0, tanks=0)
+    p += _kit(SPAN, L, 0, canopy=False, tanks=0)
     return p, dict(top=1.2, hull_l=L, hull_w=SPAN, turret_top=2.2,
                    gun_z=0.2, gun_y=L * 0.40)
 
 
 def bomber():
-    """Heavy bomber, B-52 class. 48.5 m long, 56.4 m span — the largest wing in
-    the roster — with EIGHT engines in four twin pods and a pronounced droop.
+    """Heavy bomber, B-52H STRATOFORTRESS. 48.5 m long, 56.4 m span — the
+    largest wing in the roster — with EIGHT engines in four twin pods and a
+    pronounced droop.
 
     Huge radar cross-section (~100 m2, docs/02 table), so it is detected at
     maximum range and needs escort. Its job is standoff volume, not
@@ -299,7 +554,17 @@ def bomber():
     The previous version put the wing root LE 16.5 m aft instead of 9.5 and
     the engine pods at +/-6.4 and +/-11.8 instead of +/-10.5 and +/-18.4, so
     the whole wing sat 7 m too far back and the pods bunched near the roots.
-    """
+
+    The planform above is verified and is NOT touched by this pass. What this
+    pass adds is the top-down detail the reference shows and the model did
+    not: the four PYLONS that hang the twin pods off the wing (without them
+    eight nacelles floated under a clean wing and read as smudges), the two
+    fixed 700-gallon external tanks on the outer panels, the tail turret at
+    the extreme tail, and a dorsal spine plus wing walkways in a contrasting
+    material — because the upper surface is the only surface the RTS camera
+    ever sees. Against the KC-135 tanker it shares the sky with, the eight
+    dark nacelles projecting 4 m ahead of a 36 deg leading edge are the cue,
+    and they are now attached to something."""
     L, SPAN = 48.5, 56.4
     N = L / 2.0
     p = fuselage(L, 1.72,
@@ -307,177 +572,442 @@ def bomber():
                            (0.12, 1.00), (0.62, 1.00), (0.80, 0.92),
                            (0.92, 0.62), (1.00, 0.40)))
     p += wings(N - 9.05, SPAN, 9.90, 4.40, 20.40, 0.62, -0.55, "w")
-    p += wings(N - 35.40, 17.20, 8.20, 1.70, 6.40, 0.44, 0.0, "h")
+    p += wings(N - 35.40, 16.40, 8.20, 1.70, 6.40, 0.44, 0.0, "h")
     p.append(fin(N - 39.20, 9.6, 9.0, 3.0, 6.2, 0.46, 1.2))
     use("gun")
     for s in (-1, 1):                       # four twin pods = eight nacelles
-        for px, py in ((9.65, N - 14.70), (17.55, N - 20.20)):
+        for px, py, ply in ((9.65, N - 14.70, 6.90),
+                            (17.55, N - 20.20, 1.30)):
             for e in range(2):
                 p.append(cyl((s * (px + e * 1.70), py, -1.55), 0.85, 5.50,
                              rot=(R(90), 0, 0), v=12))
+            # the pylon that carries the pair up to the wing. Between the two
+            # nacelles and straddling the leading edge, so from above it reads
+            # as one dark finger per pod instead of two floating tubes.
+            p.append(cube((s * (px + 0.85), ply, -1.05), (0.26, 2.60, 1.00)))
+        # fixed 700 US gal external tank on the outer panel — not a store,
+        # the H model cannot drop them
+        p.append(cyl((s * 23.00, -1.00, -1.28), 0.62, 6.60,
+                     rot=(R(90), 0, 0), v=12))
+        p.append(cyl((s * 23.00, 2.55, -1.28), 0.62, 0.90,
+                     rot=(R(90), 0, 0), v=12, taper=0.24))
+        p.append(cube((s * 23.00, -0.20, -0.92), (0.22, 2.20, 0.90)))
+    # tail turret. The H flew with a 20 mm Vulcan back there until 1991 and
+    # the fairing is still the widest thing at the extreme tail.
+    p.append(dome((0, -N + 1.30, 0.02), 0.86, 1.30, 0.78, v=16))
+    for s in (-1, 1):
+        p.append(cyl((s * 0.30, -N + 0.55, 0.02), 0.10, 1.35,
+                     rot=(R(90), 0, 0), v=8))
     use("deck")
     p.append(cube((0, 1.0, -1.95), (2.60, 9.00, 0.70)))          # bomb bay
+    # upper-surface contrast: dorsal spine and the two wing walkways
+    p.append(cube((0, N - 20.00, 1.72), (0.72, 15.00, 0.26)))
+    for s in (-1, 1):
+        p.append(cube((s * 4.60, 8.50, -0.27), (0.42, 5.00, 0.14)))
+    use("glass")
+    p.append(cube((0, N - 3.60, 1.58), (1.34, 3.20, 0.34)))      # flight deck
     use("body")
     return p, dict(top=1.8, hull_l=L, hull_w=SPAN, turret_top=5.0,
                    gun_z=0.4, gun_y=L * 0.32)
 
 
 def stealth_bomber():
-    """Flying wing, B-2 class. 21 m long, 52.4 m span, NO fuselage and NO
-    vertical surfaces — the most distinctive planform in the entire roster and
-    unmistakable from directly above, which is the only view an RTS gets.
+    """Flying wing, B-2A SPIRIT: 52.43 m span, 21.03 m long, leading edge swept
+    33 deg, no fuselage, no vertical surface of any kind.
 
     Epoch 4+. This is the airframe that makes the fourth-root RCS cliff in
     docs/02 matter: a radar seeing a 4th-gen fighter at 200 km sees this at
     roughly 11 km.
-    """
-    L, SPAN = 21.0, 52.4
-    hs = SPAN / 2.0
-    # one continuous planform: swept leading edge, double-W trailing edge
-    right = [(0.0, 10.5), (hs, -3.5), (20.0, -6.2),
-             (15.5, -2.4), (10.0, -7.8), (5.0, -3.9), (0.0, -9.2)]
-    poly = right + [(-x, y) for (x, y) in reversed(right[1:-1])]
+
+    THE PLANFORM IS NOW THE REAL ONE. The previous build sat at 28.1 deg of
+    leading-edge sweep with a shallow trailing-edge sawtooth, and measured
+    19.69 m long against the 21.03 m it declared. At the true 33 deg the tip
+    falls 17.02 m aft of the apex -- 4.0 m FORWARD of the tail, which is what
+    makes the double-W trailing edge possible at all -- and the resulting
+    plan area is 482 m2 against the published 478 m2 wing area. That 1% match
+    is the check that the sweep and the sawtooth are both right; a shallower
+    sweep or a deeper sawtooth misses it by 15%.
+
+    THE DOUBLE-W. One aft point on the centreline (the beaver tail, the aft
+    extremity of the aircraft), one forward notch and one aft peak per side,
+    then the tip. Six trailing-edge vertices per side. This is the feature
+    that separates it from every four-engined swept-wing aircraft in the
+    roster at a glance, and unlike a pod or a store it is the outline itself,
+    so it survives LOD2 and 60 px.
+
+    Tiering: the wing is thin at the tips and 2.2 m deep on the centreline,
+    so it is built as three stacked plates that shrink inboard-to-outboard,
+    with the two upper-surface intakes and the two exhaust troughs sitting on
+    the middle tier. Every duct is on TOP of the wing, which is both the real
+    aircraft and the only thing the RTS camera can see."""
+    L, SPAN = 21.03, 52.43
+    ny, hs = L / 2.0, SPAN / 2.0
+    tip_y = ny - hs * math.tan(R(33.0))            # -6.509: the 33 deg LE
+
+    def mirror(right):
+        return right + [(-x, y) for (x, y) in reversed(right[1:-1])]
+
+    plan = mirror([(0.00, ny), (hs, tip_y),
+                   (20.40, -8.60), (15.20, -4.60),       # outer peak, notch
+                   (9.90, -9.10), (4.60, -5.20),         # inner peak, notch
+                   (0.00, -ny)])                         # beaver tail
+    tier2 = mirror([(0.00, 9.90), (11.50, -0.90), (10.60, -6.60),
+                    (0.00, -9.60)])
+    centre = mirror([(0.00, 9.40), (4.20, 0.60), (3.60, -6.20),
+                     (0.00, -8.60)])
     use("body")
-    p = [plate(poly, 1.05, 0.0, "b2_wing")]
-    p.append(plate([(0.0, 9.0), (3.4, 1.0), (3.0, -6.0), (-3.0, -6.0),
-                    (-3.4, 1.0)], 1.85, 0.30, "b2_centre"))       # centre body
+    p = [plate(plan, 1.00, 0.00, "b2_plan"),
+         plate(tier2, 1.30, 0.60, "b2_tier2"),
+         plate(centre, 1.30, 1.55, "b2_centre")]
+    for s in (-1, 1):
+        # one serpentine intake per side, each feeding two F118s, buried in
+        # the UPPER surface where no ground radar and no RTS camera looks up.
+        # The fairing is in the airframe's own material; only the mouth and
+        # the exhaust slot are dark, because four pale rectangles on a grey
+        # wing read as decals rather than as structure.
+        p.append(cube((s * 5.60, 1.60, 1.35), (4.30, 3.60, 0.48),
+                      rot=(R(-8), 0, 0)))
+    use("gunbore")
+    for s in (-1, 1):
+        p.append(cube((s * 5.60, 3.15, 1.44), (3.90, 0.50, 0.34),
+                      rot=(R(-8), 0, 0)))                    # intake mouth
+        p.append(cube((s * 5.20, -4.35, 1.26), (3.10, 0.62, 0.24)))
     use("deck")
-    for s in (-1, 1):                                  # buried intakes on TOP
-        p.append(cube((s * 3.9, 3.0, 1.24), (2.10, 3.60, 0.42),
-                      rot=(R(-9), 0, 0)))
-        p.append(cube((s * 4.4, -4.6, 1.10), (2.30, 2.40, 0.26)))  # exhaust troughs
+    for s in (-1, 1):
+        # the shielded exhaust trough: a real tile of a different material,
+        # running aft from the slot to the trailing edge
+        p.append(cube((s * 5.20, -5.85, 1.24), (3.30, 2.40, 0.22)))
     use("glass")
-    p.append(dome((0, 6.6, 1.20), 0.92, 1.72, 0.38, v=16))         # cockpit
+    p.append(dome((0, 6.40, 1.95), 0.95, 1.75, 0.45, v=16))    # cockpit
     use("body")
-    return p, dict(top=0.9, hull_l=L, hull_w=SPAN, turret_top=1.8,
+    return p, dict(top=2.20, hull_l=L, hull_w=SPAN, turret_top=2.6,
                    gun_z=0.5, gun_y=6.0)
 
 
 # ── SEAD vs ELECTRONIC ATTACK: the silhouette contract ─────────────
 # These two fly the same mission slice of docs/02 from opposite ends — SEAD
 # kills the emitter, the jammer blinds it without firing — so a player who
-# cannot tell them apart cannot play either pillar. They were previously the
-# same mesh: electronic_attack() called sead() and appended three belly pods
-# that hang UNDER the wing, where the RTS camera never sees them. Both measured
-# 18.30 x 13.60 m and were indistinguishable in art/renders/air.png.
+# cannot tell them apart cannot play either pillar. They were once the same
+# mesh: electronic_attack() called sead() and appended three belly pods that
+# hang UNDER the wing, where the RTS camera never sees them.
 #
-# Each aircraft now OWNS a planform element the other may never carry:
+# The first repair gave each aircraft a planform element the other could not
+# have: sead() owned TWIN CANTED FINS, electronic_attack() owned ONE TALL
+# CENTRE FIN with the receiver football on top. That worked on its own terms —
+# the pair measured 0.5634 — but it solved the wrong problem. Fin count is a
+# two-state cue, and there are seven fast jets: air_superiority(), strike() and
+# the old sead() ALL carried twin canted fins at 6-8 deg, so from overhead they
+# were three identical Vs and the trio measured 0.77, 0.84 and 0.88 against
+# each other. The contract had protected sead() from the jammer and left it
+# fused to the fighters instead.
 #
-#   sead()               TWIN CANTED FINS + a low-aspect fighter wing
-#                        (span 13.60 / length 18.30 = 0.74, AR 3.4), and the
-#                        anti-radiation missiles are mounted so their noses
-#                        project ~3.1 m AHEAD of the local wing leading edge —
-#                        over open air, so they read from straight above.
+# So the separation now rests on the AIRFRAME, which is a seven-state cue, not
+# a two-state one, and it comes from real lineage rather than from styling.
+# US defence suppression has always been a FIGHTER — F-100F, F-105G, F-4G,
+# F-16CJ — while US electronic attack has always been a wide-winged multi-crew
+# ATTACK airframe: EB-66, EA-6A from 1963, then EA-6B and EF-111A. Build each
+# as what it is and they cannot converge:
 #
-#   electronic_attack()  ONE TALL CENTRE FIN capped by the receiver football,
-#                        and a high-aspect attack wing (span 16.15 / length
-#                        18.24 = 0.89, AR 5.2), plus a 5.4 m four-seat
+#   sead()               F-105F/G Thunderchief Wild Weasel III, 10.65x21.21 m.
+#                        span/length 0.502 — the narrowest airframe in the
+#                        roster — 49 deg of leading-edge sweep, aspect ratio
+#                        3.1, ONE engine, ONE fin, an area-ruled waist and the
+#                        forward-swept wing-root intakes.
+#
+#   electronic_attack()  EA-6B Prowler, 16.15 x 18.24 m. span/length 0.885,
+#                        23 deg of sweep, aspect ratio 5.2, ONE tall centre fin
+#                        capped by the receiver football, and a 5.4 m four-seat
 #                        greenhouse — a big flat glass area seen from overhead.
 #
-# RULE: sead() never gets a jamming pod and never loses its second fin;
-# electronic_attack() never gets a missile and never gets a second fin. If a
-# future edit wants to move either element, it has to move the OTHER one too,
-# or the pair collapses back into one aircraft. Do not implement one by
-# calling the other.
+# 0.502 against 0.885 is the widest proportion gap in the fast-jet family, and
+# 49 deg against 23 deg is the widest sweep gap. Neither number can be reached
+# from the other without abandoning the real aircraft.
+#
+# RULE: sead() never gets a jamming pod and never gets a second engine;
+# electronic_attack() never gets a missile and never loses its greenhouse. The
+# span/length figures above are load-bearing — if a future edit moves one
+# aircraft's proportion toward the other's, it has to move the other one too,
+# or the pair collapses. Do not implement one by calling the other.
 def sead():
-    """Defence suppression. A fighter airframe carrying anti-radiation
-    missiles — the SEAD duel of docs/02. Dimensioned on the F/A-18E
-    (18.31 x 13.62 m). Twin canted fins are its half of the contract above.
+    """Defence suppression — the SEAD duel of docs/02. REPUBLIC F-105F/G
+    THUNDERCHIEF WILD WEASEL III.
 
-    It carries NO jamming pod: jamming is electronic_attack()'s pillar, and the
-    pods were what made the two aircraft the same shape in the first place."""
-    L, SPAN = 18.3, 13.6
-    p = fuselage(L, 0.90, 0.50, 0.60)
-    p += wings(1.8, SPAN, 5.8, 2.0, 3.6, 0.30, 0.0, "w")
-    p += wings(-5.2, 8.2, 2.8, 1.1, 1.9, 0.26, 0.0, "h")
-    for s in (-1, 1):                                     # OWNED: twin fins
-        p.append(fin(-4.5, 3.4, 3.0, 1.1, 2.0, 0.24, cant=7 * s, offset_x=s * 1.10))
+    Was: an F/A-18E, 13.60 x 18.30 m, twin canted fins, twin nozzles, mid-sweep
+    trapezoid wing. That is the same aircraft as air_superiority() in a slightly
+    smaller size, and it measured it: 0.8817 against the F-15 and 0.8351
+    against strike(), the two worst pairs in the entire 210-pair air roster.
+    The audit's own words were "I genuinely cannot tell the sead from the
+    superiority fighter at gameplay size". Adding anti-radiation missiles had
+    bought 0.09 of IoU and all of it vanished at LOD2.
+
+    A Super Hornet was also the wrong aircraft for this slot on its own terms.
+    The unit id is air_e2_us_sead — epoch 2, 1960-1969 by docs/05 — and an
+    F/A-18E is a 1999 aeroplane, epoch 5. The epoch-2 US Wild Weasel is the
+    two-seat F-105F, which took over the mission from the F-100F in 1966 and
+    flew it at scale over Route Pack VI; the F-105G is the same airframe with
+    the ALQ-105 fitted, so the geometry below covers both. It is also the type
+    electronic_attack()'s own docstring already cites as the SEAD lineage.
+
+        F-105F/G   length 69 ft 7 in  = 21.21 m   (F-105D single-seat: 19.63 m)
+                   span   34 ft 11 in = 10.65 m
+                   wing area 385 sq ft = 35.77 m2, 45 deg at quarter chord
+                   span/length 0.502, aspect ratio 3.17
+
+    That proportion is the point. 0.502 against the F-15's 0.673, the F-16's
+    0.652 and the F-4's 0.609 — the fast jets were living in a 0.21-wide window
+    from 0.609 to 0.818, and this airframe is REALLY outside it. Nothing has
+    been stretched: it is a 10.65 m wing on a 21.21 m aeroplane because the
+    F-105 was the heaviest single-seat single-engine fighter ever built and
+    carried its bomb load internally, so it is all fuselage.
+
+    WHAT SEPARATES IT FROM ABOVE, in the brief's priority order:
+      1. planform  49 deg of leading-edge sweep, the steepest manned wing in
+         the roster, on an aspect ratio of 3.1. Against strike()'s 16 deg glove
+         crank and cas()'s 4 deg straight wing.
+      2. proportion 0.502. The narrowest thing with a pilot in it.
+      3. engines   ONE. A single centred nozzle, against the F-15's and the old
+         F/A-18's paired ones — and the forward-swept wing-root intakes throw a
+         pair of shoulders out to +/-1.70 m at 30-60% of length, which is a
+         planform element no other fast jet has.
+      4. tail      ONE fin, and a large one. It leaves the twin-canted-fin
+         clique that superiority and the old strike shared.
+      5. contrast  black radome, black dorsal spine down the whole upper deck.
+
+    Stations aft of the nose:
+        radome     0 - 2.3
+        canopy     3.4 - 8.0, tandem two-seat (the Weasel's bear in the back)
+        intakes    6.1 - 12.8, out to +/-1.70, LE raked FORWARD as it goes out
+        wing       root LE 9.70, root chord 5.05; tip LE 15.53, tip chord 1.55
+        waist      area rule pinches the body to 82% at 50% of length
+        fin        LE 13.60, 3.60 m tall, root chord 5.60
+        stabilator 16.30 - 20.45, 5.60 m span
+
+    It carries NO jamming pod. The real F-105G's ALQ-105 lived in two shallow
+    strakes blended into the lower fuselage sides, invisible from any camera
+    this game uses, and a visible jamming pod is what fused this aircraft to
+    electronic_attack() in the first place — see the contract above.
+    """
+    L, SPAN = 21.21, 10.65
+    N = L / 2.0
+    # Area-ruled body: widest at the inlets, pinched to 82% over the wing, then
+    # swelling again for the afterburner can. On a 21.21 x 10.65 planform that
+    # waist is what stops the fuselage reading as a plain tube.
+    p = fuselage(L, 0.98, 0.50, 0.60,
+                 stations=((0.000, 0.05), (0.057, 0.30), (0.123, 0.55),
+                           (0.198, 0.78), (0.283, 0.94), (0.377, 1.00),
+                           (0.500, 0.86), (0.613, 0.82), (0.731, 0.93),
+                           (0.872, 0.90), (1.000, 0.60)))
+    for s in (-1, 1):        # forward-swept wing-root intakes, +/-1.70 shoulders
+        pts = [(s * 0.55, N - 7.30), (s * 1.70, N - 6.10),
+               (s * 1.70, N - 11.20), (s * 0.55, N - 12.80)]
+        if s < 0:
+            pts.reverse()
+        p.append(plate(pts, 1.10, -0.10, f"inlet_{s}"))
+    # 49.2 deg leading edge. area = 5.025*(5.05+1.55) + 0.6*5.05 = 36.2 m2
+    # against the real 35.77; aspect ratio 3.13 against the real 3.17.
+    p += wings(N - 9.70, SPAN, 5.05, 1.55, 5.83, 0.30, 0.0, "w")
+    p += wings(N - 16.30, 5.60, 3.10, 1.05, 2.55, 0.26, 0.0, "h")
+    p.append(fin(N - 13.60, 3.60, 5.60, 1.90, 3.10, 0.28, z=0.42))
+    p.append(fin(-6.20, -1.05, 2.80, 1.50, 1.20, 0.22, z=-0.60))   # ventral fin
     use("gun")
-    # OWNED: anti-radiation missiles. 4.14 m body (AGM-88 length) on the
-    # outboard station, where the wing chord is 4.05 m — pushed forward so
-    # 3.1 m of missile sits ahead of the leading edge with nothing above it.
+    p.append(cyl((0, -N + 0.80, 0), 0.60, 1.50, rot=(R(90), 0, 0), v=14))
+    # Anti-radiation missiles. By the brief these carry NO identification —
+    # they are gone at LOD2 and invisible overhead — so they are detail, not
+    # separation. AGM-78 Standard ARM inboard, AGM-45 Shrike outboard.
     for s in (-1, 1):
-        p.append(cyl((s * 3.30, 1.05, -0.58), 0.19, 3.40, rot=(R(90), 0, 0), v=10))
-        p.append(cyl((s * 3.30, 2.94, -0.58), 0.19, 0.74, rot=(R(90), 0, 0),
-                     v=10, taper=0.12))                    # seeker nose
-        for k, ang in enumerate((0, 90)):                  # cruciform tail fins
-            p.append(cube((s * 3.30, -0.35, -0.58), (0.94, 0.62, 0.05),
-                          rot=(0, R(ang), 0)))
-        p.append(cyl((s * 0.70, -L * 0.44, -0.05), 0.50, 2.00,
-                     rot=(R(90), 0, 0), v=12))             # nozzles
+        p.append(cube((s * 2.30, -1.60, -0.40), (0.22, 1.30, 0.52)))
+        p.append(cyl((s * 2.30, -1.10, -0.72), 0.17, 4.10,
+                     rot=(R(90), 0, 0), v=10))
+        p.append(cyl((s * 2.30, 1.19, -0.72), 0.17, 0.48,
+                     rot=(R(90), 0, 0), v=10, taper=0.10))
+        p.append(cube((s * 3.60, -3.70, -0.40), (0.20, 1.20, 0.48)))
+        p.append(cyl((s * 3.60, -3.20, -0.74), 0.14, 2.60,
+                     rot=(R(90), 0, 0), v=10))
+        p.append(cyl((s * 3.60, -1.68, -0.74), 0.14, 0.44,
+                     rot=(R(90), 0, 0), v=10, taper=0.10))
+    p.append(cyl((0, -0.60, -1.20), 0.45, 5.60, rot=(R(90), 0, 0), v=12))
+    use("deck")
+    p.append(dome((0, N - 1.15, 0.02), 0.52, 1.10, 0.48, v=16))       # radome
+    p.append(cube((0, -1.20, 0.86), (0.56, 7.00, 0.24)))              # spine
+    use("body")             # 4.6 m tandem two-seat canopy, PROUD of the spine
+    p.append(dome((0, N - 5.70, 0.72), 0.60, 2.30, 0.42, v=16))
+    use("glass")
+    p.append(dome((0, N - 5.66, 0.76), 0.54, 2.16, 0.40, v=16))
     use("body")
-    p += _kit(SPAN, L, 0, tanks=2)
-    return p, dict(top=0.95, hull_l=L, hull_w=SPAN, turret_top=2.1,
+    return p, dict(top=1.0, hull_l=L, hull_w=SPAN, turret_top=2.2,
                    gun_z=0.2, gun_y=L * 0.34)
 
 
 def stealth_strike():
-    """Faceted, no vertical surfaces you can see from above, canted fins. The
-    fourth-root RCS cliff of docs/02 arrives with this airframe."""
-    L, SPAN = 15.7, 10.7
+    """Stealth strike. This is an F-117A NIGHTHAWK: 20.09 m long, 13.20 m span,
+    leading edge swept 67.5 deg, no vertical fin, no tailplane, a V-tail of two
+    all-moving ruddervators canted 40 deg, and a faceted body that IS the wing.
+
+    WHY THE F-117 AND NOT THE F-35. The audit measured this slot at 0.75 IoU
+    against the F-16 multirole -- the fifth worst pair in the roster -- because
+    the previous build carried F-35A dimensions (10.70 x 15.70, LE sweep 42
+    deg), and an F-35 really is an F-16-sized cropped delta. Seven degrees of
+    extra sweep cannot separate two aircraft that are the same family, the same
+    size and the same proportion. The F-117 is the aircraft docs/12 actually
+    describes -- "Stealth strike aircraft, epoch 4, the fourth-root cliff
+    arrives", which is Baghdad 1991, not Lightning II -- and it is the only
+    combat jet in the roster whose planform is a single unbroken dart. Measured
+    against the same F-16 it lands at 0.596 shape / 0.604 at 60 px.
+
+    THE PLANFORM IS THE WHOLE AIRCRAFT. Apex on the nose, one straight 67.5 deg
+    leading edge to each tip (tan 67.5 = 2.414, so a 6.60 m semi-span puts the
+    tip 15.93 m aft of the nose, at 79% of length), then a trailing edge that
+    sweeps forward from the centreline tail to the tip. Total plan area 139 m2.
+    Nothing projects from it: no fin above, no stabiliser behind, no wingtip
+    outboard of the leading edge. Every other fast jet in the roster is a
+    fuselage with surfaces attached; this one has no fuselage to attach them to.
+
+    The upper surface is six interpolated facet tiers converging on a
+    centreline ridge, because that faceting is what the RTS camera sees of a
+    shape that is otherwise a black triangle, and the two exhaust decks and
+    two grid-covered intakes give it the material contrast the brief asks for
+    at priority 5."""
+    L, SPAN = 20.09, 13.20
+    ny, hs = L / 2.0, SPAN / 2.0
+    tip_y = ny - hs * math.tan(R(67.5))            # -5.885: the 67.5 deg LE
+
+    def mirror(right):
+        return right + [(-x, y) for (x, y) in reversed(right[1:-1])]
+
+    # tier 1: the true planform. Wingtip chord is short and raked; the
+    # trailing edge runs forward from the platypus tail to the tip.
+    plan = mirror([(0.00, ny), (hs, tip_y), (hs - 0.30, -7.35),
+                   (2.60, -8.70), (0.00, -ny)])
+    ridge = mirror([(0.00, 7.40), (2.10, -0.55), (1.95, -5.55),
+                    (0.95, -7.20), (0.00, -8.05)])
+    use("body")
+    # SIX interpolated facet tiers between the planform and the ridge, not
+    # three stacked slabs. Three slabs gave a wedding-cake profile with 0.5 m
+    # vertical risers; six shallow steps read as the F-117's chined facets
+    # from every angle and cost 24 extra triangles at LOD1.
     p = []
-    use("body")
-    p.append(plate([(0, L * 0.46), (2.05, -1.6), (1.55, -L * 0.42),
-                    (-1.55, -L * 0.42), (-2.05, -1.6)], 1.10, 0.0, "sf_body"))
-    p += wings(1.0, SPAN, 5.4, 1.2, 4.6, 0.26, 0.0, "w")      # sharp delta
+    for i, (t, thick, z) in enumerate(((0.00, 0.38, 0.00), (0.22, 0.46, 0.36),
+                                       (0.44, 0.50, 0.72), (0.66, 0.52, 1.10),
+                                       (0.85, 0.52, 1.46), (1.00, 0.50, 1.78))):
+        poly = [(a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+                for a, b in zip(plan, ridge)]
+        p.append(plate(poly, thick, z, f"f117_t{i}"))
+    # OWNED: a V-TAIL and no other vertical surface. Two all-moving
+    # ruddervators canted 40 deg off vertical, so from directly above they
+    # read as two blades splaying aft-outboard from the tail -- not the
+    # near-parallel twin fins the superiority/strike/sead clique all carry.
     for s in (-1, 1):
-        p.append(fin(-4.4, 2.4, 2.6, 0.9, 1.9, 0.22, cant=26 * s, offset_x=s * 1.30))
+        p.append(fin(-6.40, 3.30, 2.95, 1.15, 1.95, 0.26,
+                     z=1.30, cant=40 * s, offset_x=s * 0.60))
+    for s in (-1, 1):
+        # intake fairings, ON TOP of the wing at the root leading edge, in the
+        # airframe's own material with only the grid-covered mouth dark. Built
+        # as pale panels they read as two stickers stuck to the wing.
+        p.append(cube((s * 1.65, 3.10, 1.15), (1.16, 1.90, 0.46),
+                      rot=(R(-7), 0, 0)))
+    use("gunbore")
+    for s in (-1, 1):
+        p.append(cube((s * 1.65, 3.92, 1.20), (1.02, 0.26, 0.34),
+                      rot=(R(-7), 0, 0)))
     use("deck")
+    for s in (-1, 1):
+        # the platypus exhaust decks: wide, flat, aft, and a different tone
+        p.append(cube((s * 2.20, -7.05, 1.00), (2.10, 2.40, 0.24)))
     use("glass")
-    p.append(dome((0, L * 0.20, 0.60), 0.44, 1.20, 0.28, v=14))
-    use("gun")
-    p.append(cyl((0, -L * 0.44, -0.05), 0.52, 1.40, rot=(R(90), 0, 0), v=12))
+    # faceted five-panel canopy, flat plates rather than a bubble
+    p.append(cube((0, 5.15, 2.16), (1.30, 1.95, 0.44), rot=(R(-6), 0, 0)))
+    p.append(cube((0, 6.32, 2.00), (1.00, 0.95, 0.34), rot=(R(-22), 0, 0)))
     use("body")
-    return p, dict(top=0.75, hull_l=L, hull_w=SPAN, turret_top=1.7,
-                   gun_z=0.2, gun_y=L * 0.34)
+    return p, dict(top=2.10, hull_l=L, hull_w=SPAN, turret_top=3.5,
+                   gun_z=0.3, gun_y=L * 0.30)
 
 
 # ── enablers ───────────────────────────────────────────────────────
 def aewc():
-    """Pillar 5. An airliner with a ROTODOME — the most identifiable planform
-    in the game, and the most valuable target on the map."""
-    L, SPAN = 46.6, 44.4
-    p = fuselage(L, 2.05, 0.52, 0.52)
-    p += wings(7.0, SPAN, 9.0, 3.2, 12.0, 0.60, -0.40, "w")
-    p += wings(-17.0, 14.5, 4.6, 1.8, 3.6, 0.44, 0.0, "h")
-    p.append(fin(-14.5, 8.2, 8.0, 2.8, 5.4, 0.44, 1.1))
+    """Boeing E-3B Sentry, on the 707-320B airframe: 44.42 m span, 46.61 m
+    long, wing area 283.4 m^2 (AR 6.96), leading edge swept 35 deg.
+
+    Pillar 5. The ROTODOME is the clearest single identifier in the game and
+    it is built to its real size — 9.14 m across and 1.83 m deep, which is
+    20% of this aircraft's length sitting as a hard disc on top of an
+    otherwise plain airliner plan. It is 'deck' dark grey on an air_white
+    fuselage, so from the fixed overhead camera it is a black circle on a
+    white cross. Nothing else in the roster is a circle.
+
+    It shares an airframe with tanker(): both are 707s and pretending
+    otherwise would be a fake. The honest separators are the rotodome here
+    and the trailing boom there, plus the engines — this keeps the original
+    slim low-bypass TF33 pods (1.56 m nacelle) where the KC-135R was
+    re-engined with the fat CFM56 (2.15 m).
+    """
+    L, SPAN = 46.61, 44.42
+    p = fuselage(L, 1.88, 0.52, 0.52)
+    # semispan 22.21, panel root at x=0.30, so sweep 15.35 => LE 35.1 deg.
+    p += wings(7.4, SPAN, 9.2, 3.0, 15.35, 0.60, -0.62, "w")
+    p += wings(-16.2, 14.35, 4.8, 1.9, 4.4, 0.44, 0.0, "h")
+    p.append(fin(-14.0, 8.4, 8.6, 2.9, 6.0, 0.44, 1.05))
     use("gun")
-    for s in (-1, 1):
-        for k in range(2):
-            p.append(cyl((s * (5.6 + k * 4.4), 3.0 - k * 1.2, -1.20), 0.98, 4.40,
+    for s in (-1, 1):                              # four TF33 pods on pylons
+        for k, (x, y) in enumerate(((5.9, 1.6), (10.6, -1.6))):
+            p.append(cyl((s * x, y, -1.55), 0.78, 5.60,
                          rot=(R(90), 0, 0), v=14))
-    use("deck")                                                # the rotodome
-    p.append(cyl((0, -1.5, 3.35), 4.55, 0.72, v=28))
-    for s in (-1, 1):
-        p.append(cube((s * 0.9, -1.5, 2.55), (0.34, 2.60, 1.70)))
+            p.append(cube((s * x, y + 1.90, -1.05), (0.34, 2.20, 0.95)))
+    use("deck")
+    # THE ROTODOME. Real AN/APY-1 dimensions: 9.14 m diameter, 1.83 m deep,
+    # 4.2 m above the fuselage on two struts, centred well aft of the wing.
+    p.append(cyl((0, -6.40, 5.05), 4.57, 1.83, v=32))
+    p.append(cyl((0, -6.40, 5.05), 4.62, 0.34, v=32))            # rim band
+    for s in (-1, 1):                                            # the struts
+        p.append(cube((s * 1.05, -6.40, 3.05), (0.42, 3.10, 2.90)))
+    p.append(cube((0, -6.40, 1.90), (2.60, 3.40, 0.70)))         # strut base
     use("body")
+    p.append(cyl((0, 5.60, 1.72), 0.44, 2.20, rot=(R(90), 0, 0), v=10))  # SATCOM
     use("glass")
-    p.append(dome((0, L * 0.40, 0.72), 0.72, 1.60, 0.42, v=16))
+    p.append(dome((0, L * 0.40, 0.66), 0.70, 1.60, 0.42, v=16))
     use("body")
-    return p, dict(top=2.1, hull_l=L, hull_w=SPAN, turret_top=4.3,
+    return p, dict(top=2.1, hull_l=L, hull_w=SPAN, turret_top=5.9,
                    gun_z=0.4, gun_y=L * 0.30)
 
 
 def aew_helo():
-    """The UK compromise (docs/08): a rotor aircraft with a radar bulge. ~3 km
-    altitude gives ~235 km horizon against ~400 km for a fixed-wing AEW."""
-    L, ROTOR = 17.0, 18.6
-    p = fuselage(L * 0.62, 1.35, 0.62, 0.40, z=1.20)
-    p.append(cube((0, -L * 0.30, 1.30), (0.75, L * 0.42, 0.80)))   # tail boom
-    p += wings(-L * 0.44, 4.6, 1.6, 1.0, 0.6, 0.20, 1.30, "h")
-    p.append(fin(-L * 0.46, 2.4, 2.0, 1.0, 0.9, 0.22, 1.60))
+    """Westland Sea King AEW2 / ASaC.7 — the UK compromise (docs/08): a rotor
+    aircraft with a radar bulge. ~3 km altitude gives ~235 km horizon against
+    ~400 km for a fixed-wing AEW.
+
+    Real Sea King: main rotor 18.90 m over FIVE blades, fuselage 17.02 m,
+    tail rotor 3.16 m on the port side, boat hull with sponsons.
+
+    Two things carry it from overhead. The rotor is the ONLY five-blade disc
+    in the roster — attack, transport and ASW are all four-blade, so a parked
+    five-blade star cannot be read as any of them at any azimuth. And the
+    Searchwater bag swings down on the STARBOARD side: a 2.9 m ovoid hung
+    clear of the fuselage, asymmetric, which no other rotary unit has.
+    """
+    L, ROTOR = 17.02, 18.90
+    p = _at(fuselage(11.60, 1.42, 0.62, 0.40, z=1.35,
+                     stations=((0.00, 0.10), (0.06, 0.52), (0.15, 0.84),
+                               (0.26, 1.00), (0.60, 1.00), (0.80, 0.84),
+                               (1.00, 0.46))),
+            L * 0.5 - 6.10)
+    p.append(cube((0, -L * 0.31, 1.55), (0.78, L * 0.40, 0.86)))   # tail boom
+    p += wings(-L * 0.44, 4.60, 1.70, 1.05, 0.55, 0.22, 1.50, "h")
+    p.append(fin(-L * 0.375, 2.60, 2.40, 1.10, 1.20, 0.24, 1.75))
     use("deck")
-    p.append(cyl((1.45, 0.4, 1.10), 1.35, 1.90, rot=(0, R(90), 0), v=18))  # radome
-    use("gun")
-    p.append(cyl((0, 0.6, 2.35), 0.36, 0.70, v=14))                # rotor head
-    for i in range(4):                                              # blades
-        b = plate([(-0.22, 0), (0.22, 0), (0.16, ROTOR / 2), (-0.16, ROTOR / 2)],
-                  0.10, 2.55, f"bl{i}")
-        b.rotation_euler = (0, 0, R(i * 90 + 12))
-        p.append(b)
-    p.append(cyl((0.55, -L * 0.46, 1.95), 0.22, 0.30, rot=(0, R(90), 0), v=12))
+    # The Searchwater radome, lowered to starboard. A 2.9 m bag on a 17 m
+    # airframe, standing clear of the hull so it breaks the plan outline.
+    p.append(dome((2.35, 0.70, 0.85), 1.12, 1.45, 1.05, v=18))
+    p.append(cube((1.35, 0.70, 1.55), (1.30, 0.90, 0.70)))         # swing arm
+    for s in (-1, 1):                                              # sponsons
+        p.append(cube((s * 1.55, -0.20, 0.72), (0.80, 3.10, 0.62)))
     use("body")
-    return p, dict(top=2.0, hull_l=L, hull_w=ROTOR, turret_top=2.8,
+    p.append(cyl((0, 0.90, 2.55), 0.34, 0.90, v=14))               # rotor head
+    p += _rotor(5, ROTOR, 2.95, y0=0.90, phase=18.0, chord=(0.30, 0.22))
+    use("gun")                                        # 3.16 m tail rotor, port
+    p.append(cyl((-0.52, -L * 0.46, 2.30), 1.58, 0.24,
+                 rot=(0, R(90), 0), v=14))
+    use("body")
+    p += _heli_glass(L * 0.5 - 1.55, 2.05, 1.05, 1.40, 0.60)
+    return p, dict(top=2.0, hull_l=L, hull_w=ROTOR, turret_top=3.0,
                    gun_z=1.3, gun_y=L * 0.20)
 
 
@@ -489,24 +1019,46 @@ def electronic_attack():
     suppression is a fighter (F-100F/F-105G Wild Weasel, F-4G, F-16CJ) while
     US electronic attack is a wide-winged, multi-crew attack airframe
     (EB-66, EA-6A from 1963 — epoch 2 — then EA-6B, EF-111A). This is
-    dimensioned on the EA-6 Prowler: 59 ft 10 in x 53 ft = 18.24 x 16.15 m.
+    dimensioned on the EA-6B Prowler: 59 ft 10 in x 53 ft = 18.24 x 16.15 m.
     Same LENGTH as the SEAD fighter to within 0.3%, but 18.8% more SPAN over a
     wing of half again the aspect ratio, so the top-down plan is a different
     shape without either aircraft's real size being touched.
+
+    THIS PASS DOES NOT TOUCH SPAN OR LENGTH. The 16.15 x 18.24 box is what
+    separated this aircraft from the SEAD fighter and the audit confirmed the
+    pair holds at 0.56. What it corrects is inside that box:
+
+      wing taper   was root 4.20 / tip 2.00 (area 50.1 m2, AR 5.20). The real
+                   A-6 wing is root 4.66 / tip 1.44 — area 49.3 m2 against the
+                   published 49.1, aspect ratio 5.29 against 5.31. The wing is
+                   markedly more TRIANGULAR than the near-parallel panel it
+                   had, which is a planform difference from every fighter
+                   trapezoid in the roster and costs nothing in real size.
+      LE sweep     was 23.0 deg, is 25.0 — the A-6's actual figure.
+      fuselage     was a 2.04 m tube. The A-6 forward fuselage is a 2.44 m
+                   flat-sided BOX, because the crew sit side by side in pairs;
+                   it is the widest non-wing structure on any 18 m aircraft in
+                   the roster and it reads from directly above.
+      probe        the fixed refuelling probe ahead of the windscreen. Unlike
+                   a store this stands on the CENTRELINE at the highest point
+                   of the nose, so nothing occludes it from overhead and it
+                   does not vanish when the pods are stripped at LOD2. Its tip
+                   stops short of the radome: overall length is still 18.24 m.
 
     It is unarmed. Everything it carries transmits."""
     L, SPAN = 18.24, 16.15
     # Blunt radome nose and a body that stays full-width back to the wing —
     # the A-6 forward fuselage is a wide box, not the fighter's needle.
-    p = fuselage(L, 1.02, 0.0, 0.0,
-                 stations=((0.00, 0.46), (0.05, 0.78), (0.17, 0.97),
-                           (0.46, 1.00), (0.74, 0.92), (0.89, 0.66),
-                           (1.00, 0.36)))
-    # OWNED: high-aspect attack wing. area 16.15*(4.2+2.0)/2 = 50.1 m^2 against
-    # the real 49.1, aspect ratio 5.2 against the real 5.31. sead()'s wing is
-    # 13.6 x (5.8+2.0)/2 = 53.0 m^2 at AR 3.4 — same area class, twice the
-    # slenderness, which is the whole planform difference.
-    p += wings(1.9, SPAN, 4.2, 2.0, 3.3, 0.34, 0.0, "w")
+    p = fuselage(L, 1.22, 0.0, 0.0,
+                 stations=((0.00, 0.42), (0.05, 0.74), (0.17, 0.96),
+                           (0.46, 1.00), (0.74, 0.90), (0.89, 0.62),
+                           (1.00, 0.32)))
+    # OWNED: high-aspect attack wing, now at the real A-6 taper. Area
+    # 16.15*(4.66+1.44)/2 = 49.3 m^2 against the published 49.1, AR 5.29
+    # against 5.31. sead()'s wing is 13.6 x (5.8+2.0)/2 = 53.0 m^2 at AR 3.4 —
+    # same area class, twice the slenderness, which is the planform difference.
+    # sweep 3.63 m over a 7.775 m semi-span outboard of the root = 25.0 deg.
+    p += wings(1.9, SPAN, 4.66, 1.44, 3.63, 0.34, 0.0, "w")
     p += wings(-5.9, 6.6, 2.7, 1.4, 1.4, 0.28, 0.12, "h")
     # OWNED: ONE tall centre fin. sead() has two, canted, spread to +/-1.10 m;
     # from overhead that is a V outboard of the tail against this single spine.
@@ -528,89 +1080,187 @@ def electronic_attack():
     p.append(cyl((0, 1.20, -1.05), 0.38, 4.30, rot=(R(90), 0, 0), v=10))
     # Side-mounted intakes: the A-6 is widest at the wing root, not at the nose.
     for s in (-1, 1):
-        p.append(cyl((s * 1.30, 2.60, -0.10), 0.62, 3.20, rot=(R(90), 0, 0),
+        p.append(cyl((s * 1.42, 2.60, -0.10), 0.62, 3.20, rot=(R(90), 0, 0),
                      v=12))
     use("body")
     # OWNED: the 5.4 m four-seat greenhouse. sead() has a 1.55 m single-seat
     # canopy. Seen from directly overhead this is a flat glass panel running a
     # third of the fuselage — the "big flat area of a different material" read.
-    p.append(cube((0, 4.55, 0.86), (1.92, 5.40, 0.72)))
-    p.append(dome((0, 7.25, 0.86), 0.96, 0.95, 0.36, v=14))         # front cap
+    p.append(cube((0, 4.55, 0.86), (2.30, 5.40, 0.86)))
+    p.append(dome((0, 7.25, 0.86), 1.14, 0.95, 0.42, v=14))         # front cap
     use("glass")
-    p.append(cube((0, 4.62, 0.94), (1.74, 5.10, 0.62)))
-    p.append(dome((0, 7.22, 0.92), 0.84, 0.92, 0.30, v=14))
+    p.append(cube((0, 4.62, 0.99), (2.08, 5.10, 0.66)))
+    p.append(dome((0, 7.22, 0.94), 1.00, 0.92, 0.34, v=14))
+    use("gun")
+    # The fixed refuelling probe, on the centreline ahead of the windscreen.
+    # Tip stops 0.8 m short of the radome, so overall length stays 18.24 m.
+    p.append(cyl((0, 7.45, 1.44), 0.09, 1.75, rot=(R(83), 0, 0), v=8))
+    p.append(cyl((0, 8.15, 1.53), 0.14, 0.40, rot=(R(83), 0, 0), v=10,
+                 taper=0.40))
     use("body")
-    p.append(dome((0, L * 0.44, 0.02), 0.86, 1.05, 0.84, v=16))     # radome
+    p.append(dome((0, L * 0.44, 0.02), 0.94, 1.05, 0.90, v=16))     # radome
     return p, dict(top=1.30, hull_l=L, hull_w=SPAN, turret_top=3.9,
                    gun_z=0.4, gun_y=L * 0.26)
 
 
 def tanker():
-    """Pillar 4 in the air. Airliner body plus a refuelling boom — turns a
-    30-minute CAP into a three-hour one, and is the second most valuable
-    target in the sky."""
-    L, SPAN = 41.5, 39.9
-    p = fuselage(L, 1.95, 0.52, 0.50)
-    p += wings(6.4, SPAN, 8.6, 3.0, 11.2, 0.56, -0.36, "w")
-    p += wings(-15.4, 13.6, 4.4, 1.7, 3.4, 0.42, 0.0, "h")
-    p.append(fin(-13.2, 7.8, 7.8, 2.7, 5.2, 0.42, 1.0))
+    """Boeing KC-135R Stratotanker: 39.88 m span, 41.53 m long, wing area
+    226.0 m^2 (AR 7.04), leading edge swept 35 deg.
+
+    Pillar 4 in the air. Turns a 30-minute CAP into a three-hour one, and is
+    the second most valuable target in the sky.
+
+    Same 707 family as aewc(), so the airframe is deliberately NOT restyled
+    away from it. What separates them is what each one is FOR, and both of
+    those things stick out into the planform:
+
+      the BOOM. 8.5 m of flying boom trailing aft and down from the tail,
+        with its ruddevator V and the boom operator's ventral fairing. It
+        pushes the plan length to ~46 m against a 41.5 m airframe — a spike
+        aft of the tailplane that the E-3 does not have.
+      the WING PODS. Two MPRS hose-and-drogue pods on the wingtips, so the
+        span outline ends in a pair of hard cylinders.
+      the ENGINES. CFM56-2B, 2.15 m nacelles. The E-3B kept the slim 1.56 m
+        TF33s, so at the same wing station this aircraft's pods are half
+        again as wide.
+    """
+    L, SPAN = 41.53, 39.88
+    p = fuselage(L, 1.88, 0.52, 0.50)
+    # semispan 19.94, panel root at x=0.30, so sweep 13.75 => LE 35.0 deg.
+    p += wings(6.6, SPAN, 8.8, 2.9, 13.75, 0.56, -0.58, "w")
+    p += wings(-14.6, 12.90, 4.5, 1.8, 4.1, 0.42, 0.0, "h")
+    p.append(fin(-12.6, 8.0, 8.2, 2.8, 5.6, 0.42, 1.0))
     use("gun")
-    for s in (-1, 1):
-        for k in range(2):
-            p.append(cyl((s * (5.4 + k * 4.2), 2.6 - k * 1.1, -1.15), 0.94, 4.20,
+    for s in (-1, 1):                              # four fat CFM56 nacelles
+        for x, y in ((5.6, 1.4), (10.1, -1.5)):
+            p.append(cyl((s * x, y, -1.42), 1.07, 4.90,
                          rot=(R(90), 0, 0), v=14))
-    use("deck")                                                 # the boom
-    p.append(cyl((0, -L * 0.50, -1.30), 0.30, 9.0, rot=(R(76), 0, 0), v=12))
-    p += wings(-L * 0.56, 5.2, 1.4, 0.8, 0.5, 0.18, -2.30, "bv")
+            p.append(cube((s * x, y + 1.80, -0.95), (0.34, 2.10, 0.90)))
+    use("deck")
+    # THE BOOM, stowed: down and aft from under the tail, with its ruddevators.
+    p.append(cyl((0, -L * 0.505, -1.35), 0.34, 8.60, rot=(R(74), 0, 0), v=12))
+    p.append(cyl((0, -L * 0.585, -2.65), 0.20, 3.20, rot=(R(80), 0, 0), v=10))
+    p += wings(-L * 0.545, 4.60, 1.55, 0.85, 0.60, 0.20, -2.20, "bv")
+    p.append(cube((0, -L * 0.40, -1.85), (1.30, 4.20, 0.80)))    # boomer pod
+    for s in (-1, 1):                              # MPRS wingtip drogue pods
+        p.append(cyl((s * (SPAN * 0.5 - 0.42), -8.40, -0.62), 0.42, 3.60,
+                     rot=(R(90), 0, 0), v=12))
     use("body")
     use("glass")
-    p.append(dome((0, L * 0.40, 0.72), 0.72, 1.60, 0.42, v=16))
+    p.append(dome((0, L * 0.40, 0.66), 0.70, 1.60, 0.42, v=16))
     use("body")
     return p, dict(top=2.0, hull_l=L, hull_w=SPAN, turret_top=4.2,
                    gun_z=0.4, gun_y=L * 0.30)
 
 
 def isr():
-    """Very high aspect ratio wing, slender body. Contributes tracks, carries
-    nothing."""
-    L, SPAN = 30.0, 34.0
-    p = fuselage(L, 1.15, 0.50, 0.45)
-    p += wings(3.0, SPAN, 3.4, 1.5, 3.0, 0.36, 0.0, "w")       # long thin wing
-    p += wings(-11.0, 9.0, 2.6, 1.2, 1.6, 0.30, 0.0, "h")
-    p.append(fin(-9.6, 5.0, 4.6, 1.8, 3.0, 0.32, 0.7))
+    """Lockheed U-2S Dragon Lady: 31.39 m span, 19.20 m long, wing area
+    92.9 m^2 (AR 10.6), leading edge swept ~6 deg. Contributes tracks,
+    carries nothing.
+
+    WAS WRONG. This was modelled 34.0 x 30.0 m with AR 13.9 and four-engine
+    airliner proportions — not any aircraft that has ever flown, and sitting
+    between the U-2, the RC-135 and the Global Hawk without being any of
+    them. It is now a U-2, for two reasons: it is the epoch-1 high-altitude
+    reconnaissance aircraft the role is written around, and the other two
+    candidates are already taken — uav_e5_us_recon IS an RQ-4 Global Hawk,
+    and an RC-135 is a 707, which is aewc() and tanker().
+
+    From above it is a glider: one enormous straight wing, span 1.63x the
+    length, on a body barely wider than a fighter's, with a single fin and
+    ONE engine buried in the fuselage. Every other high-aspect aircraft in
+    the roster is either unmanned (V-tail, AR 17-25) or multi-engined.
+    """
+    L, SPAN = 19.20, 31.39
+    p = fuselage(L, 0.76, 0.50, 0.45,
+                 stations=((0.00, 0.06), (0.08, 0.42), (0.20, 0.72),
+                           (0.34, 0.94), (0.52, 1.00), (0.74, 0.92),
+                           (0.90, 0.68), (1.00, 0.30)))
+    # semispan 15.70, panel root at x=0.30, so sweep 1.62 => LE 6.0 deg.
+    # area 31.39 * (4.30 + 1.62) / 2 = 92.9 m^2, the real wing area.
+    p += wings(3.30, SPAN, 4.30, 1.62, 1.62, 0.34, 0.28, "w")
+    p += wings(-6.90, 6.10, 2.10, 1.05, 0.55, 0.26, 0.20, "h")
+    p.append(fin(-5.28, 3.30, 4.30, 1.70, 2.60, 0.30, 0.55))
     use("deck")
-    p.append(dome((0, 2.0, -1.05), 1.05, 1.60, 0.70, v=16))     # sensor fairing
+    # The Q-bay hump and the dorsal satcom fairing: on a body this slim they
+    # are the only things that widen the plan between wing and canopy.
+    p.append(dome((0, 4.10, 0.78), 0.72, 2.00, 0.52, v=16))
+    p.append(dome((0, -1.30, 0.86), 0.58, 1.60, 0.48, v=16))
+    for s in (-1, 1):                              # root intakes, buried F118
+        p.append(cube((s * 1.02, 2.10, 0.10), (0.62, 2.60, 0.86)))
     use("gun")
-    for s in (-1, 1):
-        p.append(cyl((s * 2.6, 1.0, -0.70), 0.62, 3.00, rot=(R(90), 0, 0), v=12))
+    p.append(cyl((0, -L * 0.46, 0.10), 0.44, 0.90, rot=(R(90), 0, 0), v=14,
+                 taper=0.72))                                     # tailpipe
+    p.append(cyl((0, L * 0.42, 0.02), 0.40, 1.60, rot=(R(90), 0, 0), v=14,
+                 taper=0.30))                                     # sensor nose
     use("body")
+    for s in (-1, 1):                              # wing super pods, slung low
+        p.append(cyl((s * 4.20, 3.10, -0.98), 0.54, 6.00,
+                     rot=(R(90), 0, 0), v=12))
     use("glass")
-    p.append(dome((0, L * 0.40, 0.72), 0.72, 1.60, 0.42, v=16))
+    p.append(dome((0, 6.40, 0.72), 0.56, 1.30, 0.40, v=16))
     use("body")
-    return p, dict(top=1.3, hull_l=L, hull_w=SPAN, turret_top=3.0,
+    return p, dict(top=1.0, hull_l=L, hull_w=SPAN, turret_top=1.9,
                    gun_z=0.3, gun_y=L * 0.30)
 
 
 def maritime_patrol():
-    """Pillar 6 from the air: sonobuoys, MAD boom, torpedoes."""
-    L, SPAN = 39.5, 37.6
-    p = fuselage(L, 1.90, 0.52, 0.48)
-    p += wings(5.8, SPAN, 8.0, 2.9, 10.4, 0.54, -0.34, "w")
-    p += wings(-14.6, 13.0, 4.2, 1.7, 3.2, 0.40, 0.0, "h")
-    p.append(fin(-12.6, 7.4, 7.4, 2.6, 5.0, 0.40, 1.0))
+    """Lockheed P-3C Orion: 30.37 m span, 35.57 m long over the MAD boom,
+    wing area 120.8 m^2 (AR 7.64), leading edge swept ~8 deg, four Allison
+    T56 turboprops turning 4.11 m four-blade propellers. Pillar 6 from the
+    air: sonobuoys, MAD boom, torpedoes.
+
+    WAS THE WORST PAIR IN THE ROSTER (0.9312 against the tanker) and the
+    cause was a dimension error, not a styling one: it was built 37.60 x
+    39.50 m — 24% too much span and 11% too much length — which put a
+    four-engine swept-wing aircraft inside 6% of the KC-135's envelope. At
+    its true P-3 size it is 24% shorter in span and 14% shorter than the
+    tanker, and the shape changes with it:
+
+      the WING is a straight Electra wing, LE swept 8 deg against the 707's
+        35 deg. From overhead that is a bar across the fuselage, not a V.
+      the PROPELLERS. Four 4.11 m discs, and a parked prop shows its
+        near-horizontal blade pair sticking a full 2 m out each side of the
+        nacelle. Eight blade shapes strung across the wing is a signature no
+        jet in the roster can produce, and it survives to LOD2 because the
+        blades are on top of the wing, not slung under it.
+      the MAD BOOM. 3.5 m of tapering stinger aft of the tail cone, on the
+        centreline, where the tanker's boom hangs low and carries a
+        ruddevator V.
+    """
+    L, SPAN = 35.57, 30.37
+    NOSE = 16.03                                   # 32.06 m of loft, then MAD
+    p = fuselage(32.06, 1.72, 0.52, 0.48,
+                 stations=((0.00, 0.16), (0.05, 0.58), (0.13, 0.88),
+                           (0.24, 1.00), (0.63, 1.00), (0.80, 0.84),
+                           (0.92, 0.60), (1.00, 0.32)))
+    # semispan 15.185, panel root at x=0.30, so sweep 2.09 => LE 8.0 deg.
+    # area 30.37 * (5.60 + 2.36) / 2 = 120.9 m^2, the real wing area.
+    p += wings(4.20, SPAN, 5.60, 2.36, 2.09, 0.52, -1.02, "w")
+    p += wings(-12.30, 12.10, 3.90, 1.70, 1.05, 0.42, 0.30, "h")
+    p.append(fin(-11.10, 6.30, 6.60, 2.40, 3.60, 0.42, 1.35))
     use("gun")
+    # Four T56 nacelles at +/-5.0 and +/-9.5 m, each standing 2.6 m proud of
+    # the leading edge, with its propeller disc ahead of that.
     for s in (-1, 1):
-        for k in range(2):
-            p.append(cyl((s * (5.2 + k * 4.0), 2.4 - k * 1.0, -1.10), 0.90, 4.00,
+        for x, le in ((5.00, 3.54), (9.50, 2.91)):
+            p.append(cyl((s * x, le - 1.10, -0.62), 0.72, 6.40,
                          rot=(R(90), 0, 0), v=14))
+            p += _prop(s * x, le + 2.35, -0.62, 4.11, blades=4, phase=9.0,
+                       chord=0.36)
     use("deck")
-    p.append(cyl((0, -L * 0.54, 0.10), 0.22, 5.0, rot=(R(90), 0, 0), v=10))  # MAD
-    p.append(cube((0, 1.0, -1.85), (2.10, 6.20, 0.60)))          # weapons bay
+    # MAD stinger: 3.54 m aft of the tail cone, on the centreline.
+    p.append(cyl((0, -(NOSE + 1.72), 0.28), 0.30, 3.54,
+                 rot=(R(90), 0, 0), v=12, taper=0.22))
+    p.append(cube((0, 7.60, -2.02), (2.10, 3.95, 0.52)))         # weapons bay
+    p.append(dome((0, NOSE - 2.30, -1.24), 1.06, 1.80, 0.62, v=16))  # APS-115
+    for s in (-1, 1):                              # ESM / sonobuoy fairings
+        p.append(cube((s * 1.72, -3.40, -0.20), (0.34, 3.20, 0.70)))
     use("body")
     use("glass")
-    p.append(dome((0, L * 0.40, 0.72), 0.72, 1.60, 0.42, v=16))
+    p.append(dome((0, NOSE - 3.20, 0.62), 0.66, 1.70, 0.42, v=16))
     use("body")
-    return p, dict(top=2.0, hull_l=L, hull_w=SPAN, turret_top=4.0,
+    return p, dict(top=1.9, hull_l=L, hull_w=SPAN, turret_top=3.6,
                    gun_z=0.4, gun_y=L * 0.30)
 
 
@@ -852,55 +1502,118 @@ def asw_helo():
 
 # ── unmanned ───────────────────────────────────────────────────────
 def recon_uav():
-    """Enormous span on a tiny body — the most extreme aspect ratio in the
-    roster, and unmistakable from above."""
-    L, SPAN = 14.5, 35.0
-    p = fuselage(L, 0.72, 0.55, 0.40)
-    p += wings(1.6, SPAN, 2.0, 0.9, 1.4, 0.22, 0.30, "w")
-    for s in (-1, 1):                                              # V-tail
-        p.append(fin(-L * 0.40, 2.6, 2.2, 1.0, 1.4, 0.20, cant=38 * s,
-                     offset_x=s * 0.45))
+    """Northrop Grumman RQ-4A Global Hawk Block 10: 35.42 m span, 13.54 m
+    long, wing area 50.2 m^2 (AR 25) — the most extreme aspect ratio in the
+    roster, and unmistakable from above.
+
+    It shares a family outline with armed_uav() (long straight wing, V-tail)
+    and the two used to be separated only by proportion, which is fragile.
+    Three OUTLINE elements are now exclusive to this one:
+
+      the WHALE NOSE. A 2.3 m satcom radome on a 1.4 m body — the plan is
+        wider at the nose than anywhere aft of it until the wing.
+      the DORSAL ENGINE. The AE3007 sits ON TOP of the rear fuselage, so
+        from directly overhead there is a 4.0 m dark nacelle lying along the
+        spine. The Reaper's engine is buried and drives a tail propeller.
+      an UPRIGHT V-TAIL over a plain tailcone, with nothing behind it.
+    """
+    L, SPAN = 13.54, 35.42
+    p = fuselage(L, 0.70, 0.55, 0.40,
+                 stations=((0.00, 0.55), (0.07, 0.96), (0.18, 1.00),
+                           (0.34, 0.96), (0.60, 0.86), (0.82, 0.66),
+                           (1.00, 0.30)))
+    # semispan 17.71, panel root at x=0.30, so sweep 1.83 => LE 6.0 deg.
+    # area 35.42 * (2.06 + 0.78) / 2 = 50.3 m^2, the real wing area.
+    p += wings(1.90, SPAN, 2.06, 0.78, 1.83, 0.22, 0.34, "w")
+    for s in (-1, 1):                              # V-tail, upright
+        p.append(fin(-4.35, 2.30, 2.40, 1.05, 1.45, 0.20, cant=36 * s,
+                     offset_x=s * 0.42))
     use("deck")
-    p.append(dome((0, L * 0.30, 0.40), 0.62, 1.10, 0.46, v=14))    # satcom bulge
-    use("gun")
-    p.append(cyl((0, -L * 0.40, 0.55), 0.42, 2.20, rot=(R(90), 0, 0), v=12))
+    # The whale nose: wider than the fuselage, and it IS the front of the plan.
+    p.append(dome((0, 4.52, 0.30), 1.16, 2.22, 0.92, v=20))
+    # Dorsal engine nacelle and its inlet lip, on the spine.
+    p.append(cyl((0, -3.20, 1.02), 0.62, 4.00, rot=(R(90), 0, 0), v=16))
+    p.append(cyl((0, -1.05, 1.02), 0.66, 0.55, rot=(R(90), 0, 0), v=16,
+                 taper=0.92))
     use("body")
-    return p, dict(top=0.7, hull_l=L, hull_w=SPAN, turret_top=1.6,
+    return p, dict(top=0.7, hull_l=L, hull_w=SPAN, turret_top=1.7,
                    gun_z=0.2, gun_y=L * 0.30)
 
 
 def armed_uav():
-    """High aspect wing, downward V-tail, missiles under the wing."""
-    L, SPAN = 11.0, 20.0
-    p = fuselage(L, 0.58, 0.55, 0.42)
-    p += wings(1.2, SPAN, 1.7, 0.8, 1.0, 0.20, 0.20, "w")
-    for s in (-1, 1):
-        p.append(fin(-L * 0.40, -2.0, 1.8, 0.8, 1.1, 0.18, cant=40 * s,
-                     offset_x=s * 0.38))
-    use("deck")
-    p.append(dome((0, L * 0.32, 0.34), 0.48, 0.85, 0.38, v=12))
-    for s in (-1, 1):
-        p.append(cyl((s * 3.0, 0.2, -0.30), 0.13, 1.70, rot=(R(90), 0, 0), v=8))
+    """General Atomics MQ-9A Reaper: 20.12 m span, 11.00 m long, wing area
+    23.1 m^2 (AR 17.5).
+
+    The counterpart to recon_uav(), and the elements that keep it out of the
+    Global Hawk's outline are all at the tail:
+
+      a PUSHER PROPELLER. 2.03 m three-blade, at the very back, behind
+        everything else. From overhead it lays a hard bar across the extreme
+        tail — the only aircraft in the roster with a propeller aft of its
+        tail surfaces.
+      a Y-TAIL: the V hangs DOWNWARD and there is a vertical fin above it.
+        The Global Hawk's V points up and carries nothing above.
+      a shallower nose bulge on a proportionally longer, thinner boom.
+    """
+    L, SPAN = 11.00, 20.12
+    p = fuselage(L, 0.56, 0.55, 0.42,
+                 stations=((0.00, 0.30), (0.07, 0.78), (0.18, 1.00),
+                           (0.40, 0.96), (0.66, 0.72), (0.86, 0.52),
+                           (1.00, 0.44)))
+    # semispan 10.06, panel root at x=0.30, so sweep 1.06 => LE 6.2 deg.
+    # area 20.12 * (1.62 + 0.68) / 2 = 23.1 m^2.
+    p += wings(1.45, SPAN, 1.62, 0.68, 1.06, 0.20, 0.22, "w")
+    for s in (-1, 1):                              # the V, hanging DOWN
+        p.append(fin(-3.70, -1.95, 1.85, 0.85, 1.10, 0.18, cant=42 * s,
+                     offset_x=s * 0.36))
+    p.append(fin(-3.70, 1.55, 1.70, 0.80, 1.00, 0.18, z=0.16))   # dorsal fin
     use("gun")
-    p.append(cyl((0, -L * 0.42, 0.40), 0.34, 1.60, rot=(R(90), 0, 0), v=12))
+    # Pusher propeller, aft of the tail surfaces. 2.03 m, three blades.
+    p += _prop(0.0, -L * 0.482, 0.12, 2.03, blades=3, phase=14.0, chord=0.20,
+               spinner=(0.16, 0.40))
+    use("deck")
+    p.append(dome((0, 3.55, 0.28), 0.52, 1.20, 0.40, v=14))      # satcom bulge
+    for s in (-1, 1):                              # Hellfire rails
+        p.append(cyl((s * 2.60, 0.60, -0.34), 0.13, 1.70,
+                     rot=(R(90), 0, 0), v=8))
+        p.append(cyl((s * 4.10, 0.40, -0.30), 0.11, 1.50,
+                     rot=(R(90), 0, 0), v=8))
     use("body")
-    return p, dict(top=0.6, hull_l=L, hull_w=SPAN, turret_top=1.3,
+    return p, dict(top=0.6, hull_l=L, hull_w=SPAN, turret_top=1.5,
                    gun_z=0.2, gun_y=L * 0.30)
 
 
 def loitering_munition():
-    """Epoch 7. Cheap and expendable — spend them to make the enemy radiate
-    (docs/05)."""
-    L, SPAN = 2.5, 3.0
-    p = fuselage(L, 0.18, 0.6, 0.5)
-    p += wings(0.3, SPAN, 0.45, 0.30, 0.25, 0.06, 0.0, "w")
-    for s in (-1, 1):
-        p.append(fin(-L * 0.40, 0.55, 0.42, 0.20, 0.24, 0.05, cant=42 * s,
-                     offset_x=s * 0.10))
+    """IAI Harop: 3.00 m span, 2.50 m long. Epoch 7. Cheap and expendable —
+    spend them to make the enemy radiate (docs/05).
+
+    It used to be a small high-aspect straight-winged aircraft with a V-tail,
+    i.e. a shrunken Reaper, which is exactly what a loitering munition is
+    not. It is now built as what it is: a MISSILE that happens to fly for six
+    hours — a needle body with a short 24 deg swept wing of aspect ratio 4.6,
+    canard foreplanes right behind the seeker, twin tail fins and a pusher
+    prop. At 3 m it is 1/7 the span of the next smallest air unit, so size
+    already separates it; this makes it read as a weapon rather than as an
+    aircraft when the player looks closely.
+    """
+    L, SPAN = 2.50, 3.00
+    p = fuselage(L, 0.19, 0.6, 0.5,
+                 stations=((0.00, 0.34), (0.10, 0.86), (0.22, 1.00),
+                           (0.62, 1.00), (0.84, 0.86), (1.00, 0.56)))
+    # semispan 1.50, panel root at x=0.30, so sweep 0.54 => LE 24.2 deg.
+    # area 3.00 * (0.95 + 0.35) / 2 = 1.95 m^2, AR 4.6.
+    p += wings(0.30, SPAN, 0.95, 0.35, 0.54, 0.07, 0.0, "w")
+    p += wings(0.98, 0.92, 0.34, 0.18, 0.16, 0.05, 0.05, "canard")
+    for s in (-1, 1):                              # twin near-upright fins
+        p.append(fin(-L * 0.36, 0.42, 0.40, 0.20, 0.20, 0.05, cant=14 * s,
+                     offset_x=s * 0.16))
     use("gun")
-    p.append(cyl((0, -L * 0.46, 0), 0.12, 0.34, rot=(R(90), 0, 0), v=10))
+    p.append(cyl((0, L * 0.43, 0), 0.15, 0.30, rot=(R(90), 0, 0), v=12,
+                 taper=0.34))                                     # seeker
+    p += _prop(0.0, -L * 0.46, 0.0, 0.70, blades=2, phase=20.0, chord=0.09,
+               spinner=(0.07, 0.20))
     use("body")
-    return p, dict(top=0.2, hull_l=L, hull_w=SPAN, turret_top=0.5,
+    return p, dict(top=0.2, hull_l=L, hull_w=SPAN, turret_top=0.4,
                    gun_z=0.05, gun_y=L * 0.30)
 
 

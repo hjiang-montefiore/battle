@@ -619,7 +619,13 @@ func _choose_posture() -> void:
 		# home. Losing contact used to drop a 0.5-aggression AI to DEFEND
 		# permanently, because its beliefs expired after 240 s and nothing ever
 		# refreshed them -- the AI blinded itself and then declined to scout.
-		posture = Posture.PROBE if aggression >= 0.35 else Posture.DEFEND
+		# 0.25, not 0.35. Only a doctrine that genuinely wants to be attacked
+		# should sit at home with no contacts: FORTRESS (0.10) is "nothing comes
+		# to you, you have to go in", and TECH_RUSH (0.20) is buying time on
+		# purpose. DENIAL is 0.30 and is about making the ENEMY fight blind, not
+		# about refusing to manoeuvre -- at 0.35 it never left its start line and
+		# a peer match against it could not end.
+		posture = Posture.PROBE if aggression >= 0.25 else Posture.DEFEND
 	elif force_ratio >= commit_at:
 		posture = Posture.ATTACK
 	elif aggression >= 0.30:
@@ -745,16 +751,83 @@ func _assign_objectives() -> void:
 			group.state = SimAiGroup.State.ENGAGING if posture == Posture.ATTACK \
 				else SimAiGroup.State.ADVANCING
 			continue
-		# Nothing worth committing to. Hold the line, or go and look.
+		# Nothing worth committing to. What a force does now depends on what it
+		# was TRYING to do, and getting that wrong was the single reason no
+		# match in this game could ever end.
+		#
+		# The old rule offered the last-known-position fallback to a PROBE and
+		# sent everything else home. So an army in ATTACK posture that lost its
+		# tracks -- which happens seconds after contact, because tracks decay --
+		# turned around and drove back to base. Measured: two AI opponents made
+		# contact once at t+240 s, exchanged 28 rounds, withdrew, and spent the
+		# next 25 simulated minutes building units at opposite corners of a
+		# 12.8 km map. Two kills, and the victory condition could never fire
+		# because neither side ever came near the other's production again.
 		var stale := memory.stale_beliefs(elapsed_s)
-		if posture == Posture.PROBE and not stale.is_empty():
+		var pressing := posture == Posture.ATTACK or posture == Posture.PROBE
+		if pressing and not stale.is_empty() and not _at_objective(group):
+			# An attacking force presses on to where it last saw something. It
+			# does not need a live track to keep going -- that is what an axis
+			# of advance IS.
 			var last_known := stale[stale.size() - 1] as SimAiMemory.Belief
 			var pt2 := last_known.predicted(elapsed_s, SimSkill.prediction(skill))
 			group.set_objective_point(pt2[0], pt2[1])
 			group.state = SimAiGroup.State.SEARCHING
+		elif pressing:
+			# Either nothing is remembered, or the group has ARRIVED where it was
+			# sent and found nothing. Both mean the same thing: keep sweeping.
+			#
+			# Stopping here is what a previous version did, and it deadlocked
+			# beautifully -- after a real battle the two armies drove to their
+			# last-known-contact points, arrived, found empty ground and stood
+			# there. Measured: both sides frozen 5,233 m apart for 25 simulated
+			# minutes, shots fixed at 228, while production rebuilt both armies.
+			# "Search" has to mean a pattern, not a single waypoint.
+			#
+			# The sweep runs through the CENTRE and then past it. It deliberately
+			# never targets the enemy's base: mirroring our own start position
+			# would find them on a symmetric map, and that is knowledge this AI
+			# has not earned. The middle assumes nothing about where anyone is,
+			# and it works precisely because the other side is sweeping it too.
+			var c := _group_centre(group)
+			var to_centre := sqrt(c[0] * c[0] + c[1] * c[1])
+			if to_centre > 1500.0:
+				group.set_objective_point(0.0, 0.0)
+			else:
+				# Already in the middle with nothing found: push on across, so
+				# the sweep covers the far half instead of orbiting the centre.
+				var away := 1.0 if home_x < 0.0 else -1.0
+				group.set_objective_point(away * absf(home_x), -home_z)
+			group.state = SimAiGroup.State.SEARCHING
 		else:
 			group.set_objective_point(home_x, home_z)
 			group.state = SimAiGroup.State.HOLDING
+
+
+## Where a group actually is, from its OWN units. Uses the whitelisted forces
+## view, never the entity store -- docs/09 §1.3.
+func _group_centre(group: SimAiGroup) -> PackedFloat32Array:
+	var sx := 0.0
+	var sz := 0.0
+	var n := 0
+	for i in group.members:
+		if not view.forces.owns(i):
+			continue
+		var pos := view.forces.position(i)
+		sx += pos[0]
+		sz += pos[2]
+		n += 1
+	if n == 0:
+		return PackedFloat32Array([home_x, home_z])
+	return PackedFloat32Array([sx / float(n), sz / float(n)])
+
+
+## Has this group arrived where it was sent?
+func _at_objective(group: SimAiGroup, tol := 700.0) -> bool:
+	if not group.has_objective:
+		return true
+	var c := _group_centre(group)
+	return sqrt(pow(c[0] - group.obj_x, 2.0) + pow(c[1] - group.obj_z, 2.0)) < tol
 
 
 func _group_break_threshold() -> float:

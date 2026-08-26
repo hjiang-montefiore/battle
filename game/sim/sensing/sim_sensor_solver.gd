@@ -21,6 +21,25 @@ var terrain: SimTerrain = null
 var tables: Dictionary = {}
 
 ## Counts for introspection and tests.
+## Per-solve scratch. Cleared at the top of solve(); never read outside it.
+var _jammers: PackedInt32Array = PackedInt32Array()
+var _jnr_cache: Dictionary = {}
+
+## Line-of-sight memo. NOT per-solve: it survives across solves and is
+## invalidated by MOVEMENT rather than by time. See _has_line_of_sight.
+var _los_cache: Dictionary = {}
+
+## The current sensor's own altitude, hoisted out of the target loop.
+var _alt_cache: float = 0.0
+
+## Temporary phase timers, microseconds. Set PROFILE = true to fill them.
+static var PROFILE := false
+var t_reach := 0
+var t_los := 0
+var t_contribute := 0
+var n_reach := 0
+var n_los := 0
+
 var last_pair_evaluations: int = 0
 var last_detections: int = 0
 
@@ -48,6 +67,13 @@ func faction_ids() -> Array:
 func solve(dt: float, tick: int = 0) -> void:
 	last_pair_evaluations = 0
 	last_detections = 0
+
+	# Gather the jammers ONCE. See _apply_jamming for why this matters.
+	_jammers.clear()
+	_jnr_cache.clear()
+	for j in range(entities.count()):
+		if entities.is_alive(j) and entities.jammer_power[j] > 0.0:
+			_jammers.append(j)
 
 	# Make sure every live faction has a table, in deterministic order.
 	var seen_factions: Array = []
@@ -90,6 +116,25 @@ func solve(dt: float, tick: int = 0) -> void:
 
 ## Acoustic sensing happens underwater and is not masked by hills; everything
 ## that travels through air is.
+## MEASURED: this was 58.7% of the entire sensor solve.
+##
+## The range test in front of it culls almost nothing, and cannot: a search
+## radar reaches well over 100 km and the skirmish arena is 12.8 km across, so
+## every pair is "in range" and every pair pays a full ray march across the
+## heightfield to discover that the ridge in the middle blocks it.
+##
+## Terrain does not move and units do not move far between solves -- at 5 Hz a
+## 20 m/s vehicle travels 4 m -- so the answer is stable for many solves in a
+## row. This caches it per (observer, target, mount height band) and re-marches
+## only when an endpoint has actually moved enough to matter.
+##
+## THE TRADE, stated plainly: a unit cresting a ridge can be seen up to
+## LOS_CACHE_M / speed later than it truly appeared. At 60 m and 20 m/s that is
+## 3 s. That is a real fidelity cost, and it is bounded by distance rather than
+## by time, so a fast mover invalidates its own entry sooner -- which is the
+## right shape, because a fast mover is exactly what you must not miss.
+const LOS_CACHE_M := 60.0
+
 func _has_line_of_sight(observer: int, sensor: SimSensorDef, target: int) -> bool:
 	if terrain == null:
 		return true
@@ -97,15 +142,30 @@ func _has_line_of_sight(observer: int, sensor: SimSensorDef, target: int) -> boo
 		SimTypes.Domain.ACOUSTIC_ACTIVE, SimTypes.Domain.ACOUSTIC_PASSIVE, \
 		SimTypes.Domain.MAGNETIC:
 			return true
+
+	# Mount height changes the answer, so it is part of the key -- banded,
+	# because a 2 m difference in mast height does not change what a ridge hides.
+	var band := int(maxf(sensor.mount_height_m, 0.0) / 5.0)
+	var key := (observer * 4096 + target) * 64 + band
+	var hit = _los_cache.get(key)
+	var ox: float = entities.pos_x[observer]
+	var oz: float = entities.pos_z[observer]
+	var tx: float = entities.pos_x[target]
+	var tz: float = entities.pos_z[target]
+	if hit != null:
+		if absf(hit[1] - ox) + absf(hit[2] - oz) \
+				+ absf(hit[3] - tx) + absf(hit[4] - tz) < LOS_CACHE_M:
+			return hit[0]
+
 	# The sensor sits mount_height above the GROUND it is standing on, which is
 	# where high ground pays (docs/12: "free range on high ground").
 	var oy := entities.pos_y[observer]
 	if entities.category[observer] != SimTypes.Category.AIR:
-		oy = terrain.ground_under(entities.pos_x[observer],
-			entities.pos_z[observer]) + maxf(sensor.mount_height_m, 0.0)
-	return terrain.has_line_of_sight(
-		entities.pos_x[observer], oy, entities.pos_z[observer],
-		entities.pos_x[target], entities.pos_y[target], entities.pos_z[target])
+		oy = terrain.ground_under(ox, oz) + maxf(sensor.mount_height_m, 0.0)
+	var clear := terrain.has_line_of_sight(
+		ox, oy, oz, tx, entities.pos_y[target], tz)
+	_los_cache[key] = [clear, ox, oz, tx, tz]
+	return clear
 
 
 ## Effective sensor altitude: an airborne unit flies at its own y, a ground one
@@ -126,6 +186,11 @@ func _run_sensor(observer: int, sensor: SimSensorDef, table: SimTrackTable) -> v
 		return
 
 	var own_faction := entities.faction[observer]
+	# Hoisted out of the target loop. This samples the heightfield, and it is a
+	# function of the OBSERVER and the sensor only -- computing it per target
+	# resampled identical terrain up to N times per sensor. Measured at 30% of
+	# _reach_km, which was itself 56% of the whole solve.
+	_alt_cache = _sensor_altitude(observer, sensor)
 	for target in range(entities.count()):
 		if target == observer or not entities.is_alive(target):
 			continue
@@ -134,7 +199,11 @@ func _run_sensor(observer: int, sensor: SimSensorDef, table: SimTrackTable) -> v
 		last_pair_evaluations += 1
 
 		var r_km := entities.range_km(observer, target)
+		var _t0 := Time.get_ticks_usec() if PROFILE else 0
 		var reach := _reach_km(observer, sensor, target)
+		if PROFILE:
+			t_reach += Time.get_ticks_usec() - _t0
+			n_reach += 1
 		if reach <= 0.0 or r_km > reach:
 			continue
 
@@ -142,11 +211,19 @@ func _run_sensor(observer: int, sensor: SimSensorDef, table: SimTrackTable) -> v
 		# detection AT ALL." Not a range penalty and not a probability. Checked
 		# only after the range test, because marching a ray across a theatre is
 		# far more expensive than comparing two numbers.
-		if not _has_line_of_sight(observer, sensor, target):
+		var _t1 := Time.get_ticks_usec() if PROFILE else 0
+		var clear := _has_line_of_sight(observer, sensor, target)
+		if PROFILE:
+			t_los += Time.get_ticks_usec() - _t1
+			n_los += 1
+		if not clear:
 			continue
 
 		last_detections += 1
+		var _t2 := Time.get_ticks_usec() if PROFILE else 0
 		_contribute(observer, sensor, target, table, r_km)
+		if PROFILE:
+			t_contribute += Time.get_ticks_usec() - _t2
 
 
 ## Effective detection range of one sensor against one target, in km.
@@ -165,8 +242,7 @@ func _reach_km(observer: int, sensor: SimSensorDef, target: int) -> float:
 					sensor.mount_height_m, entities.pos_y[target]):
 				return 0.0
 			reach = _apply_jamming(observer, sensor, target, reach)
-			reach = minf(reach, P.horizon_km(
-					_sensor_altitude(observer, sensor),
+			reach = minf(reach, P.horizon_km(_alt_cache,
 					entities.pos_y[target]))
 
 		SimTypes.Domain.RF_PASSIVE:
@@ -175,22 +251,19 @@ func _reach_km(observer: int, sensor: SimSensorDef, target: int) -> float:
 				return 0.0   # a silent target gives ESM nothing to hear
 			reach = P.passive_range_km(sensor.reference_range_km, power)
 			reach *= P.esm_advantage(_target_radar_gen(target), sensor.esm_gen)
-			reach = minf(reach, P.horizon_km(
-					_sensor_altitude(observer, sensor),
+			reach = minf(reach, P.horizon_km(_alt_cache,
 					entities.pos_y[target]))
 
 		SimTypes.Domain.IR:
 			reach = P.passive_range_km(sensor.reference_range_km,
 					entities.effective_ir(target))
-			reach = minf(reach, P.horizon_km(
-					_sensor_altitude(observer, sensor),
+			reach = minf(reach, P.horizon_km(_alt_cache,
 					entities.pos_y[target]))
 
 		SimTypes.Domain.EO:
 			reach = P.passive_range_km(sensor.reference_range_km,
 					entities.visual_m2[target] / 10.0)
-			reach = minf(reach, P.horizon_km(
-					_sensor_altitude(observer, sensor),
+			reach = minf(reach, P.horizon_km(_alt_cache,
 					entities.pos_y[target]))
 
 		SimTypes.Domain.ACOUSTIC_ACTIVE:
@@ -239,17 +312,34 @@ func _own_noise_penalty(observer: int) -> float:
 	return clampf(1.0 - (knots / 40.0), 0.15, 1.0)
 
 
+## Jamming reduces a sensor's reach. The KEY OBSERVATION is that the amount
+## does not depend on the TARGET at all -- it is a function of the observer's
+## position and the sensor's ECCM rating -- yet the original scanned every
+## entity in the game for every (observer, sensor, TARGET) triple, recomputing
+## an identical answer once per target.
+##
+## Measured on a 46-entity peer match: 173 ms per solve for 322 pair
+## evaluations and zero detections, i.e. 537 us per pair, on a map with no
+## jammers deployed at all. The scan ran regardless.
+##
+## Now the jammer list is gathered once per solve and the noise total is
+## memoised per (observer, eccm). With no jammers present the inner loop does
+## not execute at all.
 func _apply_jamming(observer: int, sensor: SimSensorDef,
-		target: int, nominal: float) -> float:
-	var total_jnr := 0.0
-	for j in range(entities.count()):
-		if not entities.is_alive(j) or entities.jammer_power[j] <= 0.0:
-			continue
-		if entities.faction[j] == entities.faction[observer]:
-			continue
-		var jr := entities.range_km(observer, j)
-		total_jnr += P.jam_noise_ratio(entities.jammer_power[j], jr,
-				sensor.eccm_rating)
+		_target: int, nominal: float) -> float:
+	if _jammers.is_empty():
+		return nominal
+	var key := observer * 64 + sensor.eccm_rating
+	var total_jnr: float = _jnr_cache.get(key, -1.0)
+	if total_jnr < 0.0:
+		total_jnr = 0.0
+		var own := entities.faction[observer]
+		for j in _jammers:
+			if entities.faction[j] == own:
+				continue
+			total_jnr += P.jam_noise_ratio(entities.jammer_power[j],
+				entities.range_km(observer, j), sensor.eccm_rating)
+		_jnr_cache[key] = total_jnr
 	if total_jnr <= 0.0:
 		return nominal
 	return P.jammed_range_km(nominal, total_jnr)

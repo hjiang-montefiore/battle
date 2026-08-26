@@ -35,7 +35,7 @@ func _initialize() -> void:
 
 	print("\n  t      alive  kills  moving  orders  ai_dec  finished")
 	var t := 0.0
-	for pass_i in range(14):
+	for pass_i in range(20):
 		m.run_ticks(1200)                     # 60 s per pass -> 30 min total
 		t += 60.0
 		if m.is_finished():
@@ -54,6 +54,13 @@ func _initialize() -> void:
 			if w.movement != null and w.movement.has_method("order_count"):
 				orders += w.movement.order_count(i)
 		var kills: int = w.damage.kills if w.damage != null and "kills" in w.damage else -1
+		var pen := 0
+		var defeat := 0
+		var imp := 0
+		if w.damage != null:
+			pen = w.damage.penetrations
+			defeat = w.damage.defeats
+			imp = w.damage.impossible
 		var shot := 0
 		var term := 0
 		if w.munitions != null:
@@ -85,14 +92,19 @@ func _initialize() -> void:
 				var d2: float = pow(e.pos_x[i] - e.pos_x[j], 2) + pow(e.pos_z[i] - e.pos_z[j], 2)
 				if d2 < closest:
 					closest = d2
-		print("  %5.0fs alive %3d  kills %3d  shots %4d  closest %6.0f m  posture %-14s"
-			% [t, alive, kills, shot, sqrt(closest), post])
+		print("  %5.0fs alive %3d shots %3d | kills %3d pen %3d defeat %3d impossible %3d | closest %5.0f m  %s"
+			% [t, alive, shot, kills, pen, defeat, imp, sqrt(closest), post])
 
 	if w.munitions != null:
 		print("\n  munitions: %d launched, %d terminated" % [w.munitions.launched, w.munitions.terminated])
 		var tail = w.munitions.combat_log
 		for i in range(maxi(0, tail.size() - 12), tail.size()):
 			print("    " + str(tail[i]))
+	if w.damage != null:
+		print("\n  damage log -- what each hit actually DID:")
+		var dl = w.damage.combat_log
+		for i in range(maxi(0, dl.size() - 14), dl.size()):
+			print("    " + str(dl[i]))
 	print("\n  victory view:")
 	if m.victory != null and m.victory.has_method("describe"):
 		print("    " + str(m.victory.describe()).replace("\n", "\n    "))

@@ -19,6 +19,20 @@ const SENSOR_HZ := 5.0      ## docs/06 tick budget: sensor solve 5-10 Hz
 ## slowly is what leaves the frame budget for the sensor solve.
 const ECONOMY_HZ := 1.0
 
+## Movement DECISION rate. Integration still runs every tick, so units move as
+## smoothly as they ever did -- what halves is how often they re-steer.
+##
+## MEASURED: movement was 17.4 ms of a 35 ms tick, the largest single cost in
+## the simulation and four times more frequent than the sensor solve. The split
+## inside it was NOT what it looked like: path-finding is 11%, separation 36%
+## and plain steering 53%. So budgeting A* harder would have bought almost
+## nothing, and re-steering 46 units twenty times a second was the real expense.
+##
+## 10 Hz is a decision every 100 ms. A tank turning at 30 deg/s turns 3 degrees
+## in that time, which is well inside the arrival tolerance, and the separation
+## force it applies is a smoothing term rather than a hard constraint.
+const MOVEMENT_HZ := 10.0
+
 var entities: SimEntities
 var terrain: SimTerrain = null
 var solver: SimSensorSolver
@@ -63,6 +77,7 @@ var elapsed_s: float = 0.0
 var _sim_accum: float = 0.0
 var _sensor_accum: float = 0.0
 var _economy_accum: float = 0.0
+var _movement_accum: float = 0.0
 
 ## Set false to drive the sim by exact ticks in tests.
 var use_accumulator: bool = true
@@ -339,7 +354,14 @@ func _arm_new_units() -> void:
 
 ## Slot 4. Path planning and steering.
 func _movement_slot(dt: float) -> void:
-	movement.step(dt)
+	# Decide at MOVEMENT_HZ, integrate every tick. The accumulator is passed in
+	# so steering sees the real elapsed time and not a fixed slice -- otherwise
+	# arrival and turn rates silently scale with the decision rate.
+	_movement_accum += dt
+	var move_dt := 1.0 / MOVEMENT_HZ
+	if _movement_accum >= move_dt:
+		movement.step(_movement_accum)
+		_movement_accum = 0.0
 
 
 ## Slot 5 is _integrate(), below.
