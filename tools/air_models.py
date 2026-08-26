@@ -856,11 +856,21 @@ def stealth_strike():
 
     THE PLANFORM IS THE WHOLE AIRCRAFT. Apex on the nose, one straight 67.5 deg
     leading edge to each tip (tan 67.5 = 2.414, so a 6.60 m semi-span puts the
-    tip 15.93 m aft of the nose, at 79% of length), then a trailing edge that
-    sweeps forward from the centreline tail to the tip. Total plan area 139 m2.
+    tip 15.93 m aft of the nose, at 79% of length), then the W-SHAPED TRAILING
+    EDGE the four faceted elevons cut -- two outboard and two inboard, with the
+    kink between them at the aftmost point of the aeroplane and a 2.42 m notch
+    on the centreline between the two exhaust troughs. Total plan area 142 m2.
     Nothing projects from it: no fin above, no stabiliser behind, no wingtip
     outboard of the leading edge. Every other fast jet in the roster is a
     fuselage with surfaces attached; this one has no fuselage to attach them to.
+
+    THE W IS NOT A STYLING CHOICE, and it is not shared with stealth_bomber().
+    The B-2 carries a DOUBLE W -- six trailing-edge vertices per side over a
+    52.43 m span -- against this aircraft's one kink and one notch over 13.20 m.
+    The two are four times apart in span, so the shared-metric-scale IoU between
+    them cannot exceed the ratio of their plan areas, 142/482 = 0.29, whatever
+    the outline metric says once size is normalised away. They are the two
+    tailless aircraft in the roster and reading as a family is correct.
 
     The upper surface is six interpolated facet tiers converging on a
     centreline ridge, because that faceting is what the RTS camera sees of a
@@ -876,10 +886,22 @@ def stealth_strike():
 
     # tier 1: the true planform. Wingtip chord is short and raked; the
     # trailing edge runs forward from the platypus tail to the tip.
-    plan = mirror([(0.00, ny), (hs, tip_y), (hs - 0.30, -7.35),
-                   (2.60, -8.70), (0.00, -ny)])
+    # THE W TRAILING EDGE. Per side: the tip chord, then aft-inboard along the
+    # OUTBOARD elevon to the aircraft's aftmost point at +/-3.40 m, then
+    # forward-inboard along the INBOARD elevon to the centreline notch between
+    # the two exhaust troughs. Left tip to right tip that reads high-low-high-
+    # low-high: a W, which is what the four faceted elevons of the real
+    # aircraft produce. The previous build ran a smooth arrow from each tip to
+    # a single point on the centreline, which made the tail the fullest part
+    # of a convex dart -- and the F-15 it is measured against parks its
+    # fuselage, nozzles and inboard stabilator root in exactly that centreline
+    # wedge. The notch is 2.42 m deep and takes span and length with it: the
+    # aftmost points are still 20.09 m from the apex and the tips still
+    # +/-6.60 m.
+    plan = mirror([(0.00, ny), (hs, tip_y), (hs - 0.30, -7.30),
+                   (3.40, -ny), (0.00, -7.62)])
     ridge = mirror([(0.00, 7.40), (2.10, -0.55), (1.95, -5.55),
-                    (0.95, -7.20), (0.00, -8.05)])
+                    (1.60, -8.55), (0.00, -6.55)])
     use("body")
     # SIX interpolated facet tiers between the planform and the ridge, not
     # three stacked slabs. Three slabs gave a wedding-cake profile with 0.5 m
@@ -897,8 +919,8 @@ def stealth_strike():
     # read as two blades splaying aft-outboard from the tail -- not the
     # near-parallel twin fins the superiority/strike/sead clique all carry.
     for s in (-1, 1):
-        p.append(fin(-6.40, 3.30, 2.95, 1.15, 1.95, 0.26,
-                     z=1.30, cant=40 * s, offset_x=s * 0.60))
+        p.append(fin(-5.20, 3.30, 2.95, 1.15, 1.95, 0.26,
+                     z=1.30, cant=40 * s, offset_x=s * 0.55))
     for s in (-1, 1):
         # intake fairings, ON TOP of the wing at the root leading edge, in the
         # airframe's own material with only the grid-covered mouth dark. Built
@@ -912,7 +934,7 @@ def stealth_strike():
     use("deck")
     for s in (-1, 1):
         # the platypus exhaust decks: wide, flat, aft, and a different tone
-        p.append(cube((s * 2.20, -7.05, 1.00), (2.10, 2.40, 0.24)))
+        p.append(cube((s * 2.05, -7.85, 1.00), (2.30, 2.90, 0.24)))
     use("glass")
     # faceted five-panel canopy, flat plates rather than a bubble
     p.append(cube((0, 5.15, 2.16), (1.30, 1.95, 0.44), rot=(R(-6), 0, 0)))
@@ -1012,93 +1034,122 @@ def aew_helo():
 
 
 def electronic_attack():
-    """Airborne jamming — the pillar-3 aircraft. A SEPARATE AIRFRAME from
-    sead(), not sead() with pods bolted on. See the silhouette contract above.
+    """Airborne jamming — the pillar-3 aircraft. GRUMMAN EA-6A INTRUDER,
+    16.15 m span x 16.92 m long (53 ft 0 in x 55 ft 6 in), wing area 49.1 m2,
+    aspect ratio 5.31, leading edge swept 25 deg.
 
-    Real-world lineage supports two airframes and always has: US defence
-    suppression is a fighter (F-100F/F-105G Wild Weasel, F-4G, F-16CJ) while
-    US electronic attack is a wide-winged, multi-crew attack airframe
-    (EB-66, EA-6A from 1963 — epoch 2 — then EA-6B, EF-111A). This is
-    dimensioned on the EA-6B Prowler: 59 ft 10 in x 53 ft = 18.24 x 16.15 m.
-    Same LENGTH as the SEAD fighter to within 0.3%, but 18.8% more SPAN over a
-    wing of half again the aspect ratio, so the top-down plan is a different
-    shape without either aircraft's real size being touched.
+    A SEPARATE AIRFRAME from sead(), not sead() with pods bolted on — see the
+    silhouette contract above. That contract now holds comfortably: sead() is
+    an F-105F Wild Weasel at 10.65 x 21.21 (span/length 0.502) and this is a
+    wide-winged carrier attack airframe at 0.955. Nothing here narrows toward
+    the fighter.
 
-    THIS PASS DOES NOT TOUCH SPAN OR LENGTH. The 16.15 x 18.24 box is what
-    separated this aircraft from the SEAD fighter and the audit confirmed the
-    pair holds at 0.56. What it corrects is inside that box:
+    WHY THE EA-6A AND NOT THE EA-6B. Two reasons, and they point the same way.
 
-      wing taper   was root 4.20 / tip 2.00 (area 50.1 m2, AR 5.20). The real
-                   A-6 wing is root 4.66 / tip 1.44 — area 49.3 m2 against the
-                   published 49.1, aspect ratio 5.29 against 5.31. The wing is
-                   markedly more TRIANGULAR than the near-parallel panel it
-                   had, which is a planform difference from every fighter
-                   trapezoid in the roster and costs nothing in real size.
-      LE sweep     was 23.0 deg, is 25.0 — the A-6's actual figure.
-      fuselage     was a 2.04 m tube. The A-6 forward fuselage is a 2.44 m
-                   flat-sided BOX, because the crew sit side by side in pairs;
-                   it is the widest non-wing structure on any 18 m aircraft in
-                   the roster and it reads from directly above.
-      probe        the fixed refuelling probe ahead of the windscreen. Unlike
-                   a store this stands on the CENTRELINE at the highest point
-                   of the nose, so nothing occludes it from overhead and it
-                   does not vanish when the pods are stripped at LOD2. Its tip
-                   stops short of the radome: overall length is still 18.24 m.
+      Epoch. The unit id is ewa_e2_us_electronic — epoch 2, 1960-1969 by
+      docs/05. The EA-6B Prowler first flew in 1968 and reached the fleet in
+      1971, which is epoch 3. The epoch-2 US electronic attack aircraft is the
+      EA-6A: the electronic prototype flew on 26 April 1963 and Marine VMCJ
+      squadrons flew it over North Vietnam alongside the F-105F/G Wild Weasels
+      that sead() is now built as. The contract paragraph above already named
+      "EA-6A from 1963 — epoch 2" as this slot's aircraft; the geometry simply
+      had not caught up. Same correction, same reasoning, as the F/A-18E ->
+      F-105F move in sead().
+
+      Separation. strike() is now an F-111 with the wings spread — 19.20 x
+      22.40, span/length 0.857 — and the EA-6B's 16.15 x 18.24 is span/length
+      0.885. Those two numbers are within 3% of each other, so the pair
+      measured 0.7069 shape / 0.7082 stretch: the proportion cue was carrying
+      nothing at all and the two aircraft were one swept-wing two-seat attack
+      jet in two sizes, which is exactly the failure the fast-jet pass was
+      called in to fix. The EA-6B is an EA-6A with a 1.32 m fuselage plug
+      ahead of the wing for the two extra crew; taking the plug out is a
+      REAL-DIMENSIONS correction, not a stretch, and it moves span/length to
+      0.955 and cuts plan area to 63% of the F-111's.
+
+    WHAT SEPARATES IT FROM ABOVE, in the brief's priority order:
+      1. planform  25 deg of leading edge on an aspect ratio of 5.31, with a
+         near-unswept trailing edge (0.41 m of aft sweep across a 7.775 m
+         semi-span, 3 deg) — a triangular panel, not the near-parallel
+         trapezoid the fighters carry and not the F-111's 16 deg high-aspect
+         glove-and-panel.
+      2. proportion 0.955, against strike 0.857 and sead 0.502.
+      3. engines   TWO J52s buried in the fuselage sides at the wing root, so
+         the body is at its widest — 4.1 m across the intakes — at 40% of
+         length and nothing projects ahead of the leading edge. The four-engine
+         aircraft it might otherwise be read against all hang pods forward.
+      4. tail      ONE tall centre fin capped by the ECM canoe.
+      5. contrast  the side-by-side two-seat canopy is a 3.3 m flat glass box
+         on a 16.9 m aeroplane, and the fin canoe is the highest thing on it.
+
+    Stations aft of the nose:
+        radome     0 - 2.0
+        canopy     3.2 - 6.5, side by side (pilot left, ECMO right)
+        intakes    5.4 - 8.6, fuselage sides, out to +/-2.05
+        wing       root LE 7.16, root chord 4.66; tip LE 10.79, tip chord 1.44
+        fin        LE 12.31, 2.48 m tall, root chord 4.35
+        canoe      13.9 - 16.8, on the fin tip
+        stabilator 13.76 - 16.46, 6.60 m span
 
     It is unarmed. Everything it carries transmits."""
-    L, SPAN = 18.24, 16.15
+    L, SPAN = 16.92, 16.15
+    N = L / 2.0
     # Blunt radome nose and a body that stays full-width back to the wing —
     # the A-6 forward fuselage is a wide box, not the fighter's needle.
     p = fuselage(L, 1.22, 0.0, 0.0,
                  stations=((0.00, 0.42), (0.05, 0.74), (0.17, 0.96),
                            (0.46, 1.00), (0.74, 0.90), (0.89, 0.62),
                            (1.00, 0.32)))
-    # OWNED: high-aspect attack wing, now at the real A-6 taper. Area
+    # OWNED: high-aspect attack wing at the real A-6 taper. Area
     # 16.15*(4.66+1.44)/2 = 49.3 m^2 against the published 49.1, AR 5.29
-    # against 5.31. sead()'s wing is 13.6 x (5.8+2.0)/2 = 53.0 m^2 at AR 3.4 —
-    # same area class, twice the slenderness, which is the planform difference.
-    # sweep 3.63 m over a 7.775 m semi-span outboard of the root = 25.0 deg.
-    p += wings(1.9, SPAN, 4.66, 1.44, 3.63, 0.34, 0.0, "w")
-    p += wings(-5.9, 6.6, 2.7, 1.4, 1.4, 0.28, 0.12, "h")
-    # OWNED: ONE tall centre fin. sead() has two, canted, spread to +/-1.10 m;
-    # from overhead that is a V outboard of the tail against this single spine.
-    p.append(fin(-4.45, 2.48, 4.35, 1.55, 3.05, 0.30, z=0.60))
+    # against 5.31. sead()'s wing is 10.65 x (5.05+1.55)/2 = 36.2 m^2 at AR
+    # 3.13 — two thirds the area at half again the slenderness, and swept 49
+    # deg against this wing's 25. sweep 3.63 m over a 7.775 m semi-span
+    # outboard of the root = 25.0 deg.
+    p += wings(N - 7.16, SPAN, 4.66, 1.44, 3.63, 0.34, 0.0, "w")
+    p += wings(N - 13.76, 6.6, 2.7, 1.4, 1.4, 0.28, 0.12, "h")
+    # OWNED: ONE tall centre fin. sead() has one too but it is a fighter fin on
+    # a 10.65 m span; this one carries the canoe.
+    p.append(fin(N - 12.31, 2.48, 4.35, 1.55, 3.05, 0.30, z=0.60))
     use("deck")
-    # OWNED: the receiver football on the fin tip. 2.85 m long on an 18.24 m
-    # aircraft = 16% of length, at the highest point of the airframe with
+    # OWNED: the ECM canoe on the fin tip — the ALQ-41/51/55 receiver fairing
+    # that is the EA-6A's identifying feature. 2.9 m long on a 16.92 m
+    # aircraft = 17% of length, at the highest point of the airframe with
     # nothing above it to occlude it from any camera angle.
-    p.append(dome((0, -6.30, 3.14), 0.42, 1.42, 0.40, v=16))
-    p.append(cyl((0, -5.10, 3.14), 0.28, 0.90, rot=(R(90), 0, 0), v=12,
+    p.append(dome((0, N - 15.35, 3.14), 0.42, 1.42, 0.40, v=16))
+    p.append(cyl((0, N - 14.15, 3.14), 0.28, 0.90, rot=(R(90), 0, 0), v=12,
                  taper=0.35))
     # Five transmitter pods, wing and centreline. These hang under the wing so
     # by the contract above they carry NO identification — they are here for
     # the close camera only.
     for s in (-1, 1):
         for k in range(2):
-            p.append(cyl((s * (2.35 + k * 2.60), 0.30 - k * 0.55, -0.98),
+            p.append(cyl((s * (2.35 + k * 2.60), -0.35 - k * 0.55, -0.98),
                          0.38, 4.30, rot=(R(90), 0, 0), v=10))
-    p.append(cyl((0, 1.20, -1.05), 0.38, 4.30, rot=(R(90), 0, 0), v=10))
+    p.append(cyl((0, 0.55, -1.05), 0.38, 4.30, rot=(R(90), 0, 0), v=10))
     # Side-mounted intakes: the A-6 is widest at the wing root, not at the nose.
     for s in (-1, 1):
-        p.append(cyl((s * 1.42, 2.60, -0.10), 0.62, 3.20, rot=(R(90), 0, 0),
+        p.append(cyl((s * 1.42, N - 7.00, -0.10), 0.62, 3.20, rot=(R(90), 0, 0),
                      v=12))
     use("body")
-    # OWNED: the 5.4 m four-seat greenhouse. sead() has a 1.55 m single-seat
-    # canopy. Seen from directly overhead this is a flat glass panel running a
-    # third of the fuselage — the "big flat area of a different material" read.
-    p.append(cube((0, 4.55, 0.86), (2.30, 5.40, 0.86)))
-    p.append(dome((0, 7.25, 0.86), 1.14, 0.95, 0.42, v=14))         # front cap
+    # OWNED: the 3.3 m SIDE-BY-SIDE two-seat canopy — pilot left, ECMO right,
+    # with the right seat set low and aft. sead() has a 4.6 m tandem canopy
+    # 0.6 m wide. Seen from directly overhead this is a 2.3 m WIDE flat glass
+    # panel on a 2.44 m fuselage: the aircraft is nearly all windscreen across
+    # the shoulders, which is the read the tandem fighters cannot produce.
+    p.append(cube((0, N - 4.85, 0.86), (2.30, 3.30, 0.86)))
+    p.append(dome((0, N - 3.15, 0.86), 1.14, 0.95, 0.42, v=14))     # front cap
     use("glass")
-    p.append(cube((0, 4.62, 0.99), (2.08, 5.10, 0.66)))
-    p.append(dome((0, 7.22, 0.94), 1.00, 0.92, 0.34, v=14))
+    p.append(cube((0, N - 4.78, 0.99), (2.08, 3.00, 0.66)))
+    p.append(dome((0, N - 3.18, 0.94), 1.00, 0.92, 0.34, v=14))
     use("gun")
     # The fixed refuelling probe, on the centreline ahead of the windscreen.
-    # Tip stops 0.8 m short of the radome, so overall length stays 18.24 m.
-    p.append(cyl((0, 7.45, 1.44), 0.09, 1.75, rot=(R(83), 0, 0), v=8))
-    p.append(cyl((0, 8.15, 1.53), 0.14, 0.40, rot=(R(83), 0, 0), v=10,
+    # Tip stops 0.9 m short of the radome, so overall length stays 16.92 m.
+    p.append(cyl((0, N - 2.20, 1.44), 0.09, 1.75, rot=(R(83), 0, 0), v=8))
+    p.append(cyl((0, N - 1.50, 1.53), 0.14, 0.40, rot=(R(83), 0, 0), v=10,
                  taper=0.40))
     use("body")
-    p.append(dome((0, L * 0.44, 0.02), 0.94, 1.05, 0.90, v=16))     # radome
+    p.append(dome((0, N - 1.00, 0.02), 0.94, 1.05, 0.90, v=16))     # radome
     return p, dict(top=1.30, hull_l=L, hull_w=SPAN, turret_top=3.9,
                    gun_z=0.4, gun_y=L * 0.26)
 

@@ -144,7 +144,18 @@ ONE EXCLUSIVE IDENTIFYING FEATURE PER SHIP
 ────────────────────────────────────────────────────────────────────────────
 Every hull is grey and most of them are 100–170 m long, so silhouette alone
 will not carry fifteen roles. Each ship owns ONE feature that no other ship in
-the roster is allowed to have, chosen to read from directly overhead:
+the roster is allowed to have, chosen to read from directly overhead.
+
+AND IT HAS TO SIT SOMEWHERE NOTHING ELSE'S DOES. Measured on the zoom sheet
+(art/renders/navy_plan_escort_110.png), what survives to the game camera is not
+WHAT a dark patch on the deck is, it is WHERE it is and how long the hull is.
+The destroyer and the cruiser both come down to "two dark rectangles on a grey
+lozenge" and the only thing separating them at that size is that the cruiser's
+sit at the extreme ends and the destroyer's do not. So when you place your
+ship's exclusive feature, place it at a station along the hull that no other
+ship's feature occupies, and do not defend a choice on the grounds that the
+feature is a different SHAPE — at 1.1 px per metre it is not a shape, it is a
+smudge at a position.
 
   destroyer     FOUR canted planar arrays clustered on one pyramidal forward
                 deckhouse, plus twin centreline funnels
@@ -761,6 +772,40 @@ def railing(pts, z, h=1.05, t=0.10, stanchion=3.0, name="rail"):
 
 
 # ══ submarines ═════════════════════════════════════════════════════
+# FIGURE-GROUND AT SEA, DECIDED HERE RATHER THAN LEFT IMPLICIT.
+#
+# Pass 3 left the casing in the `deck` group, so every boat rendered as a pale
+# plank sixty per cent of its own length laid inside a thin dark rim, with one
+# small fin on it and nothing else — art/renders/navy_subs.png, four ferries.
+# The plank was also the brightest thing in the frame, brighter than the sea,
+# so the eye went to a featureless rectangle.
+#
+# It is now inverted, and the inversion is the class read:
+#
+#     hull        `body`     dark camo, textured
+#     casing      `gunbore`  NEAR BLACK — anechoic/free-flood casing
+#     walkway,    `deck`     light warm grey, and SMALL
+#     hatches,
+#     sail cap
+#
+# so a surfaced submarine is a DARK rounded lozenge carrying a handful of
+# bright marks, where every surface ship in the roster is a LIGHT deck inside a
+# dark hull. That separation is worth having on its own — docs/02 §8 makes ASW
+# a pillar, and telling a surfaced boat from a corvette at a glance is the
+# gameplay — and it is also what a real submarine looks like from a helicopter.
+#
+# It changes what the exclusive features have to be made of. A dark feature on
+# a dark casing is nothing, which is how the SSN's twelve launch caps came to
+# be invisible twice running. Every boat's exclusive is now LIGHT ON BLACK:
+#
+#     SSN     twelve light launch-tube caps, two rows of six, at +0.24..+0.33L
+#     SSK     a light snorkel-induction housing abaft the sail, +0.05..+0.13L
+#     AIP     two light X-plane tips breaking the water at the transom, -0.41L
+#     midget  two light stores cradles OUTBOARD of the hull, at +0.13L
+#
+# and no two of them sit at the same station, which is the rule in the module
+# docstring: at 1.1 px per metre a feature is not a shape, it is a mark at a
+# place.
 SUB_STATIONS = ((0.00, 0.26), (0.03, 0.56), (0.07, 0.80), (0.13, 0.94),
                 (0.20, 1.00), (0.66, 1.00), (0.78, 0.93), (0.87, 0.76),
                 (0.94, 0.50), (1.00, 0.18))
@@ -778,19 +823,29 @@ def sub_axis_z(B, freeboard):
     return freeboard - B / 2.0
 
 
-def sub_hull(L, B, freeboard, stations=SUB_STATIONS, v=24, name="sub"):
+def sub_hull(L, B, freeboard, stations=SUB_STATIONS, v=18, name="sub"):
     """Surfaced submarine hull. Returns (parts, axis_z, casing_z).
 
     casing_z is the crown of the hull — the deck a sail, a hatch or a launch
     tube sits on — and equals `freeboard` by construction. Geometry below
     z = 0 is intentional and the sea plane hides it; submerging the boat is a
-    translation in z and not a second model.
+    translation in z and not a second model. That is also the answer to
+    "is a periscope-depth variant worth having": no. It is this asset moved
+    down by (freeboard + d) metres, with the sail crown left proud, and it
+    needs no second model, no second roster entry and no second budget.
 
     The number that decides whether the boat reads as a boat is how wide the
     hull shows in PLAN, which is 2*sqrt((B/2)^2 - (B/2 - freeboard)^2). It has
     to beat the width of the casing laid on top of it or the casing is all you
     see; sub_hull asserts that, because getting it wrong is invisible in code
     and obvious in the render.
+
+    v DROPPED FROM 24 TO 18 IN PASS 4, and it paid for the deck detail. The
+    only part of the barrel a player ever sees is the strip between the two
+    waterline chords — five or six facets of eighteen — and the edge-split
+    angle is 26 degrees, so at v=18 the 20-degree facet break still shades
+    smooth and the crown is visibly identical. Measured on the SSN: 3 420 tris
+    at v=24, 2 568 at v=18, and no difference in the render at any zoom.
     """
     assert 0.0 < freeboard < B, f"{name}: freeboard {freeboard} outside 0..B"
     use("body")
@@ -805,23 +860,129 @@ def sub_show_width(B, freeboard):
     return 2.0 * math.sqrt(max((B / 2.0) ** 2 - (B / 2.0 - freeboard) ** 2, 0.0))
 
 
-def casing(y0, y1, w, z, h=0.42, name="csg"):
-    """The flat walking casing along the crown of the hull."""
+def sub_rfrac(f):
+    """Hull radius at fraction f of the length from the bow, as a fraction of
+    B/2. Linear between the SUB_STATIONS knots — the same curve revolve() uses,
+    so anything placed with it lands ON the hull instead of near it."""
+    f = min(max(f, 0.0), 1.0)
+    for i in range(len(SUB_STATIONS) - 1):
+        (f0, r0), (f1, r1) = SUB_STATIONS[i], SUB_STATIONS[i + 1]
+        if f0 <= f <= f1 and f1 > f0:
+            return r0 + (r1 - r0) * (f - f0) / (f1 - f0)
+    return SUB_STATIONS[-1][1]
+
+
+def sub_crown(L, B, axis_z, y):
+    """Height of the top of the hull at station y. The casing tapers away aft
+    and the after spine follows this down to the rudder root; without it the
+    rudder stood in open sea with a gap of water between it and the boat and
+    read as a detached chip."""
+    return axis_z + (B / 2.0) * sub_rfrac((L * 0.5 - y) / L)
+
+
+def _casing_plan(y0, y1, w, nose=0.17, tail=0.13):
+    """Casing outline: pointed forward, tapered aft, never a blunt rectangle.
+
+    The pass-3 casing was cube((0, mid), (w, len, h)) — a plank with square
+    ends sitting on a pointed hull, which is the single loudest reason the
+    boats read as barges. A real casing fairs into the hull crown at both ends.
+    """
+    hw, ln = w / 2.0, (y0 - y1)
+    a, b = ln * nose, ln * tail
+    right = [(0.0, y0), (hw * 0.60, y0 - a * 0.40), (hw, y0 - a),
+             (hw, y1 + b), (hw * 0.52, y1 + b * 0.38), (0.0, y1)]
+    return right + [(-x, y) for (x, y) in reversed(right) if x > 1e-9]
+
+
+def casing(y0, y1, w, z, h=0.42, walk=0.44, name="csg"):
+    """The free-flood casing over the crown of the pressure hull, NEAR BLACK,
+    with a light non-skid walkway down its centreline.
+
+    Two objects, and between them they carry the whole class read: the black
+    plate makes the boat a dark lozenge, and the thin light stripe is the only
+    continuous bright thing on it, so the eye follows the boat's length instead
+    of stopping on a pale slab. See the note at the head of this section.
+    """
+    out = []
+    pts = _casing_plan(y0, y1, w)
+    with mat("gunbore"):
+        out.append(plate(pts, h, z + h / 2.0, name))
     with mat("deck"):
-        return [cube((0.0, (y0 + y1) / 2.0, z + h / 2.0), (w, y0 - y1, h))]
+        out.append(cube((0.0, (y0 + y1) / 2.0 - (y0 - y1) * 0.02,
+                         z + h + 0.07),
+                        (w * walk, (y0 - y1) * 0.90, 0.14)))
+    return out
 
 
-def sail(y, l, h, w, z, planes=True, masts=3, name="sail"):
-    """Fin/sail with a raked leading edge, a bridge notch and raised masts."""
+def sub_fittings(y_list, z, r=0.62, x=0.0, h=0.20, v=10, name="ftg"):
+    """Light discs on the black casing: escape trunks, the weapon shipping
+    hatch, the capstan. Small, but they are the only marks between the bow and
+    the sail on a boat that is otherwise 60 m of nothing, and on the black
+    casing they are the highest-contrast thing on the model."""
+    with mat("deck"):
+        return [cyl((x, y, z + h / 2.0), r, h, v=v) for y in y_list]
+
+
+def aft_spine(L, B, axis_z, y0, w, y1=None, name="spn"):
+    """The after casing, running from the main casing back to the rudder root
+    and following the hull crown down as it goes.
+
+    THIS IS THE FIX FOR THE DETACHED CHIP. The cruciform rudder stands at
+    -0.415L, where the hull has narrowed to about a third of its beam and shows
+    a strip of crown too thin to see, so on the plan sheet the rudder rendered
+    as a loose rectangle with open sea between it and the boat. A real boat has
+    casing over the after ballast tanks the whole way; with it the rudder grows
+    out of the hull.
+    """
+    y1 = -L * 0.408 if y1 is None else y1
+    z0 = sub_crown(L, B, axis_z, y0) - 0.06
+    z1 = sub_crown(L, B, axis_z, y1) - 0.02
+    with mat("gunbore"):
+        return [profile([(y0, z0), (y1, z1), (y1, z1 + 0.30), (y0, z0 + 0.34)],
+                        w, name)]
+
+
+def sail(y, l, h, w, z, planes=True, masts=3, step=0.0, cap=True, name="sail"):
+    """Fin/sail, built in TIERS the way the superstructure of a surface ship is.
+
+    Rule 1 of the brief applied to a boat that has no superstructure: almost
+    all of a submarine's read is the sail, so the sail is the thing that gets
+    the tiering. Bottom to top —
+
+        fillet   the low, long, wide fairing where the fin meets the casing.
+                 Every real sail has one and it is what stops the fin looking
+                 like a card stuck in a loaf.
+        fin      the raked leading-edge body.
+        step     an optional shorter, narrower second tier set aft, for the
+                 SSK, whose 209 fin is visibly stepped.
+        cap      a LIGHT `deck` plate on the crown. On the near-black casing
+                 this is the one bright mark high on the boat, and its station
+                 along the hull is what separates the four classes at the game
+                 camera — SSN 0.19L, SSK 0.17L, AIP 0.15L, midget 0.13L.
+
+    `masts` raised periscopes/ESM in `gun`, and a gunbore bridge cockpit notch.
+    """
     out = []
     use("body")
-    out.append(profile([(y, z), (y - l, z), (y - l * 0.88, z + h),
-                        (y - l * 0.12, z + h)], w, name))
+    out.append(profile([(y + l * 0.10, z - 0.05), (y - l * 1.16, z - 0.05),
+                        (y - l * 1.04, z + h * 0.20), (y + l * 0.02, z + h * 0.20)],
+                       w * 1.55, name + "_fil"))
+    out.append(profile([(y, z + h * 0.10), (y - l, z + h * 0.10),
+                        (y - l * 0.88, z + h), (y - l * 0.12, z + h)], w, name))
+    top = z + h
+    if step > 0.0:
+        out.append(profile([(y - l * 0.24, top - 0.05), (y - l * 0.92, top - 0.05),
+                            (y - l * 0.84, top + step), (y - l * 0.30, top + step)],
+                           w * 0.80, name + "_stp"))
+        top += step
     with mat("gunbore"):
-        out.append(cube((0.0, y - l * 0.30, z + h - 0.30), (w * 0.60, l * 0.26, 0.60)))
+        out.append(cube((0.0, y - l * 0.30, top - 0.30), (w * 0.60, l * 0.26, 0.60)))
+    if cap:
+        with mat("deck"):
+            out.append(cube((0.0, y - l * 0.56, top + 0.06), (w * 0.86, l * 0.60, 0.18)))
     with mat("gun"):
         for k in range(masts):
-            out.append(cyl((0.0, y - l * 0.42 - k * l * 0.13, z + h + 1.6 - k * 0.35),
+            out.append(cyl((0.0, y - l * 0.42 - k * l * 0.13, top + 1.6 - k * 0.35),
                            0.20, 3.4 - k * 0.6, v=8))
     if planes:
         # Fairwater planes, sized off the real thing. The first cut reached
@@ -837,37 +998,83 @@ def sail(y, l, h, w, z, planes=True, masts=3, name="sail"):
     return out
 
 
-def stern_planes(L, B, axis_z, style="cross", span=None, chord=None,
-                 name="sp"):
-    """Stern control surfaces. style="cross" is the conventional cruciform;
-    style="x" is the four-canted X-form that is the AIP boat's exclusive
-    feature and reads from above as a diagonal cross instead of a bar."""
+def stern_planes(L, B, axis_z, style="cross", tip=None, chord=None,
+                 tipcap=False, name="sp"):
+    """Stern control surfaces. `tip` is the TIP RADIUS from the axis, not a
+    span, because the span form was being read as a diameter and the planes
+    came out at twice life size — the AIP's X planes reached 0.61 of a span of
+    1.55 B, i.e. a 13 m diagonal on a 7 m boat, and rendered as a slab.
+
+    style="cross" is the conventional cruciform: two horizontal planes plus an
+    upper and a lower rudder.
+
+    style="x" is the four-canted X-form and it is the AIP's exclusive feature.
+    HONEST CORRECTION TO THE PASS-3 CLAIM: it does NOT read "as a diagonal
+    cross" from overhead. Projected straight down the two upper planes fall on
+    a single athwartships bar, exactly like the cruciform pair. What actually
+    separates it is that the upper planes BREAK THE SURFACE — with tipcap they
+    show two light plates standing proud at the transom, in a V, where the
+    three cruciform boats show one thin fore-and-aft fin. It separates on
+    material and on being above water, not on any diagonal.
+
+    A ROTATION BUG WAS FIXED HERE. The canted planes used rot=(0, R(45 - a), 0),
+    which leaves the a=45 plane horizontal and stands the a=135 plane vertical,
+    so the X boat had a cruciform stern drawn at the wrong radius. It is
+    rot=(0, R(-a), 0).
+    """
     out = []
-    span = span if span is not None else B * 1.55
+    tip = tip if tip is not None else B * 0.78
     chord = chord if chord is not None else L * 0.055
+    root = B * 0.26
+    ln, ctr = tip - root, (tip + root) / 2.0
     y = -L * 0.415
     use("body")
     if style == "x":
         for a in (45, 135, 225, 315):
-            out.append(cube((math.cos(R(a)) * span * 0.30, y,
-                             axis_z + math.sin(R(a)) * span * 0.30),
-                            (span * 0.62, chord, 0.42), rot=(0, R(-a + 45), 0)))
+            out.append(cube((math.cos(R(a)) * ctr, y, axis_z + math.sin(R(a)) * ctr),
+                            (ln, chord, 0.42), rot=(0, R(-a), 0)))
+        if tipcap:
+            with mat("deck"):
+                for a in (45, 135):
+                    out.append(cube((math.cos(R(a)) * tip * 0.86, y,
+                                     axis_z + math.sin(R(a)) * tip * 0.86 + 0.16),
+                                    (ln * 0.44, chord * 0.80, 0.22)))
     else:
         for s in (-1, 1):
-            out.append(cube((s * span * 0.30, y, axis_z),
-                            (span * 0.62, chord, 0.42)))
+            out.append(cube((s * ctr, y, axis_z), (ln, chord, 0.42)))
         out.append(profile([(y + chord * 0.6, axis_z), (y - chord * 0.6, axis_z),
-                            (y - chord * 0.5, axis_z + B * 0.62),
-                            (y + chord * 0.3, axis_z + B * 0.58)], 0.42,
+                            (y - chord * 0.5, axis_z + B * 0.72),
+                            (y + chord * 0.3, axis_z + B * 0.66)], 0.42,
                            name + "_ru"))
         out.append(profile([(y + chord * 0.6, axis_z), (y - chord * 0.6, axis_z),
-                            (y - chord * 0.5, axis_z - B * 0.55),
-                            (y + chord * 0.3, axis_z - B * 0.52)], 0.42,
+                            (y - chord * 0.5, axis_z - B * 0.62),
+                            (y + chord * 0.3, axis_z - B * 0.58)], 0.42,
                            name + "_rl"))
     return out
 
 
+def towed_array(L, B, axis_z, y0, y1, side=1, name="tas"):
+    """The towed-array fairing along ONE side of the hull, and its reel housing.
+
+    docs/02 §8 makes ASW a pillar and the array is the boat's own half of it.
+    It is also the only ASYMMETRIC feature in the fleet: one raised line down
+    the starboard side and nothing to port. Dark on dark, so it is a
+    three-quarter-sheet feature and is budgeted as one — two objects.
+    """
+    out = []
+    r = (B / 2.0) * 0.985
+    with mat("gunbore"):
+        out.append(cyl((side * r * 0.86, (y0 + y1) / 2.0, axis_z + r * 0.46),
+                       B * 0.045, y0 - y1, rot=(R(90), 0, 0), v=8))
+        out.append(cube((side * r * 0.80, y1 - B * 0.14, axis_z + r * 0.48),
+                        (B * 0.16, B * 0.30, B * 0.16)))
+    return out
+
+
 def propulsor(L, B, axis_z, kind="screw", name="prop"):
+    """Screw or pumpjet. Five blades, not seven: it is permanently below the
+    sea plane in every render and in the game, and the two extra blades cost
+    376 triangles that the deck wanted."""
     out = []
     y = -L * 0.485
     with mat("gun"):
@@ -879,8 +1086,8 @@ def propulsor(L, B, axis_z, kind="screw", name="prop"):
         else:
             out.append(cyl((0, y, axis_z), B * 0.13, B * 0.22,
                            rot=(R(90), 0, 0), v=12, taper=0.5))
-            for k in range(7):
-                a = 2.0 * math.pi * k / 7.0
+            for k in range(5):
+                a = 2.0 * math.pi * k / 5.0
                 out.append(cube((B * 0.26 * math.sin(a), y,
                                  axis_z + B * 0.26 * math.cos(a)),
                                 (0.10, B * 0.16, B * 0.44), rot=(0, a, 0)))
@@ -1031,26 +1238,72 @@ def corvette():
 
     EXCLUSIVE FEATURE: two inclined box canister packs sitting athwartships
     amidships. Small, fast, cheap: anti-ship missiles and not much else.
+
+    DETAIL PASS. The corvette sits between the missile boat and the frigate and
+    was collapsing toward the missile boat, because both were a two-tier box
+    with a mast. Three things separate it now and all three are deck-plan facts:
+
+      THREE TIERS, NOT TWO. The K130 carries its bridge a full 10 m over the
+      main deck. superstructure() now gets a pilothouse tier with the glass on
+      it and bridge wings cantilevered either side in `deck`, so the light
+      cross-bar of the wings sits where the missile boat has nothing.
+
+      THE WAIST IS NO LONGER BARE. Between the funnel and the flight deck the
+      hull ran 9 m of empty grey. It now carries a light boat/UAV house with a
+      dark door in its after face, and the canister packs have moved aft to
+      -0.095L so they stand clear of the deckhouse bulkhead they were touching.
+
+      DARK DECK PUNCTUATION. Three `gunbore` hatch rectangles — two on the
+      raised forecastle either side of the breakwater, one on the waist. At the
+      escort zoom these are the only marks forward of the bridge on a hull
+      whose forecastle is otherwise as empty as the frigate's, and they read as
+      a corvette's crowded working deck rather than an escort's clear one.
+
+    PAID FOR by walking clutter() at 12.5 m instead of 9 m: the liferaft run is
+    a texture, not a feature, and a third fewer of them is invisible.
     """
     L, B, FB, SH = 89.1, 13.3, 3.9, 1.5
     p, fb = ship_hull(L, B, FB, bow=0.30, transom=0.80, sheer=SH)
     sup, top = superstructure(L * 0.085, fb,
-                              ((28.0, 10.2, 5.0), (14.0, 7.6, 3.8, 1.4)),
+                              ((28.0, 10.2, 4.4), (18.0, 8.4, 3.2, 0.6),
+                               (9.6, 6.2, 2.8, 1.8)),
                               taper=0.86)
     p += sup
-    p += lattice_mast(0, -L * 0.010, top, 9.0, foot=2.2, head=0.8, bays=3,
+    with mat("deck"):                                   # bridge wings
+        for s in (-1, 1):
+            p.append(cube((s * 4.05, L * 0.085 + 3.2, fb + 7.85),
+                          (2.6, 3.4, 0.50)))
+    p += lattice_mast(0, L * 0.070, top, 8.4, foot=2.2, head=0.8, bays=3,
                       solid=True, yards=((0.50, 6.4),), radome=1.3)
-    p += funnel(0, -L * 0.115, fb + 2.0, 6.0, 4.4, 5.4, rake=10, uptakes=1)
+    p += ciws(0, -L * 0.012, fb + 7.6, 0.90)
+    use("body")                                         # funnel casing
+    p.append(deckhouse(-L * 0.150, 12.0, 6.6, 2.2, fb, 0.92, "cv_cas"))
+    p += funnel(0, -L * 0.155, fb + 2.2, 6.0, 4.4, 5.2, rake=10, uptakes=1)
     for s in (-1, 1):                                   # the exclusive
-        p += canisters(s * 3.4, -L * 0.070, fb + 0.5, n=2, l=6.2, w=1.5,
+        p += canisters(s * 3.9, -L * 0.095, fb + 0.5, n=2, l=6.2, w=1.5,
                        h=1.5, elev=16, yaw=s * 12, name=f"can{s}")
     p += gun_mount(L * 0.335, fb + SH, r=1.45, barrel_l=4.2)
-    p += ciws(0, L * 0.150, top - 3.4, 0.90)
-    p += helipad(-L * 0.360, 9.4, 13.0, fb)
-    p += clutter(hull_planform(L, B, transom=0.80, w=0.88), fb, spacing=9.0,
+    p += breakwater(L * 0.240, B * 0.66, fb + SH)
+    for s, y in ((-1, L * 0.290), (1, L * 0.290), (1, -L * 0.130)):
+        with mat("gunbore"):                            # deck hatches
+            p.append(cube((s * B * 0.235, y,
+                           fb + (SH if y > L * 0.045 else 0.0) + 0.15),
+                          (2.0, 2.8, 0.30)))
+    with mat("deck"):                                   # boat / UAV house
+        p.append(cube((0, -L * 0.245, fb + 1.45), (8.2, 8.6, 2.9)))
+    with mat("gunbore"):
+        p.append(cube((0, -L * 0.293, fb + 1.30), (4.6, 0.34, 2.2)))
+    with mat("deck"):                                   # RAM box, fore and aft
+        p.append(cube((0, L * 0.205, fb + 5.30), (3.2, 2.4, 1.8),
+                      rot=(R(-22), 0, 0)))
+        p.append(cube((0, -L * 0.300, fb + 4.20), (3.0, 2.2, 1.7),
+                      rot=(R(20), 0, 0)))
+    p += helipad(-L * 0.375, 9.4, 12.4, fb)
+    p += clutter(hull_planform(L, B, transom=0.80, w=0.88), fb, spacing=12.5,
                  size=(0.9, 1.6, 0.75))
-    p.append(team_patch(-L * 0.215, fb, 3.0, 3.6))
-    return p, ship_meta(L, B, fb, top + 9.0, gun_y=L * 0.34, gun_z=fb + SH + 1.9)
+    p.append(team_patch(-L * 0.170, fb, 3.0, 3.6))
+    use("body")
+    return p, ship_meta(L, B, fb, top + 8.4, gun_y=L * 0.34, gun_z=fb + SH + 1.9)
 
 
 def missile_boat():
@@ -1061,24 +1314,54 @@ def missile_boat():
     deck edge, angled outboard and overhanging the side. The corvette owns the
     box canister; this owns the round tube, and from overhead the two never
     look alike.
+
+    DETAIL PASS, AND IT HAD THE LEAST ROOM OF THE FIVE SMALL CRAFT (+724).
+    Everything below is paid for, not added:
+
+      SPENT. A pilothouse tier so the boat steps bridge-over-house like the
+      corvette rather than sitting under one flat lid; light bridge wings; the
+      after AK-630 lifted onto a light `deck` gun tub instead of standing on
+      the bare deck; a breakwater on the short forecastle; and — the one thing
+      that reads from directly overhead — TWO DARK GAS-TURBINE UPTAKE PORTS CUT
+      INTO THE TRANSOM. A Tarantul exhausts through the stern, not a funnel,
+      and no other hull in the roster has a dark mark ON its transom, so the
+      boat now terminates in something instead of trailing off.
+
+      SAVED. clutter() at 13 m instead of 8 m, and the lattice at two bays
+      instead of three. It is still an OPEN lattice, because this is a 1980s
+      Soviet hull and the see-through mast is half of why it does not look like
+      the corvette, which carries a solid pyramid.
     """
     L, B, FB = 56.1, 10.2, 3.0
     p, fb = ship_hull(L, B, FB, bow=0.34, transom=0.84, sheer=1.1)
     sup, top = superstructure(L * 0.075, fb,
-                              ((17.5, 7.4, 4.2), (9.0, 5.6, 3.0, 0.8)),
+                              ((17.5, 7.4, 4.0), (11.0, 6.0, 2.8, 0.6),
+                               (5.6, 4.2, 2.4, 1.9)),
                               taper=0.84)
     p += sup
-    p += lattice_mast(0, -L * 0.020, top, 7.2, foot=1.8, head=0.7, bays=3,
+    with mat("deck"):                                   # bridge wings
+        for s in (-1, 1):
+            p.append(cube((s * 2.95, L * 0.075 + 2.6, fb + 7.05),
+                          (2.0, 2.6, 0.44)))
+    p += lattice_mast(0, L * 0.052, top, 7.0, foot=1.8, head=0.7, bays=2,
                       yards=((0.55, 5.0),), radome=1.1)
     for s in (-1, 1):                                   # the exclusive
         p += missile_tubes(s * (B * 0.42), -L * 0.090, fb + 0.9, n=2, l=7.4,
                            r=0.88, elev=11, yaw=s * 9, name=f"tube{s}")
     p += gun_mount(L * 0.335, fb + 1.1, r=1.05, barrel_l=3.0)
-    p += ciws(0, -L * 0.360, fb + 0.6, 0.85, aft=True)
+    p += breakwater(L * 0.245, B * 0.62, fb + 1.1, h=0.95)
+    with mat("deck"):                                   # AK-630 gun tub
+        p.append(cyl((0, -L * 0.355, fb + 0.55), 2.05, 1.10, v=12))
+    p += ciws(0, -L * 0.355, fb + 1.1, 0.85, aft=True)
+    with mat("gunbore"):                                # turbine uptakes, transom
+        for s in (-1, 1):
+            p.append(cube((s * B * 0.21, -L * 0.5015, fb - 0.95),
+                          (2.5, 0.72, 1.7)))
     p += clutter(hull_planform(L, B, bow=0.34, transom=0.84, w=0.86), fb,
-                 spacing=8.0, size=(0.8, 1.4, 0.7))
-    p.append(team_patch(-L * 0.250, fb, 2.4, 3.0))
-    return p, ship_meta(L, B, fb, top + 7.2, gun_y=L * 0.34, gun_z=fb + 2.1)
+                 spacing=13.0, size=(0.8, 1.4, 0.7))
+    p.append(team_patch(-L * 0.235, fb, 2.4, 3.0))
+    use("body")
+    return p, ship_meta(L, B, fb, top + 7.0, gun_y=L * 0.34, gun_z=fb + 2.1)
 
 
 def patrol_vessel():
@@ -1118,54 +1401,78 @@ def patrol_vessel():
 # ══ submarines ═════════════════════════════════════════════════════
 def sub_diesel():
     """Type 209/1400 — 62.0 x 6.2 m, published draught 5.5 m; the round hull
-    stands 1.20 m proud when surfaced and shows 4.90 m wide in plan. Quiet on the battery, loud snorkelling (docs/11 Q1).
+    stands 1.20 m proud when surfaced and shows 4.90 m wide in plan. Quiet on
+    the battery, loud snorkelling (docs/11 Q1).
 
     EXCLUSIVE FEATURE: the snorkel induction and diesel exhaust masts raised
-    abaft the sail. It is the only boat here showing masts that are not on the
-    sail centreline, and snorkelling is the thing that gets it killed.
+    abaft the sail, standing on a light induction housing that sits at 0.01 L —
+    dead amidships, where no other boat has a bright mark. It is the only boat
+    here showing masts that are not on the sail centreline, and snorkelling is
+    the thing that gets it killed.
+
+    The 209's fin is visibly STEPPED, so this is the boat that takes sail(step=).
     """
     L, B, FB = 62.0, 6.2, 1.20            # published draught 5.5 m to the keel
     assert sub_show_width(B, FB) > B * 0.52
     p, axis, deck = sub_hull(L, B, FB, name="ssk")
-    p += casing(L * 0.30, -L * 0.34, B * 0.52, deck - 0.10)
-    p += sail(L * 0.20, 7.4, 4.2, B * 0.36, deck, planes=True, masts=2)
-    with mat("gun"):                                    # the exclusive
-        p.append(cyl((0.9, L * 0.10, deck + 3.4), 0.24, 7.2, rot=(R(8), 0, 0), v=8))
-        p.append(cyl((-0.9, L * 0.09, deck + 2.9), 0.20, 6.2, rot=(R(8), 0, 0), v=8))
-        p.append(cube((0.9, L * 0.135, deck + 6.7), (0.6, 1.1, 0.5)))
+    p += casing(L * 0.32, -L * 0.32, B * 0.50, deck - 0.10)
+    top = deck - 0.10 + 0.42                                    # casing crown
+    p += sail(L * 0.20, 7.4, 3.6, B * 0.36, deck, planes=True, masts=2, step=1.1)
+    p += sub_fittings([L * 0.285, -L * 0.115, -L * 0.245], top, r=0.56)
+    with mat("deck"):                                   # the exclusive, part 1
+        p.append(cube((0.0, L * 0.012, top + 0.30), (B * 0.40, L * 0.110, 0.60)))
+        p.append(cube((0.0, L * 0.055, top + 0.62), (B * 0.26, L * 0.030, 0.70)))
+    with mat("gun"):                                    # the exclusive, part 2
+        p.append(cyl((0.9, L * 0.045, top + 3.6), 0.24, 7.2, rot=(R(8), 0, 0), v=8))
+        p.append(cyl((-0.9, L * 0.035, top + 3.1), 0.20, 6.2, rot=(R(8), 0, 0), v=8))
+        p.append(cube((0.9, L * 0.075, top + 6.9), (0.6, 1.1, 0.5)))
+    p += aft_spine(L, B, axis, -L * 0.32, B * 0.30)
     p += stern_planes(L, B, axis, "cross")
     p += propulsor(L, B, axis, "screw")
-    p.append(team_patch(-L * 0.06, deck - 0.05, 1.8, 2.6))
-    return p, ship_meta(L, B, deck, deck + 4.2 + 3.4, gun_y=L * 0.2,
+    p.append(team_patch(-L * 0.055, top, 1.6, 2.4))
+    return p, ship_meta(L, B, deck, deck + 3.6 + 1.1 + 3.4, gun_y=L * 0.2,
                         gun_z=deck + 1.0)
 
 
 def sub_nuclear():
     """Los Angeles 688i — 110.3 x 10.1 m, published draught 9.4 m; the round
-    hull stands 1.90 m proud when surfaced and shows 7.89 m wide in plan. Fast and long-legged — and in epoch 2 NOISIER than the diesels
-    it replaced (docs/11).
+    hull stands 1.90 m proud when surfaced and shows 7.89 m wide in plan. Fast
+    and long-legged — and in epoch 2 NOISIER than the diesels it replaced
+    (docs/11).
 
     EXCLUSIVE FEATURE: twelve vertical-launch tube caps in the bow casing, two
     rows of six forward of the sail. Nothing else underwater has a hatch grid.
+
+    IT HAS NOW BEEN INVISIBLE TWICE AND FOR TWO DIFFERENT REASONS, so both are
+    recorded. Pass 2 put the caps at deck - 0.02 with the casing spanning
+    deck - 0.12 to deck + 0.30, so all twelve were buried inside it. Pass 3
+    lifted them onto the casing but left them in `gunbore`, near black, on a
+    casing that was then `deck` — visible, but only by luck. Pass 4 inverts the
+    casing to near black, which would have buried them a third time, so they
+    are now LIGHT `deck` caps: a bright twelve-dot grid on a black spine, the
+    highest-contrast feature on any boat in the roster.
+
+    They also have to fit. The casing narrows over its forward 11 per cent, so
+    the grid runs from 0.308 L aft to 0.215 L, entirely inside the full-width
+    part of the casing and clear of the walkway at x = +/-0.98.
     """
     L, B, FB = 110.3, 10.1, 1.90          # published draught 9.4 m to the keel
-    assert sub_show_width(B, FB) > B * 0.46
+    assert sub_show_width(B, FB) > B * 0.44
     p, axis, deck = sub_hull(L, B, FB, name="ssn")
-    p += casing(L * 0.36, -L * 0.30, B * 0.46, deck - 0.12)
+    p += casing(L * 0.40, -L * 0.30, B * 0.44, deck - 0.12, walk=0.42)
+    top = deck - 0.12 + 0.42                                    # casing crown
     p += sail(L * 0.215, 11.6, 5.8, B * 0.32, deck, planes=True, masts=3)
-    # The exclusive. It has to sit ON the casing, not in it: the first cut put
-    # the caps at deck - 0.02 with the casing spanning deck - 0.12 to deck + 0.30,
-    # so all twelve were buried inside it and the boat's identifying feature
-    # rendered as nothing. They also started 0.6 m forward of the casing and
-    # overhung its edge by 0.2 m either side.
-    with mat("gunbore"):
+    with mat("deck"):                                           # the exclusive
         for s in (-1, 1):
             for k in range(6):
-                p.append(cyl((s * 1.55, L * 0.330 - k * 2.05, deck + 0.40),
-                             0.62, 0.30, v=12))
+                p.append(cyl((s * 1.50, L * 0.308 - k * 1.86, top + 0.11),
+                             0.62, 0.22, v=10))
+    p += sub_fittings([L * 0.355, -L * 0.020, -L * 0.155, -L * 0.255], top, r=0.70)
+    p += towed_array(L, B, axis, L * 0.20, -L * 0.28, side=1)
+    p += aft_spine(L, B, axis, -L * 0.30, B * 0.26)
     p += stern_planes(L, B, axis, "cross")
     p += propulsor(L, B, axis, "screw")
-    p.append(team_patch(-L * 0.08, deck - 0.07, 2.4, 3.4))
+    p.append(team_patch(-L * 0.085, top, 2.2, 3.2))
     return p, ship_meta(L, B, deck, deck + 5.8 + 3.4, gun_y=L * 0.2,
                         gun_z=deck + 1.0)
 
@@ -1176,50 +1483,64 @@ def sub_aip():
     Air-independent propulsion: near-silent at creep, the best ambusher and
     the worst pursuer in the game (docs/08, Germany).
 
-    EXCLUSIVE FEATURE: an X-form stern. Four canted planes and no cruciform
-    rudder — from overhead a diagonal cross where every other boat shows a
-    horizontal bar.
+    EXCLUSIVE FEATURE: an X-form stern — four canted planes and no cruciform
+    rudder — with the two UPPER planes breaking the surface as light plates.
+    See the honest correction in stern_planes(): from directly overhead the two
+    upper planes project onto one athwartships bar and there is no diagonal
+    cross to be seen. What separates the boat is that its transom carries two
+    bright plates standing out of the water in a V where the three cruciform
+    boats carry one thin dark fin.
+
+    It is also the CLEAN boat: no launch caps, no induction housing, no
+    outboard stores, two hatches and nothing else. Pass 3 had a pair of flank
+    array panels on it in `gunbore`; measured, they sat at axis + 0.16 B, which
+    on this boat is 1.08 m BELOW the sea, so they were 376 triangles of
+    geometry no camera could ever see. Deleted.
     """
     L, B, FB = 57.2, 7.0, 1.30            # published draught 6.0 m to the keel
     assert sub_show_width(B, FB) > B * 0.44
     p, axis, deck = sub_hull(L, B, FB, name="aip")
-    p += casing(L * 0.30, -L * 0.30, B * 0.44, deck - 0.10)
+    p += casing(L * 0.30, -L * 0.28, B * 0.44, deck - 0.10)
+    top = deck - 0.10 + 0.42                                    # casing crown
     p += sail(L * 0.175, 6.6, 3.8, B * 0.30, deck, planes=False, masts=3)
-    p += stern_planes(L, B, axis, "x")                  # the exclusive
+    p += sub_fittings([L * 0.250, -L * 0.185], top, r=0.58)
+    p += aft_spine(L, B, axis, -L * 0.28, B * 0.28)
+    p += stern_planes(L, B, axis, "x", tipcap=True)     # the exclusive
     p += propulsor(L, B, axis, "pumpjet")
-    with mat("gunbore"):                                # flank array panels
-        for s in (-1, 1):
-            p.append(cube((s * B * 0.47, L * 0.06, axis + B * 0.16),
-                          (0.30, L * 0.26, 0.85)))
-    p.append(team_patch(-L * 0.07, deck - 0.05, 1.8, 2.6))
+    p.append(team_patch(-L * 0.075, top, 1.6, 2.4))
     return p, ship_meta(L, B, deck, deck + 3.8 + 3.4, gun_y=L * 0.2,
                         gun_z=deck + 1.0)
 
 
 def sub_midget():
     """Sang-O — 34.0 x 3.8 m, published draught 3.2 m; 0.80 m of hull proud
-    when surfaced, showing 3.10 m wide in plan. The KPA's
-    asymmetric tool: tiny acoustic signature, tiny range.
+    when surfaced, showing 3.10 m wide in plan. The KPA's asymmetric tool:
+    tiny acoustic signature, tiny range.
 
     EXCLUSIVE FEATURE: two external stores cradles clamped to the casing
     alongside the sail. It is the only boat that carries its weapons on the
-    OUTSIDE, which is exactly what a swimmer-delivery and mine-laying boat
-    does, and the pair of cylinders makes a 34 m hull identifiable.
+    OUTSIDE, and the cradles sit at x = +/-1.67 where the hull only shows to
+    1.55, so they OVERHANG the plan outline — the only boat in the roster whose
+    silhouette is not a clean lozenge. That is what makes a 34 m hull
+    identifiable at the small-craft zoom.
     """
     L, B, FB = 34.0, 3.8, 0.80            # published draught 3.2 m to the keel
     assert sub_show_width(B, FB) > B * 0.50
-    p, axis, deck = sub_hull(L, B, FB, v=18, name="mid")
-    p += casing(L * 0.26, -L * 0.28, B * 0.50, deck - 0.06)
+    p, axis, deck = sub_hull(L, B, FB, v=16, name="mid")
+    p += casing(L * 0.26, -L * 0.28, B * 0.50, deck - 0.06, walk=0.40)
+    top = deck - 0.06 + 0.42                                    # casing crown
     p += sail(L * 0.150, 3.0, 1.9, B * 0.34, deck, planes=False, masts=2)
-    with mat("gun"):                                    # the exclusive
+    p += sub_fittings([L * 0.215, -L * 0.215], top, r=0.34, h=0.16, v=8)
+    with mat("gun"):                                            # the exclusive
         for s in (-1, 1):
-            p.append(cyl((s * B * 0.44, L * 0.02, deck - 0.15), 0.42, L * 0.30,
+            p.append(cyl((s * B * 0.44, L * 0.02, deck - 0.05), 0.42, L * 0.30,
                          rot=(R(90), 0, 0), v=10))
-            p.append(cube((s * B * 0.44, L * 0.12, deck - 0.30), (0.55, 0.30, 0.75)))
-            p.append(cube((s * B * 0.44, -L * 0.10, deck - 0.30), (0.55, 0.30, 0.75)))
+            p.append(cube((s * B * 0.44, L * 0.12, deck - 0.22), (0.55, 0.30, 0.75)))
+            p.append(cube((s * B * 0.44, -L * 0.10, deck - 0.22), (0.55, 0.30, 0.75)))
+    p += aft_spine(L, B, axis, -L * 0.28, B * 0.32)
     p += stern_planes(L, B, axis, "cross")
     p += propulsor(L, B, axis, "screw")
-    p.append(team_patch(-L * 0.05, deck - 0.03, 1.0, 1.6))
+    p.append(team_patch(-L * 0.055, top, 0.9, 1.5))
     return p, ship_meta(L, B, deck, deck + 1.9 + 2.4, gun_y=L * 0.2,
                         gun_z=deck + 0.6)
 

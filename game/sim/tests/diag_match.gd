@@ -35,7 +35,7 @@ func _initialize() -> void:
 
 	print("\n  t      alive  kills  moving  orders  ai_dec  finished")
 	var t := 0.0
-	for pass_i in range(20):
+	for pass_i in range(30):
 		m.run_ticks(1200)                     # 60 s per pass -> 30 min total
 		t += 60.0
 		if m.is_finished():

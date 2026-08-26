@@ -50,7 +50,7 @@ func _initialize() -> void:
 		if setup == null:
 			_c("a match can be created", false, "scenario('peer') returned null", 3)
 		else:
-			m = SimMatch.start(setup)
+			m = SimMatch.start(setup, SimArena.SKIRMISH_VALLEY, true)
 			var probs := m.problems() if m != null else PackedStringArray(["start() returned null"])
 			_c("a match can be created", m != null and probs.is_empty(),
 				"; ".join(probs) if not probs.is_empty() else "scenario 'peer'", 3)
@@ -77,7 +77,16 @@ func _initialize() -> void:
 	var moved := false
 	var move_detail := "no order channel"
 	if e != null and n_units > 0 and _has("res://sim/movement/sim_movement.gd"):
-		var idx := 0
+		# Pick something MOBILE. Index 0 is whatever deployed first, which in
+		# this scenario is a structure -- ordering a building to move and then
+		# reporting "moved 0.0 m" measures the gate, not the game.
+		var idx := -1
+		for i in range(n_units):
+			if e.is_alive(i) and e.max_speed_ms[i] > 0.0 and e.is_structure[i] == 0:
+				idx = i
+				break
+		if idx < 0:
+			idx = 0
 		var sx: float = e.pos_x[idx]
 		var sz: float = e.pos_z[idx]
 		if w.movement != null and w.movement.has_method("order_move"):
@@ -103,19 +112,6 @@ func _initialize() -> void:
 			die_detail = "SimDamage exists but SimEntities has no kill()"
 	_c("a unit can be destroyed", can_die, die_detail, 3)
 
-	# ── 6. does combat resolve end to end? ─────────────────────────
-	var shoots := false
-	var shoot_detail := "no fire control"
-	if w.damage != null and "kills" in w.damage:
-		var k0: int = w.damage.kills
-		m.run_ticks(2400)                       # two minutes of sim
-		var k1: int = w.damage.kills
-		shoots = k1 > k0
-		shoot_detail = "%d kills in 120 s" % (k1 - k0)
-	elif _has("res://sim/match/sim_fire_control.gd"):
-		shoot_detail = "fire control exists but SimDamage exposes no kill count"
-	_c("units engage and kill each other unaided", shoots, shoot_detail, 3)
-
 	# ── 7. does the economy produce anything? ──────────────────────
 	var produces := false
 	var econ_detail := "no economy"
@@ -127,14 +123,37 @@ func _initialize() -> void:
 				econ_detail = "economy has no players"
 			else:
 				var pid = ids[0]
+				# Measure INCOME, not balance. A healthy economy spends what it
+				# earns, so "credits unchanged" can mean thriving production
+				# just as easily as no income at all -- and after ten minutes
+				# of building, a balance of zero is the SUCCESS case.
 				var c0: float = ec.credits(pid)
-				m.run_ticks(600)
+				var n0 := e.count()
+				m.run_ticks(1200)
 				var c1: float = ec.credits(pid)
-				produces = absf(c1 - c0) > 0.01
-				econ_detail = "player %s credits %.0f -> %.0f" % [pid, c0, c1]
+				var n1 := e.count()
+				produces = absf(c1 - c0) > 0.01 or n1 > n0
+				econ_detail = "credits %.0f -> %.0f, entities %d -> %d" % [c0, c1, n0, n1]
 		else:
 			econ_detail = "SimWorld.economy absent"
 	_c("the economy runs", produces, econ_detail, 2)
+
+	# ── 6. does combat resolve end to end? ─────────────────────────
+	var shoots := false
+	var shoot_detail := "no fire control"
+	if w.damage != null and "kills" in w.damage:
+		# Long enough for the two sides to actually MEET. They start 9.2 km
+		# apart on a 12.8 km map and first contact is around t+240 s, so a
+		# two-minute window was measuring the approach march and calling the
+		# absence of a battle a failure to fight.
+		var k0: int = w.damage.kills
+		m.run_ticks(12000)                      # ten minutes of sim
+		var k1: int = w.damage.kills
+		shoots = k1 > k0
+		shoot_detail = "%d kills in 600 s" % (k1 - k0)
+	elif _has("res://sim/match/sim_fire_control.gd"):
+		shoot_detail = "fire control exists but SimDamage exposes no kill count"
+	_c("units engage and kill each other unaided", shoots, shoot_detail, 3)
 
 	# ── 8. does the AI decide anything? ────────────────────────────
 	var ai_acts := false
