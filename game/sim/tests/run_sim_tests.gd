@@ -173,17 +173,48 @@ func _suite_track_ladder() -> void:
 		t.quality == SimTypes.TrackQuality.FIRE_CONTROL)
 
 	# Unsupported, it degrades a rung at a time rather than vanishing.
-	t.supported_now = false
+	# begin_solve() clears the supported floor each solve. support_q is the
+	# only per-solve support state now -- it used to sit beside a separate
+	# boolean, and two fields that had to agree is how the decay bug survived.
+	t.support_q = SimTypes.TrackQuality.NONE
 	t.decay(4.0)
 	_ok("unsupported FIRE_CONTROL decays to TRACK",
 		t.quality == SimTypes.TrackQuality.TRACK,
 		SimTypes.quality_name(t.quality))
+	t.support_q = SimTypes.TrackQuality.NONE
 	t.decay(13.0)
 	_ok("TRACK then decays to CONTACT",
 		t.quality == SimTypes.TrackQuality.CONTACT,
 		SimTypes.quality_name(t.quality))
+	t.support_q = SimTypes.TrackQuality.NONE
 	var alive := t.decay(50.0)
 	_ok("and finally goes cold", not alive and t.quality == SimTypes.TrackQuality.NONE)
+
+	# A track never falls BELOW the rung something is actually holding it at.
+	var held := SimTrack.new()
+	held.refresh(SimTypes.TrackQuality.FIRE_CONTROL, SimTypes.Classification.TYPE, 1.0, "illuminator")
+	# decay() drops at most ONE rung per call and resets the clock, so this has
+	# to run like the real solve does: the ESM re-contributes CONTACT every
+	# solve while nothing supports anything higher.
+	var still := true
+	for _i in range(60):
+		held.support_q = SimTypes.TrackQuality.CONTACT   # an ESM cut, nothing more
+		still = held.decay(5.0)
+	_ok("the contact survives indefinitely on the ESM cut", still)
+	_ok("an ESM cut holds a contact at CONTACT and no higher",
+		held.quality == SimTypes.TrackQuality.CONTACT,
+		SimTypes.quality_name(held.quality))
+
+	# The regression that matters: a bearing-only contribution must not keep a
+	# FIRE_CONTROL solution alive, because the gate would then authorise a
+	# semi-active shot with no illuminator in existence -- pillar 1 inverted.
+	_ok("and cannot authorise a SARH launch",
+		not SimWeaponGate.can_launch(
+			SimWeaponDef.new({"guidance": SimTypes.Guidance.SARH, "max_range_km": 60.0}),
+			held, 20.0).allowed,
+		SimWeaponGate.can_launch(
+			SimWeaponDef.new({"guidance": SimTypes.Guidance.SARH, "max_range_km": 60.0}),
+			held, 20.0).reason)
 
 	# Classification is a SEPARATE axis: a precise solution on an unknown.
 	var u := SimTrack.new()

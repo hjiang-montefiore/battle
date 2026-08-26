@@ -37,13 +37,29 @@ var confidence: float = 0.0       ## 0..1
 var category: int = SimTypes.Category.AIR
 var contributors: PackedStringArray = PackedStringArray()
 
-## True while some sensor is actively holding it this solve. Weapons that must
-## be supported through flight (SARH) re-check this every tick.
-var supported_now: bool = false
-
 ## Set when the contact was seen radiating. ANTI_RADIATION weapons need it, and
 ## it is also what home-on-jam produces.
 var emitting: bool = false
+
+## The best rung anything is supporting THIS solve. Cleared by begin_solve()
+## and raised by each contributing sensor. This is the ONLY per-solve support
+## state; `supported_now` used to sit beside it as a separate boolean, and two
+## fields that had to agree but were written in different places is precisely
+## how the bug below survived. Ask is_supported() instead.
+##
+## This exists because `quality` alone cannot answer the question the weapon
+## gate actually asks. `quality` is the rung the track is CURRENTLY at, which
+## is deliberately sticky -- docs/02 wants a stale contact to slide down the
+## ladder rather than blink out. But "is a fire-control solution being held on
+## this target right now" is a different question, and answering it with the
+## sticky value let a bearing-only ESM cut hold a FIRE_CONTROL track alive
+## forever: refresh() ratcheted quality upward and never let it fall, because
+## any contribution at all set supported_now and suppressed all decay.
+##
+## The consequence was not academic. Kill the illuminator, keep one ESM truck
+## alive, and the gate authorised a semi-active shot with no illuminator in
+## existence -- which is pillar 1 of this game inverted.
+var support_q: int = SimTypes.TrackQuality.NONE
 
 
 ## How long a rung survives without a refresh before it decays to the one below.
@@ -56,27 +72,45 @@ const DECAY_CONTACT_S := 45.0
 
 
 func refresh(q: int, cls: int, conf: float, source: String) -> void:
+	if q > support_q:
+		support_q = q
 	if q > quality:
 		quality = q
 	if cls > classification:
 		classification = cls
 	confidence = maxf(confidence, conf)
-	age_s = 0.0
-	supported_now = true
+	# The clock measures how long the CURRENT rung has gone unsupported, so only
+	# a contribution at or above that rung resets it. A lower-rung contribution
+	# is real support for a lower rung and must not silently renew a higher one.
+	if q >= quality:
+		age_s = 0.0
 	if not contributors.has(source):
 		contributors.append(source)
+
+
+## True while ANY sensor is holding this track at any rung this solve. Weapons
+## that must be supported through flight (SARH) re-check it every tick -- but
+## they must check support_q against the rung THEY need, not merely this.
+func is_supported() -> bool:
+	return support_q > SimTypes.TrackQuality.NONE
 
 
 ## Advance the track's own clock and let it fall down the ladder. Returns false
 ## when the contact has gone cold entirely and should be dropped.
 func decay(dt: float) -> bool:
 	age_s += dt
-	if not supported_now:
+	# Decay is driven by whether the CURRENT rung is supported, not by whether
+	# anything at all contributed. A track never falls below the rung something
+	# is actually holding it at, so an ESM cut keeps a CONTACT alive
+	# indefinitely -- it just cannot keep a FIRE_CONTROL alive.
+	if quality > support_q:
 		if quality == SimTypes.TrackQuality.FIRE_CONTROL and age_s > DECAY_FIRE_CONTROL_S:
 			quality = SimTypes.TrackQuality.TRACK
+			age_s = 0.0
 		elif quality == SimTypes.TrackQuality.TRACK and age_s > DECAY_TRACK_S:
 			quality = SimTypes.TrackQuality.CONTACT
 			bearing_only = true
+			age_s = 0.0
 		elif quality == SimTypes.TrackQuality.CONTACT and age_s > DECAY_CONTACT_S:
 			quality = SimTypes.TrackQuality.NONE
 			return false
@@ -88,7 +122,7 @@ func decay(dt: float) -> bool:
 ## Dead-reckon the believed position while unsupported, so a stale track drifts
 ## the way a real one does rather than freezing in place.
 func extrapolate(dt: float) -> void:
-	if supported_now:
+	if is_supported():
 		return
 	pos_x += vel_x * dt
 	pos_y += vel_y * dt

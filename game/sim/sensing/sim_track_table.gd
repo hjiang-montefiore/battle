@@ -116,8 +116,10 @@ func decay_all(dt: float) -> void:
 func begin_solve() -> void:
 	for id in track_ids():
 		var t: SimTrack = _tracks[id]
-		t.supported_now = false
 		t.emitting = false
+		# Clearing the supported FLOOR is what makes decay work. Leaving it set
+		# would restore the old behaviour where any contribution froze the rung.
+		t.support_q = SimTypes.TrackQuality.NONE
 
 
 ## Best track the faction holds on a given entity, or null. Sim-internal --

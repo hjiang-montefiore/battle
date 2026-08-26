@@ -77,6 +77,34 @@ func order_emcon(unit: int, emcon_state: int) -> void:
 	commands.set_emcon(player_id, unit, emcon_state)
 
 
+## Ask a structure this player owns to build something. Same queue, same
+## ownership check in SimWorld._command_slot(); the AI never names an issuer
+## other than itself, because it is not given the chance to.
+##
+## Added alongside order_move/order_attack for one reason: docs/09 §3 puts
+## "economy, epoch advancement, production mix" on the strategic layer, and a
+## director that had to construct its own Command to express that would be a
+## director that could put somebody else's id on it.
+func order_produce(structure_unit: int, def_key: String) -> void:
+	commands.produce(player_id, structure_unit, def_key)
+
+
+func order_build(def_key: String, x_m: float, z_m: float) -> void:
+	commands.build(player_id, def_key, x_m, z_m)
+
+
+## docs/05 epoch advancement, own purse only. SimEconomy refuses a foreign id,
+## and this is the only id the AI can supply.
+func begin_epoch_advance() -> bool:
+	return economy.begin_epoch_advance(player_id) if economy != null else false
+
+
+## What this player has queued. docs/09 §1.2 lists another player's queue as a
+## leak, which is why the id is not a parameter.
+func production_queue() -> Array:
+	return economy.queue_of(player_id) if economy != null else []
+
+
 ## Tracks at or above a rung, deterministically ordered. docs/09 §3's threat
 ## table is written in exactly these terms: what the AI does is a function of
 ## WHAT KIND of knowledge it has.

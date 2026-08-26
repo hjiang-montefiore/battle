@@ -33,6 +33,10 @@ var rng: SimRng
 var movement: SimMovement
 var damage: SimDamage
 var economy: SimEconomy
+## Slot 8c. Reload timers, the docs/02 §5 gate and the launch. Filled in by the
+## combat subsystem at the two call sites the spine marked for it -- the
+## ATTACK_TRACK order below, and step 8c in _combat_slot().
+var weapons: SimWeaponCycle
 ## player id -> SimAiDirector. Iterated through ai_player_ids(), which sorts,
 ## because docs/06 forbids relying on Dictionary order anywhere in the sim and
 ## two AIs deciding in an unstable order is a desync.
@@ -66,6 +70,7 @@ func _init(seed_value: int = 12345) -> void:
 	movement = SimMovement.new(entities, terrain, rng.fork(0x4D56))
 	damage = SimDamage.new(entities, rng.fork(0x0DA3))
 	economy = SimEconomy.new(entities, rng.fork(0xEC0))
+	weapons = SimWeaponCycle.new(entities, munitions, solver, rng.fork(0xC0B))
 
 
 ## Load a theatre. Without one the world is a featureless plane, which is what
@@ -264,11 +269,12 @@ func _execute_command(c: SimCommandQueue.Command) -> bool:
 		SimTypes.OrderKind.BUILD:
 			return economy.spawn_unit(c.issuer, c.key, c.x, c.z) >= 0
 		SimTypes.OrderKind.ATTACK_TRACK:
-			# CALL SITE: fire control. The combat agent hangs the engagement
-			# order here -- assign the track to the unit's weapon, and let slot
-			# 8 run the gate and the launch. Deliberately NOT resolved to an
-			# entity: docs/09 §1.3, a track is a hypothesis, not a pointer.
-			return false
+			# Fire control. The track is assigned to the unit's weapons and slot
+			# 8c runs the gate and the launch. Deliberately NOT resolved to an
+			# entity here: docs/09 §1.3, a track is a hypothesis, not a pointer,
+			# and the only place it becomes an index is inside the weapon cycle
+			# where a projectile in flight genuinely needs one.
+			return weapons.engage(c.unit, c.track_id)
 		SimTypes.OrderKind.CANCEL:
 			return false
 	return false
@@ -307,10 +313,11 @@ func _combat_slot(dt: float) -> void:
 	# 8b. Burn-down, crew recovery, wreck expiry.
 	damage.step(dt)
 
-	# 8c. CALL SITE: the weapon cycle. Reload timers, SimWeaponGate checks and
-	# launches belong HERE -- after damage, so a unit killed this tick does not
-	# get to fire, and after munitions, so a round fired now begins its flight
-	# on the next tick with a full dt rather than a partial one.
+	# 8c. The weapon cycle. Reload timers, SimWeaponGate checks and launches --
+	# after damage, so a unit killed this tick does not get to fire, and after
+	# munitions, so a round fired now begins its flight on the next tick with a
+	# full dt rather than a partial one.
+	weapons.step(dt)
 
 
 ## Register an AI opponent. Note what it is handed: a SimAiWorldView, and there

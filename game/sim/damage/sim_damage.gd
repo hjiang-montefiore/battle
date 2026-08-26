@@ -2,15 +2,27 @@ class_name SimDamage
 extends RefCounted
 ## docs/03, and the seam where docs/10 finally has consequences.
 ##
-## ══ THIS IS A STUB. ══
-## Every function below is a declared contract with a no-op or neutral body.
-## Nothing in this file kills anything yet. It exists so that the tick order in
-## sim_world.gd has a real slot to call, so the other three subsystems can
-## compile against a stable API, and so the damage agent fills in bodies rather
-## than negotiating signatures. Each stub says what it MUST do.
+## ══ THE SEAM, NOT THE MODEL. ══
+## The signatures below are the spine's published contract and are unchanged.
+## The MODEL behind them lives in game/sim/combat/:
 ##
-## OWNERSHIP: this class is the only writer of `structure`, `components`,
-## `crew_efficiency` and `alive`. Nothing else may call entities.kill().
+##   combat/sim_penetrator.gd       what a class of penetrator can and cannot
+##                                  do at all -- the refusals that make a
+##                                  generational gap a cliff instead of a slope
+##   combat/sim_armor_scheme.gd     docs/03's generational ladder as real
+##                                  per-facet numbers a unit can be built with
+##   combat/sim_behind_armor.gd     what a penetration HIT: components, not HP
+##   combat/sim_combat_resolver.gd  the resolution itself, and the only caller
+##                                  of entities.kill() in the simulation
+##   combat/sim_combat_outcome.gd   the resolver's return value
+##
+## Keeping this file thin is deliberate. It is the spine's declared surface --
+## SimWorld calls resolve_impact() and step() through it, and test_spine.gd
+## constructs it -- so it must keep its shape whatever the model behind it does.
+##
+## OWNERSHIP: this class and the resolver it delegates to are the only writers
+## of `structure`, `components`, `crew_efficiency` and `alive`. Nothing else may
+## call entities.kill().
 ##
 ## The armour matrix it resolves against is already real -- see sim_armor.gd.
 
@@ -18,7 +30,7 @@ extends RefCounted
 ## What one impact did. Returned by resolve_impact() so the combat log can say
 ## WHY, which docs/10 §10 insists is the point of the whole exercise.
 class Outcome extends RefCounted:
-	var resolved: bool = false      ## false while SimDamage is a stub
+	var resolved: bool = false      ## false when the impact was not resolvable
 	var penetrated: bool = false
 	var facet: int = SimTypes.Facet.FRONT
 	var effective_mm: float = 0.0   ## what the round had to beat
@@ -26,7 +38,7 @@ class Outcome extends RefCounted:
 	var components_lost: int = SimTypes.Component.NONE
 	var structure_lost: float = 0.0
 	var killed: bool = false
-	var reason: String = "damage model not implemented"
+	var reason: String = ""
 
 	func _to_string() -> String:
 		return reason
@@ -34,93 +46,110 @@ class Outcome extends RefCounted:
 
 var entities: SimEntities
 var rng: SimRng
+## The model. Public so tests, the HUD and the unit-spawning code can reach
+## SimArmorScheme configuration and the per-unit blowout override without
+## SimDamage having to re-export every one of them.
+var resolver: SimCombatResolver
 ## Append-only, capped. Same shape as SimMunitions.combat_log so the HUD can
-## merge the two into one stream.
+## merge the two into one stream. Shared with the resolver, not copied.
 var combat_log: Array = []
 var max_log: int = 200
-var kills: int = 0
-var penetrations: int = 0
-var defeats: int = 0
 
 
-## The damage layer gets the entity store because it resolves against GROUND
-## TRUTH -- docs/09 §1.4: "The projectile resolves against reality; the shooter
-## never needed to know." This is the one module that is SUPPOSED to see
-## everything, and it is precisely why the AI is a different module.
 func _init(store: SimEntities, seeded: SimRng) -> void:
 	entities = store
 	rng = seeded
+	resolver = SimCombatResolver.new(store, seeded)
+	combat_log = resolver.combat_log
+	resolver.max_log = max_log
+
+
+# ── counters, read straight off the resolver so they cannot drift ────────────
+
+var kills: int:
+	get:
+		return resolver.kills
+var penetrations: int:
+	get:
+		return resolver.penetrations
+var defeats: int:
+	get:
+		return resolver.defeats
+var impossible: int:
+	get:
+		return resolver.impossible
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# THE API. Signatures are final; bodies are the damage agent's job.
+# THE API
 # ═══════════════════════════════════════════════════════════════════════════
 
 ## Resolve one arriving round against one unit. THE central function.
 ##
-## MUST: pick the facet from `facet` (which SimProjectile.impact_facet() derived
-## from impact geometry -- never re-roll it); run APS first (docs/03: "APS is
-## NOT an armor multiplier, it resolves BEFORE the armor calculation"); compute
-## effective_mm via SimArmor; compare as a threshold; on a penetration choose a
-## behind-armor effect weighted by overmatch_ratio and crew_efficiency; on a
-## defeat apply crew shock and nothing else. It MUST NOT subtract structure on a
-## defeat -- that is the slope docs/03 exists to avoid.
-##
-##   target          entity index, ground truth
-##   facet           SimTypes.Facet, from impact geometry
-##   damage_class    SimTypes.DamageClass
-##   penetration_mm  RHA equivalent AT THE ARRIVAL RANGE, already range-adjusted
-##                   by SimArmor.penetration_at_range_mm()
-##   blast_fraction  0..1 from SimProjectile.damage_fraction(); 1.0 on a direct
-##                   hit, tapering to 0 at the edge of the lethal radius
-##   tandem          precursor charge -- strips ERA (docs/03)
+## The facet comes from SimProjectile.impact_facet(), which derived it from
+## impact geometry -- it is never re-rolled here. `penetration_mm` has already
+## been through SimArmor.penetration_at_range_mm(), so it is what the round
+## arrived with at the range it actually flew.
 func resolve_impact(target: int, facet: int, damage_class: int,
 		penetration_mm: float, blast_fraction: float = 1.0,
 		tandem: bool = false) -> Outcome:
-	var o := Outcome.new()
-	o.facet = facet
-	o.penetration_mm = penetration_mm
-	return o
+	var o := resolver.resolve(target, facet, damage_class, penetration_mm,
+		blast_fraction, tandem)
+	return o.copy_into(Outcome.new()) as Outcome
 
 
-## Take `amount` off a unit's structure pool. For AIRFRAME, HULL, UNARMORED and
-## STRUCTURE targets, and for the behind-armor bleed on an ARMORED one.
-## Returns true if this call killed it. MUST call entities.kill() on zero.
+## Take `amount` off a unit's structure pool. Returns true if this call killed
+## it. For AIRFRAME, HULL, UNARMORED and STRUCTURE targets, and for the
+## behind-armor bleed on an ARMORED one.
 func apply_structure(target: int, amount: float, cause: String = "") -> bool:
-	return false
+	return resolver.apply_structure(target, amount, cause)
 
 
-## Hard-kill APS intercept attempt, docs/03. MUST consume one interceptor,
-## respect the minimum reset time, and return true only when the round is
-## actually destroyed -- which is what makes salvo fire the correct counter.
-## Currently APS state lives in SimMunitions (`arm_hard_kill`, `_aps`); the
-## damage agent owns moving it here or leaving it there, but not both.
-func try_intercept(target: int, incoming_class: int, closing_speed_ms: float) -> bool:
+## Hard-kill APS intercept, docs/03.
+##
+## NOT IMPLEMENTED HERE, ON PURPOSE. Hard-kill APS already works end to end in
+## SimMunitions (`arm_hard_kill` arms it, `_pre_flight_checks` spends an
+## interceptor and terminates the round with DEFEATED_APS), and that is the
+## RIGHT place for it: docs/03 says "APS is not an armor multiplier, it resolves
+## BEFORE the armor calculation", and a round destroyed in flight never reaches
+## this file at all. The spine's note on this seam says to own it in one place
+## and not both, so this entry point deliberately does nothing rather than
+## becoming a second, divergent interceptor pool.
+##
+## Always returns false. Arm APS with SimMunitions.arm_hard_kill(unit, n).
+func try_intercept(_target: int, _incoming_class: int, _closing_speed_ms: float) -> bool:
 	return false
 
 
 ## Soft-kill APS, docs/03: "the detection and EW system from docs/02, running at
-## unit scale". Jams a SACLOS or beam-riding link. MUST do nothing against an
-## unguided round.
-func try_soft_kill(target: int, guidance: int) -> bool:
+## unit scale", jamming a SACLOS or beam-riding link.
+##
+## STILL A STUB, and honestly so. Soft-kill must act on a round IN FLIGHT --
+## it breaks the guidance link, which makes the weapon miss; it is not something
+## that can be decided at the moment of impact, which is the only moment this
+## class is called. The hook therefore belongs next to the flare and chaff
+## checks in SimMunitions._pre_flight_checks, which this subsystem does not own.
+## Nothing calls this, and it does nothing.
+func try_soft_kill(_target: int, _guidance: int) -> bool:
 	return false
 
 
-## The tick slot. Called every simulation tick from SimWorld._sim_step().
-## MUST: bleed burning units, run crew recovery, expire wrecks, and be a no-op
-## when nothing is damaged. It MUST NOT move anything or fire anything.
+## The tick slot, called every simulation tick from SimWorld._sim_step().
+## Bleeds burning units, recovers shaken crews, expires wrecks.
 func step(dt: float) -> void:
-	pass
+	resolver.step(dt)
 
 
-## True once this class actually resolves damage. SimWorld and the tests read
-## it so a half-built game reports itself honestly instead of silently doing
-## nothing. The damage agent flips it to true when resolve_impact() is real.
+## True once this class actually resolves damage.
 func is_implemented() -> bool:
-	return false
+	return true
 
 
 func log_event(line: String) -> void:
 	combat_log.append(line)
 	if combat_log.size() > max_log:
 		combat_log.pop_front()
+
+
+func describe() -> String:
+	return resolver.describe()
