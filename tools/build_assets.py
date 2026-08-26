@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""Generate every blockout in the manifest, at every LOD, plus a report.
+
+    python3 tools/build_assets.py
+
+Output: art/blockout/<bucket>/<unit>_LOD<n>.glb  +  art/BUILD_REPORT.md
+"""
+import glob, json, os, struct, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from blockout import spec, write, REQUIRED_SOCKETS
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(ROOT, "art", "blockout")
+
+# ── the manifest ───────────────────────────────────────────────────
+# Dimensions are the real vehicle class each entry stands for.
+# Silhouette differences here are the ones a player must read at zoom.
+BUCKETS = {
+  "e4_mbt_western": {
+    "epoch": 4, "role": "MBT", "lineage": "western", "gen": "3.5",
+    "hero": "mbt_e4_western_hero",
+    "units": {
+      "mbt_e4_western_hero": dict(hull_l=7.9, hull_w=3.66, hull_h=1.06, turret_l=3.6,
+          turret_w=2.85, turret_h=0.86, gun_len=5.28, wheels=7, era=0, aps=0,
+          note="Bucket hero — generic Western Gen 3.5, 120 mm L/44"),
+      "mbt_e4_us":  dict(hull_l=7.93, hull_w=3.66, hull_h=1.05, turret_l=3.7, turret_w=2.9,
+          turret_h=0.84, gun_len=5.28, wheels=7, bustle=0.5, aps=0,
+          note="Long low turret, turbine exhaust rear — thirstiest, per docs/08"),
+      "mbt_e4_de":  dict(hull_l=7.72, hull_w=3.75, hull_h=1.15, turret_l=3.5, turret_w=2.9,
+          turret_h=1.05, turret_taper_x=0.62, gun_len=6.60, wheels=7, bustle=0.4,
+          note="Tallest silhouette, wedge turret, 120 mm L/55, diesel"),
+      "mbt_e4_uk":  dict(hull_l=8.33, hull_w=3.52, hull_h=1.02, turret_l=3.8, turret_w=2.8,
+          turret_h=0.87, turret_taper_x=0.92, gun_len=5.28, gun_r=0.128, wheels=6,
+          note="Boxy turret, RIFLED 120 mm — thicker barrel, HESH capable"),
+      "mbt_e4_fr":  dict(hull_l=6.88, hull_w=3.71, hull_h=1.13, turret_l=3.2, turret_w=2.7,
+          turret_h=0.80, gun_len=5.28, wheels=6, bustle=0.75, aps=2,
+          note="Shortest Western hull, autoloader bustle, lightest"),
+    }},
+  "e4_mbt_soviet": {
+    "epoch": 4, "role": "MBT", "lineage": "soviet", "gen": "3.5",
+    "hero": "mbt_e4_soviet_hero",
+    "units": {
+      "mbt_e4_soviet_hero": dict(hull_l=6.95, hull_w=3.59, hull_h=1.00, clearance=0.45,
+          turret_l=2.9, turret_w=2.5, turret_h=0.67, turret_taper_z=0.55, turret_taper_x=0.55,
+          gun_len=6.0, wheels=6, era=6, style="soviet",
+          note="Bucket hero — LOW dome turret, autoloader, ERA. 125 mm"),
+      "mbt_e4_ru":  dict(hull_l=6.95, hull_w=3.59, hull_h=1.00, clearance=0.45,
+          turret_l=2.9, turret_w=2.5, turret_h=0.67, turret_taper_z=0.55, turret_taper_x=0.55,
+          gun_len=6.0, wheels=6, era=6, style="soviet",
+          note="Heavy ERA package. Carousel autoloader caps rod length — docs/11 §2.3"),
+      "mbt_e4_cn":  dict(hull_l=7.0, hull_w=3.5, hull_h=1.05, clearance=0.45,
+          turret_l=3.1, turret_w=2.6, turret_h=0.75, turret_taper_z=0.62, turret_taper_x=0.70,
+          gun_len=6.0, wheels=6, era=3, style="soviet",
+          note="Early PLA — Soviet lineage. Forks to indigenous at epoch 5, docs/08"),
+    }},
+  "e1_mbt": {
+    "epoch": 1, "role": "MBT", "lineage": "mixed", "gen": "1",
+    "hero": "mbt_e1_western_hero",
+    "units": {
+      "mbt_e1_western_hero": dict(hull_l=6.88, hull_w=3.63, hull_h=1.55, clearance=0.42,
+          glacis_h=0.95, turret_l=3.3, turret_w=2.9, turret_h=1.02,
+          turret_taper_z=0.42, turret_taper_x=0.42, gun_len=4.6, gun_r=0.09,
+          wheels=6, skirts=False,
+          note="Gen 1 — TALL cast hemispherical turret, 90 mm. Taller than a Gen 3.5 Soviet tank"),
+      "mbt_e1_soviet_hero": dict(hull_l=6.04, hull_w=3.27, hull_h=1.16, clearance=0.43,
+          turret_l=2.9, turret_w=2.7, turret_h=0.90,
+          turret_taper_z=0.38, turret_taper_x=0.38, gun_len=5.35, gun_r=0.10,
+          wheels=5, skirts=False, style="soviet",
+          note="Gen 1 — cast dome, 100 mm rifled. The KPA's bulk force, docs/08"),
+    }},
+}
+LODS = [0, 1, 2]
+
+def main():
+    t0 = time.time()
+    rows, total_tris, n = [], 0, 0
+    for bname, b in BUCKETS.items():
+        d = os.path.join(OUT, bname)
+        os.makedirs(d, exist_ok=True)
+        for uname, kw in b["units"].items():
+            note = kw.pop("note", "")
+            s = spec(**kw)
+            per = []
+            for lod in LODS:
+                path = os.path.join(d, f"{uname}_LOD{lod}.glb")
+                tris, socks = write(path, uname, s, lod)
+                per.append(tris); total_tris += tris; n += 1
+            rows.append((bname, uname, uname == b["hero"], per, socks,
+                         s["hull_l"], s["hull_w"],
+                         s["clearance"] + s["hull_h"] + s["turret_z"] + s["turret_h"],
+                         s["gun_len"], note))
+            print(f"  {uname:24s} LOD0/1/2 = {per[0]:5d}/{per[1]:4d}/{per[2]:4d} tris"
+                  f"   {socks} sockets")
+
+    md = ["# Blockout Build Report", "",
+          f"Generated by `tools/build_assets.py` — {n} files, {total_tris:,} triangles, "
+          f"{time.time()-t0:.2f}s.", "",
+          "**These are greybox proxies, not art.** They exist so engine, gameplay and pipeline",
+          "work can proceed before an artist opens Blender. Every dimension is metres, 1:1 with",
+          "the real vehicle class. Replace them bucket by bucket; the socket contract and the",
+          "node names stay identical, so nothing downstream changes when real art lands.", "",
+          "| Bucket | Unit | | Hull L×W | Height | Gun | LOD0 | LOD1 | LOD2 | Sockets |",
+          "|---|---|---|---|---|---|---|---|---|---|"]
+    for b, u, hero, per, socks, hl, hw, ht, gl, note in rows:
+        md.append(f"| `{b}` | `{u}` | {'**HERO**' if hero else 'derivative'} | "
+                  f"{hl:.2f} × {hw:.2f} m | {ht:.2f} m | {gl:.2f} m | "
+                  f"{per[0]:,} | {per[1]:,} | {per[2]:,} | {socks} |")
+    md += ["", "## Notes", ""]
+    for b, u, hero, per, socks, hl, hw, ht, gl, note in rows:
+        if note:
+            md.append(f"- **`{u}`** — {note}")
+    md += ["", "## Silhouette check", "",
+           "The readability rule in `docs/07-art-pipeline.md` says roles and generations must be",
+           "distinguishable in solid black at gameplay zoom. Two differences are already carried",
+           "by the proxies:", "",
+           "- **Gen 1 tanks are TALLER than Gen 3.5 Soviet tanks** — 3.09 m against 2.22 m. Post-war",
+           "  designs inherited WWII height; everyone got low afterwards. A real, readable fact.",
+           "- **Western Gen 3.5 turrets are long, flat and angular; Soviet ones are low, small and",
+           "  domed** — a consequence of the autoloader and a smaller crew. Visible at any zoom.", ""]
+
+    # ── reference-built heroes, produced separately by tools/hero_models.py ──
+    hero_dir = os.path.join(OUT, "e4_mbt_hero")
+    heroes = sorted(glob.glob(os.path.join(hero_dir, "*_LOD*.glb")))
+    if heroes:
+        md += ["## Reference-built hero models", "",
+               "Built by `tools/hero_models.py`, not by this script — corrected against",
+               "published dimensions and the public-domain photographs in `art/reference/`",
+               "(see `SOURCES.md`). Hulls and turrets are extruded from exact side profiles,",
+               "camouflage comes from `tools/textures.py`, and ambient occlusion is baked to",
+               "vertex colours travelling in `COLOR_0`.", "",
+               "| Model | LOD | Primitives | Materials | Size |",
+               "|---|---|---|---|---|"]
+        for f in heroes:
+            with open(f, "rb") as fh:
+                fh.read(12)
+                ln, _ = struct.unpack("<II", fh.read(8))
+                doc = json.loads(fh.read(ln))
+            nprim = sum(len(m["primitives"]) for m in doc.get("meshes", []))
+            name, lod = os.path.basename(f)[:-4].rsplit("_LOD", 1)
+            md.append(f"| `{name}` | {lod} | {nprim} | "
+                      f"{len(doc.get('materials', []))} | {os.path.getsize(f)/1024:.0f} KB |")
+        md += ["",
+               "Renders: `art/renders/gameplay.png`, `art/renders/closeup.png`.",
+               "Silhouette gate: `art/silhouettes/heroes_side.png`.", "",
+               "```bash",
+               "BL=/Applications/Blender.app/Contents/MacOS/Blender",
+               "$BL -b --python tools/textures.py        # camo + terrain",
+               "$BL -b --python tools/hero_models.py     # the three heroes",
+               "$BL -b --python tools/hero_silhouette.py # silhouette gate",
+               "$BL -b --python tools/gameplay_render.py # in-game views",
+               "```", ""]
+
+    md += ["## Next", "",
+           "1. Import `art/blockout/` into Godot and confirm scale against a 1.8 m reference capsule.",
+           "2. Run `python3 tools/validate_sockets.py` in CI — it fails the build on a missing socket.",
+           "3. Replace `e4_mbt_western` first: it is the pipeline test bucket in `docs/07-art-pipeline.md`.",
+           ""]
+    with open(os.path.join(ROOT, "art", "BUILD_REPORT.md"), "w") as f:
+        f.write("\n".join(md))
+    print(f"\n{n} GLB files · {total_tris:,} triangles · {time.time()-t0:.2f}s")
+    print("report: art/BUILD_REPORT.md")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,32 @@
+# ── Godot ──────────────────────────────────────────────────────────────
+# Import cache and editor state. Regenerated on open; never commit.
+game/.godot/
+game/android/
+*.translation
+
+# Godot exports
+build/
+export_presets.cfg
+
+# ── Python tooling ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ── macOS ──────────────────────────────────────────────────────────────
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# ── Editors ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+
+# ── Notes ──────────────────────────────────────────────────────────────
+# art/blockout/ and art/renders/ ARE tracked on purpose: tools/hero_models.py
+# is not byte-reproducible (two runs of the unmodified script emit different
+# GLBs for identical geometry), so the generated art cannot be rebuilt exactly
+# and has to be versioned rather than regenerated.

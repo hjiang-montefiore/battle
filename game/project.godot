@@ -1,0 +1,39 @@
+; Battle — RTS prototype
+; Milestone 1-2 from docs/06-architecture.md: deterministic tick loop and the
+; sensor solver. This scaffold exists to verify asset import, scale and controls.
+
+config_version=5
+
+[application]
+config/name="Battle"
+config/description="Sensor-first RTS. See ../docs/"
+run/main_scene="res://scenes/proving_ground.tscn"
+config/features=PackedStringArray("4.5", "Forward Plus")
+
+[display]
+window/size/viewport_width=1600
+window/size/viewport_height=900
+
+[rendering]
+renderer/rendering_method="forward_plus"
+anti_aliasing/quality/msaa_3d=2
+
+[input]
+cam_forward={"deadzone":0.5,"events":[
+ {"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":87,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null,"type":"InputEventKey"}
+]}
+cam_back={"deadzone":0.5,"events":[
+ {"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":83,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null,"type":"InputEventKey"}
+]}
+cam_left={"deadzone":0.5,"events":[
+ {"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":65,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null,"type":"InputEventKey"}
+]}
+cam_right={"deadzone":0.5,"events":[
+ {"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":68,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null,"type":"InputEventKey"}
+]}
+cam_rot_l={"deadzone":0.5,"events":[
+ {"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":81,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null,"type":"InputEventKey"}
+]}
+cam_rot_r={"deadzone":0.5,"events":[
+ {"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":69,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null,"type":"InputEventKey"}
+]}
