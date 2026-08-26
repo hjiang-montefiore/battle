@@ -17,6 +17,7 @@ const SENSOR_HZ := 5.0      ## docs/06 tick budget: sensor solve 5-10 Hz
 
 var entities: SimEntities
 var solver: SimSensorSolver
+var munitions: SimMunitions
 var rng: SimRng
 
 var tick: int = 0
@@ -34,6 +35,7 @@ func _init(seed_value: int = 12345) -> void:
 	entities = SimEntities.new()
 	solver = SimSensorSolver.new(entities)
 	rng = SimRng.new(seed_value)
+	munitions = SimMunitions.new(entities, solver, rng.fork(0x4D))
 
 
 ## Advance by wall-clock dt. Presentation calls this; it is the only entry point.
@@ -55,6 +57,9 @@ func _sim_step(dt: float) -> void:
 	tick += 1
 	elapsed_s += dt
 	_integrate(dt)
+	# Tier A runs at the full simulation rate: the guidance loop is
+	# re-validated every tick, not just at launch (docs/10 §4, §9).
+	munitions.step(dt)
 
 	_sensor_accum += dt
 	var sensor_dt := 1.0 / SENSOR_HZ

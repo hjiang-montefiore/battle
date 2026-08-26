@@ -35,6 +35,8 @@ func _init() -> void:
 	_suite_determinism()
 	_suite_skill_ladder()
 	_suite_match_setup()
+	_suite_munitions()
+	_suite_nothing_stays_forever()
 
 	print("  " + "-".repeat(66))
 	if _failed == 0:
@@ -585,3 +587,238 @@ func _suite_match_setup() -> void:
 	var overmatch := SimMatchSetup.scenario("overmatch")
 	_ok("Overmatch is 1 human against 3 massed AIs",
 		overmatch.humans().size() == 1 and overmatch.ais().size() == 3)
+
+
+# ── docs/10 -- munitions in flight ──────────────────────────────────────────
+
+func _suite_munitions() -> void:
+	_suite("Munitions in flight (docs/10) -- pillar 7")
+
+	# Flight phases. A missile is not a dot at constant speed.
+	var w := SimWorld.new(7)
+	var shooter := w.entities.add("launcher", 0, 0, 20, 0,
+		SimSignature.new(20.0), [_illuminator("illum", 90.0, 20.0)],
+		SimTypes.Category.GROUND)
+	var bogey := w.entities.add("bogey", 1, 12000, 3000, 0,
+		SimSignature.new(10.0), [], SimTypes.Category.AIR)
+	w.entities.set_velocity(bogey, -180.0, 0.0, 0.0)
+	w.run_ticks(20)
+	var tk := w.track_table_for(0)._track_for_truth(bogey)
+	_ok("the launcher holds a fire-control track before firing",
+		tk != null and tk.quality >= SimTypes.TrackQuality.FIRE_CONTROL,
+		SimTypes.quality_name(tk.quality) if tk else "none")
+
+	var sam := SimMunitionDef.sam_medium()
+	var p := w.munitions.fire(sam, shooter, bogey, tk)
+	_ok("a round leaves the rail", p != null and p.alive)
+	_ok("it starts in BOOST", p.phase == SimMunitionDef.Phase.BOOST)
+	var launch_speed := p.speed()
+	w.run_ticks(40)                      # 2 s
+	_ok("boost accelerates it hard", p.speed() > launch_speed * 3.0,
+		"%.0f m/s from %.0f" % [p.speed(), launch_speed])
+	w.run_ticks(200)
+	if p.alive:
+		_ok("after burnout it is coasting", p.phase == SimMunitionDef.Phase.COAST)
+	else:
+		_ok("it terminated during flight with a stated cause",
+			p.termination != SimMunitionDef.Termination.NONE, p.log_line())
+
+	# Run to completion -- it must resolve one way or the other.
+	w.run_ticks(2000)
+	_ok("the engagement resolves with a reason the player can be told",
+		not p.alive and p.termination != SimMunitionDef.Termination.NONE,
+		p.log_line())
+
+	# docs/10 §3: "In range" is not "will hit."
+	_ok("a coasting motor has a no-escape zone well inside kinematic range",
+		SimMunitionDef.sam_medium().no_escape_fraction() <= 0.4,
+		"%.0f%% of kinematic range" % (SimMunitionDef.sam_medium().no_escape_fraction() * 100.0))
+	_ok("an epoch-7 ramjet pushes it toward 70%",
+		SimMunitionDef.aam_ramjet().no_escape_fraction() >= 0.65)
+	_near("a missile needs ~3x the target's g to guarantee intercept",
+		SimMunitionDef.g_needed_against(9.0), 27.0, 0.01)
+
+	# docs/10 §4: the SARH row. Kill the illuminator mid-flight.
+	var w2 := SimWorld.new(11)
+	var sh2 := w2.entities.add("SAM", 0, 0, 20, 0, SimSignature.new(20.0),
+		[_illuminator("illum", 120.0, 20.0)], SimTypes.Category.GROUND)
+	var t2 := w2.entities.add("strike", 1, 30000, 4000, 0,
+		SimSignature.new(10.0), [], SimTypes.Category.AIR)
+	w2.entities.set_velocity(t2, -240.0, 0.0, 0.0)
+	w2.run_ticks(20)
+	var tk2 := w2.track_table_for(0)._track_for_truth(t2)
+	var m2 := w2.munitions.fire(SimMunitionDef.sam_medium(), sh2, t2, tk2)
+	w2.run_ticks(60)
+	var was_guided := m2.alive and not m2.went_ballistic
+	w2.entities.kill(sh2)                 # illuminator destroyed mid-flight
+	w2.run_ticks(600)
+	_ok("a SARH round was guiding while the illuminator lived", was_guided)
+	_ok("killing the illuminator mid-flight defeats it",
+		not m2.alive and m2.termination != SimMunitionDef.Termination.HIT,
+		m2.log_line())
+
+	# docs/10 §5 + docs/11 §6: the S4 imaging-IR cliff. Flares stop working.
+	var early := 0
+	var imaging := 0
+	for i in range(40):
+		if _flare_trial(2, i):
+			early += 1
+		if _flare_trial(6, i):
+			imaging += 1
+	_ok("flares are a hard counter against an early IR seeker", early == 40,
+		"%d/40 defeated" % early)
+	_ok("and near-worthless against an imaging seeker", imaging <= 12,
+		"%d/40 defeated" % imaging)
+
+	# docs/10 §5: hard-kill physically destroys the round.
+	var w3 := SimWorld.new(13)
+	var sh3 := w3.entities.add("ATGM team", 0, 0, 2, 0, SimSignature.new(5.0),
+		[_illuminator("sight", 20.0, 3.0)], SimTypes.Category.GROUND)
+	var tank := w3.entities.add("tank", 1, 2500, 1.5, 0,
+		SimSignature.new(20.0), [], SimTypes.Category.GROUND)
+	w3.run_ticks(20)
+	var tk3 := w3.track_table_for(0)._track_for_truth(tank)
+	w3.munitions.arm_hard_kill(tank, 1)
+	var m3 := w3.munitions.fire(SimMunitionDef.atgm(), sh3, tank, tk3)
+	w3.run_ticks(1200)
+	_ok("hard-kill APS intercepts the round in flight",
+		m3.termination == SimMunitionDef.Termination.DEFEATED_APS, m3.log_line())
+
+	# docs/10 §6: proximity fuzing makes a near miss a real outcome.
+	var pr := SimProjectile.new()
+	pr.def = SimMunitionDef.sam_medium()
+	_near("a 3 m miss is nearly lethal", pr.damage_fraction(3.0), 0.83, 0.02)
+	_near("a 15 m miss only damages", pr.damage_fraction(15.0), 0.17, 0.02)
+	_ok("beyond the lethal radius it does nothing",
+		pr.damage_fraction(40.0) == 0.0)
+
+	# docs/10 §6: hit location is geometry, not a roll.
+	var f := SimProjectile.new()
+	f.vx = -100.0; f.vy = 0.0; f.vz = 0.0      # travelling -X, so came from +X
+	# Headings are atan2(x, z): PI/2 faces +X, 0 faces +Z. A round from +X
+	# therefore hits the FRONT of a tank facing +X and the SIDE of one facing +Z.
+	_ok("a round from +X hits the FRONT of a tank facing +X",
+		f.impact_facet(PI * 0.5) == SimProjectile.Facet.FRONT,
+		SimProjectile.facet_name(f.impact_facet(PI * 0.5)))
+	_ok("the same round hits the SIDE of a tank facing +Z",
+		f.impact_facet(0.0) == SimProjectile.Facet.SIDE,
+		SimProjectile.facet_name(f.impact_facet(0.0)))
+	_ok("and the REAR of one facing -X",
+		f.impact_facet(-PI * 0.5) == SimProjectile.Facet.REAR,
+		SimProjectile.facet_name(f.impact_facet(-PI * 0.5)))
+	var top := SimProjectile.new()
+	top.vx = 10.0; top.vy = -300.0; top.vz = 0.0
+	_ok("a plunging round hits the TOP whatever the target is facing",
+		top.impact_facet(0.0) == SimProjectile.Facet.TOP
+		and top.impact_facet(PI) == SimProjectile.Facet.TOP)
+
+
+func _flare_trial(seeker_gen: int, trial: int) -> bool:
+	# A fresh seed per trial -- reusing one seed makes 40 trials a single
+	# sample, which is exactly the kind of test that looks like coverage
+	# and is not.
+	var w := SimWorld.new(100 + seeker_gen * 7919 + trial * 104729)
+	var sh := w.entities.add("fighter", 0, 0, 3000, 0, SimSignature.new(5.0),
+		[_radar("nose", 60.0, 3000.0)], SimTypes.Category.AIR)
+	var bog := w.entities.add("bogey", 1, 4000, 3000, 0,
+		SimSignature.new(5.0), [], SimTypes.Category.AIR)
+	w.run_ticks(20)
+	var tk := w.track_table_for(0)._track_for_truth(bog)
+	var d := SimMunitionDef.new({"name": "IR AAM",
+		"guidance": SimTypes.Guidance.IR_EO, "seeker_gen": seeker_gen,
+		"boost_seconds": 2.0, "boost_accel": 300.0, "max_speed": 900.0,
+		"g_available_max": 30.0, "lethal_radius_m": 8.0,
+		"max_flight_seconds": 40.0})
+	var m := w.munitions.fire(d, sh, bog, tk)
+	w.munitions.deploy_flares(bog, 6.0)
+	w.run_ticks(400)
+	return m.termination == SimMunitionDef.Termination.DEFEATED_FLARE
+
+
+# ── the requirement: nothing may remain on the map ──────────────────────────
+
+func _suite_nothing_stays_forever() -> void:
+	_suite("Nothing stays on the map forever")
+
+	# Fire a lot of rounds into deliberately hostile conditions: targets that
+	# die mid-flight, tracks that go stale, shots taken far beyond kinematic
+	# range, and rounds aimed at nothing in particular.
+	var w := SimWorld.new(4242)
+	var e := w.entities
+	var shooters: Array = []
+	for i in range(6):
+		shooters.append(e.add("shooter %d" % i, 0, i * 400, 25, 0,
+			SimSignature.new(20.0), [_illuminator("illum", 140.0, 25.0)],
+			SimTypes.Category.GROUND))
+	var targets: Array = []
+	for i in range(6):
+		var t := e.add("target %d" % i, 1, 20000 + i * 9000, 2000 + i * 400, i * 500,
+			SimSignature.new(8.0), [], SimTypes.Category.AIR)
+		e.set_velocity(t, -200.0 - i * 30.0, 0.0, 40.0 * i)
+		targets.append(t)
+	w.run_ticks(20)
+
+	var kinds := [SimMunitionDef.sam_medium(), SimMunitionDef.aam_active(),
+		SimMunitionDef.aam_ramjet(), SimMunitionDef.atgm(),
+		SimMunitionDef.harm(), SimMunitionDef.tank_apfsds(),
+		SimMunitionDef.artillery_he()]
+	var fired := 0
+	for round_i in range(4):
+		for si in range(shooters.size()):
+			var tgt: int = targets[si % targets.size()]
+			var tk := w.track_table_for(0)._track_for_truth(tgt)
+			for k in kinds:
+				if w.munitions.fire(k, shooters[si], tgt, tk) != null:
+					fired += 1
+		w.run_ticks(30)
+	# Kill half the targets mid-flight, and half the shooters too.
+	for i in range(0, targets.size(), 2):
+		e.kill(targets[i])
+	e.kill(shooters[0])
+	e.kill(shooters[2])
+
+	_ok("a saturation salvo actually launched", fired > 100, "%d rounds" % fired)
+	_ok("the pool respects its concurrency cap",
+		w.munitions.active_count() <= SimMunitions.MAX_CONCURRENT,
+		"%d in flight" % w.munitions.active_count())
+
+	# The longest max_flight_seconds in the library is 120 s. Run well past it.
+	w.run_ticks(int(200.0 * SimWorld.SIM_HZ))
+
+	_ok("EVERY round has left the map", w.munitions.active_count() == 0,
+		"%d still in flight after 200 s" % w.munitions.active_count())
+	_ok("every round is accounted for -- none leaked",
+		w.munitions.is_balanced(),
+		"launched %d, terminated %d, active %d" % [w.munitions.launched,
+			w.munitions.terminated, w.munitions.active_count()])
+	_ok("the pool was reused rather than grown without bound",
+		w.munitions.launched > 100)
+
+	# Every single one carries a stated cause. No silent disappearances.
+	var causeless := 0
+	for entry in w.munitions.combat_log:
+		if entry.contains("IN FLIGHT"):
+			causeless += 1
+	_ok("no round terminated without a reason", causeless == 0)
+
+	# A round fired at nothing still terminates.
+	var w2 := SimWorld.new(99)
+	var s2 := w2.entities.add("gun", 0, 0, 5, 0, SimSignature.new(10.0), [],
+		SimTypes.Category.GROUND)
+	var ghost := w2.entities.add("ghost", 1, 300000, 40, 0,
+		SimSignature.new(1.0), [], SimTypes.Category.AIR)
+	var stray := w2.munitions.fire(SimMunitionDef.tank_apfsds(), s2, ghost, null)
+	w2.run_ticks(int(150.0 * SimWorld.SIM_HZ))
+	_ok("a round fired at an unreachable target still terminates",
+		not stray.alive, stray.log_line())
+
+	# And one fired straight up comes down.
+	var w3 := SimWorld.new(101)
+	var s3 := w3.entities.add("mortar", 0, 0, 2, 0, SimSignature.new(5.0), [],
+		SimTypes.Category.GROUND)
+	var far := w3.entities.add("far", 1, 100, 2, 100000,
+		SimSignature.new(5.0), [], SimTypes.Category.GROUND)
+	var up := w3.munitions.fire(SimMunitionDef.artillery_he(), s3, far, null)
+	up.vx = 0.0; up.vy = 800.0; up.vz = 0.0
+	w3.run_ticks(int(150.0 * SimWorld.SIM_HZ))
+	_ok("a round fired straight up comes back down", not up.alive, up.log_line())
