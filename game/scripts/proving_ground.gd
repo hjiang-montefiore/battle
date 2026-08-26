@@ -55,7 +55,8 @@ func _capture() -> void:
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()
-	var out := "/Users/hjiang/Desktop/battle/art/renders/game_proving_ground.png"
+	# resolve relative to the project, not to one machine's home directory
+	var out := ProjectSettings.globalize_path("res://../art/renders/game_proving_ground.png")
 	var err := img.save_png(out)
 	print("[shot] ", out, "  err=", err, "  ", img.get_width(), "x", img.get_height())
 	get_tree().quit()

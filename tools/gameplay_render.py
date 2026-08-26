@@ -9,9 +9,9 @@ Outputs:
 import bpy, glob, math, os
 from mathutils import Vector, Matrix
 
-ROOT = "/Users/hjiang/Desktop/battle"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "art", "renders")
-TEX = "/Users/hjiang/Desktop/battle/art/textures"
+TEX = os.path.join(ROOT, "art", "textures")
 R = math.radians
 
 

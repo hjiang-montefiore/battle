@@ -8,7 +8,8 @@ docs/07-art-pipeline.md says silhouette CANNOT provide for same-role variants.
 """
 import bpy, numpy as np, os
 
-OUT = "/Users/hjiang/Desktop/battle/art/textures"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(ROOT, "art", "textures")
 SIZE = 1024
 
 

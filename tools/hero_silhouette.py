@@ -8,7 +8,7 @@ Bottom   : RTS three-quarter at gameplay zoom — the actual gate.
 import bpy, glob, math, os
 from mathutils import Vector, Matrix
 
-ROOT = "/Users/hjiang/Desktop/battle"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "art", "silhouettes")
 HEROES = ["mbt_e4_us_m1_abrams", "mbt_e4_ru_t72", "mbt_e4_de_leopard2a6"]
 LABELS = ["M1A2 ABRAMS", "T-72", "LEOPARD 2A6"]

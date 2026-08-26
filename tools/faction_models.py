@@ -20,7 +20,7 @@ import hero_models as H
 from hero_models import (cube, cyl, dome, profile, use, running_gear,
                          barrel, detail_kit, R)
 
-ROOT = "/Users/hjiang/Desktop/battle"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def challenger2():

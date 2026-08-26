@@ -20,7 +20,7 @@ import bpy, glob, math, os, sys
 import numpy as np
 from mathutils import Vector
 
-ROOT = "/Users/hjiang/Desktop/battle"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = 512
 
 

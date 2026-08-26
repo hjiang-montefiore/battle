@@ -21,7 +21,7 @@ in Blender's convention: X right, Y depth, Z up, yaw about Z.
 import bpy, glob, math, os
 from mathutils import Vector, Matrix
 
-ROOT = "/Users/hjiang/Desktop/battle"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "art", "silhouettes")
 COLS, SX, SZ = 5, 11.5, 18.0
 ELEV, UNIT_YAW = 34.0, 40.0

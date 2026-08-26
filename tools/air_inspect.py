@@ -4,7 +4,7 @@ from mathutils import Vector, Matrix
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gameplay_render as G
 
-ROOT = "/Users/hjiang/Desktop/battle"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NAME = os.environ.get("AC", "air_e4_us_superiority")
 
 

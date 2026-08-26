@@ -4,7 +4,7 @@ from mathutils import Matrix
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gameplay_render as G
 
-ROOT = "/Users/hjiang/Desktop/battle"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROWS = [
     ["mbt_e4_us_m1_abrams", "afv_e4_us_tankdestroyer", "afv_e4_us_ifv",
      "afv_e4_us_apc", "afv_e4_us_atgm", "rec_e4_us_recon"],

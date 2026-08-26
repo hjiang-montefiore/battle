@@ -13,7 +13,7 @@ from hero_models import (cube, cyl, dome, profile, use, running_gear,
                          barrel, detail_kit, R)
 from fleet_models import wheeled_gear, boxhull
 
-ROOT = "/Users/hjiang/Desktop/battle"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _base(HL, HW, CL, HH, nose, tag):

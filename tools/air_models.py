@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hero_models as H
 from hero_models import cube, cyl, dome, profile, use, tag, R
 
-ROOT = "/Users/hjiang/Desktop/battle"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CRUISE = 0.0          # models are authored at z=0; the sim lifts them
 
 

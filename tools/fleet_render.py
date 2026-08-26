@@ -4,7 +4,7 @@ from mathutils import Vector, Matrix
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gameplay_render as G   # reuse reset/sun/ground/camera/render
 
-ROOT = "/Users/hjiang/Desktop/battle"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROW1 = [("mbt_e4_us_m1_abrams", "MBT"), ("afv_e4_us_ifv", "IFV"),
         ("rec_e4_us_recon", "RECON"), ("art_e4_us_sph", "SPH")]
 ROW2 = [("art_e4_us_mlrs", "MLRS"), ("rad_e4_us_search", "SEARCH RADAR"),

@@ -25,7 +25,7 @@ import bpy, bmesh, math, os
 from mathutils import Vector, Matrix
 from mathutils.bvhtree import BVHTree
 
-ROOT = "/Users/hjiang/Desktop/battle"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "art", "blockout", "e4_mbt_hero")
 
 
@@ -616,7 +616,7 @@ def sockets_for(m):
     return s
 
 
-TEX = "/Users/hjiang/Desktop/battle/art/textures"
+TEX = os.path.join(ROOT, "art", "textures")
 # Distinct per side, and chosen at a fixed luminance so the marking has similar
 # salience against desert tan and against dark green.
 TEAM = {"mbt_e4_us_m1_abrams":  (0.06, 0.20, 0.62),   # NATO blue
