@@ -33,6 +33,8 @@ func _init() -> void:
 	_suite_look_down_cliff()
 	_suite_jamming()
 	_suite_determinism()
+	_suite_skill_ladder()
+	_suite_match_setup()
 
 	print("  " + "-".repeat(66))
 	if _failed == 0:
@@ -422,3 +424,164 @@ func _track(quality: int) -> SimTrack:
 	var t := SimTrack.new()
 	t.refresh(quality, SimTypes.Classification.CLASS, 1.0, "test")
 	return t
+
+
+# ── docs/09 §2 -- difficulty is doctrine quality, not bonuses ────────────────
+
+func _suite_skill_ladder() -> void:
+	_suite("AI skill ladder (docs/09 §2)")
+
+	# The three published rows must survive the eight-tier expansion.
+	var r := SimSkill.reaction_seconds(SimSkill.Level.RECRUIT)
+	_ok("Recruit reacts in the published 8-12 s", r >= 8.0 and r <= 12.0, "%.1f s" % r)
+	var v := SimSkill.reaction_seconds(SimSkill.Level.VETERAN)
+	_ok("Veteran reacts in the published 3-5 s", v >= 3.0 and v <= 5.0, "%.1f s" % v)
+	var e := SimSkill.reaction_seconds(SimSkill.Level.ELITE)
+	_ok("Elite reacts in the published 1-2 s", e >= 1.0 and e <= 2.0, "%.1f s" % e)
+	_ok("Recruit waits for TQ3",
+		SimSkill.commit_threshold(SimSkill.Level.RECRUIT) == SimTypes.TrackQuality.FIRE_CONTROL)
+	_ok("Veteran acts on TQ2",
+		SimSkill.commit_threshold(SimSkill.Level.VETERAN) == SimTypes.TrackQuality.TRACK)
+	_ok("Elite acts on TQ1 cues",
+		SimSkill.commit_threshold(SimSkill.Level.ELITE) == SimTypes.TrackQuality.CONTACT)
+
+	# A difficulty slider with a non-monotonic rung is experienced as randomness.
+	var mono := true
+	var why := ""
+	for i in range(SimSkill.LEVEL_COUNT - 1):
+		if SimSkill.reaction_seconds(i) <= SimSkill.reaction_seconds(i + 1):
+			mono = false; why = "reaction at %s" % SimSkill.name_of(i)
+		if SimSkill.emcon_discipline(i) >= SimSkill.emcon_discipline(i + 1):
+			mono = false; why = "emcon at %s" % SimSkill.name_of(i)
+		if SimSkill.sensor_share(i) >= SimSkill.sensor_share(i + 1):
+			mono = false; why = "sensor share at %s" % SimSkill.name_of(i)
+		if SimSkill.counter_ew(i) >= SimSkill.counter_ew(i + 1):
+			mono = false; why = "counter-EW at %s" % SimSkill.name_of(i)
+		if SimSkill.simultaneous_axes(i) > SimSkill.simultaneous_axes(i + 1):
+			mono = false; why = "axes at %s" % SimSkill.name_of(i)
+		if SimSkill.commit_threshold(i) < SimSkill.commit_threshold(i + 1):
+			mono = false; why = "commit threshold at %s" % SimSkill.name_of(i)
+	_ok("every dial is monotonic across all 8 tiers", mono, why)
+
+	# The top tiers must buy tempo, never information. docs/09 §1 is absolute.
+	_ok("Warlord commits on the same rung as Elite -- tempo, not sight",
+		SimSkill.commit_threshold(SimSkill.Level.WARLORD)
+		== SimSkill.commit_threshold(SimSkill.Level.ELITE))
+	_ok("Warlord's advantage over Elite is coordination",
+		SimSkill.simultaneous_axes(SimSkill.Level.WARLORD)
+		> SimSkill.simultaneous_axes(SimSkill.Level.ELITE),
+		"%d axes vs %d" % [SimSkill.simultaneous_axes(SimSkill.Level.WARLORD),
+			SimSkill.simultaneous_axes(SimSkill.Level.ELITE)])
+
+	# Every tier needs a name and a line of setup-screen copy.
+	var described := true
+	for i in range(SimSkill.LEVEL_COUNT):
+		if SimSkill.name_of(i) == "?" or SimSkill.blurb(i) == "":
+			described = false
+	_ok("all 8 tiers carry a name and a description", described)
+
+
+# ── docs/09 §4, §5, §6 -- match setup ───────────────────────────────────────
+
+func _suite_match_setup() -> void:
+	_suite("Match setup: era, technology, force composition (docs/09 §4-§6)")
+
+	# Force composition -- army only, no navy, no air force.
+	var army := SimPlayerSetup.new({"name": "Army only"})
+	army.set_army_only()
+	_ok("army-only forbids air and naval",
+		not army.allows(SimPlayerSetup.Domain.AIR)
+		and not army.allows(SimPlayerSetup.Domain.NAVAL)
+		and army.allows(SimPlayerSetup.Domain.GROUND),
+		army.domains_description())
+
+	var no_navy := SimPlayerSetup.new({"name": "No navy"})
+	no_navy.set_without_navy()
+	_ok("no-navy keeps the air force",
+		no_navy.allows(SimPlayerSetup.Domain.AIR)
+		and not no_navy.allows(SimPlayerSetup.Domain.NAVAL),
+		no_navy.domains_description())
+
+	var no_air := SimPlayerSetup.new({"name": "No air force"})
+	no_air.set_without_air_force()
+	_ok("no-air keeps the navy",
+		no_air.allows(SimPlayerSetup.Domain.NAVAL)
+		and not no_air.allows(SimPlayerSetup.Domain.AIR),
+		no_air.domains_description())
+
+	# Per-ladder technology floor and ceiling, independent of epoch.
+	var mixed := SimPlayerSetup.new({"name": "Mixed", "start_epoch": 6, "ceiling_epoch": 6})
+	mixed.set_tech_ceiling("radar", 3)
+	_ok("an epoch-6 force can be capped at R3 radar",
+		mixed.max_generation("radar") == 3,
+		"radar ceiling %d, missiles %d" % [mixed.max_generation("radar"),
+			mixed.max_generation("aam")])
+	_ok("its other ladders are untouched by that cap",
+		mixed.max_generation("aam") > 3)
+
+	# Epoch ceiling still binds even without an explicit cap.
+	var early := SimPlayerSetup.new({"start_epoch": 1, "ceiling_epoch": 2})
+	_ok("an epoch-2 ceiling holds radar below the pulse-Doppler cliff",
+		early.max_generation("radar") < 3,
+		"radar ceiling %d" % early.max_generation("radar"))
+
+	# Validation catches the setups that cannot be played.
+	var bad := SimPlayerSetup.new({"name": "Bad", "start_epoch": 6, "ceiling_epoch": 3})
+	_ok("a ceiling below the start is rejected", bad.validate().size() > 0,
+		bad.validate()[0] if bad.validate().size() > 0 else "")
+
+	var nothing := SimPlayerSetup.new({"name": "Nothing"})
+	nothing.restrict_to(0)
+	_ok("a player allowed no domains is rejected", nothing.validate().size() > 0)
+
+	var contradiction := SimPlayerSetup.new({"name": "Contradiction",
+		"doctrine": SimDoctrine.make(SimDoctrine.Profile.SENSOR_DOMINANCE)})
+	contradiction.set_army_only()
+	_ok("Sensor Dominance without an air force is flagged",
+		contradiction.validate().size() > 0,
+		contradiction.validate()[0] if contradiction.validate().size() > 0 else "")
+
+	# All eight doctrines exist and differ.
+	var seen: Array = []
+	var distinct := true
+	for i in range(8):
+		var d := SimDoctrine.make(i)
+		var key := "%.2f%.2f%.2f%.2f" % [d.aggression, d.tech_bias,
+			d.sensor_share, d.target_priority]
+		if seen.has(key):
+			distinct = false
+		seen.append(key)
+	_ok("all 8 doctrines are distinct", distinct)
+	_ok("Interdiction targets enablers over armies",
+		SimDoctrine.make(SimDoctrine.Profile.INTERDICTION).target_priority > 0.9)
+	_ok("Blitz out-aggresses Fortress",
+		SimDoctrine.make(SimDoctrine.Profile.BLITZ).aggression
+		> SimDoctrine.make(SimDoctrine.Profile.FORTRESS).aggression)
+
+	# Adaptation moves a doctrine without erasing its identity.
+	var fortress := SimDoctrine.make(SimDoctrine.Profile.FORTRESS)
+	var before := fortress.aggression
+	fortress.adapt(true, false, true, false, false)
+	_ok("at its ceiling a Fortress gets more aggressive", fortress.aggression > before,
+		"%.2f -> %.2f" % [before, fortress.aggression])
+	_ok("but is still recognisably a Fortress",
+		fortress.aggression < SimDoctrine.make(SimDoctrine.Profile.BLITZ).aggression)
+
+	# Every published scenario builds and validates.
+	var all_ok := true
+	var failing := ""
+	for key in SimMatchSetup.SCENARIOS:
+		var m := SimMatchSetup.scenario(key)
+		var problems := m.validate()
+		if problems.size() > 0:
+			all_ok = false
+			failing = "%s: %s" % [key, problems[0]]
+	_ok("all 6 docs/09 scenarios build and validate", all_ok, failing)
+
+	var coalition := SimMatchSetup.scenario("coalition")
+	_ok("Coalition puts the human and the US AI on one team",
+		coalition.teams()[0].size() == 2,
+		"team 0 has %d" % coalition.teams()[0].size())
+	var overmatch := SimMatchSetup.scenario("overmatch")
+	_ok("Overmatch is 1 human against 3 massed AIs",
+		overmatch.humans().size() == 1 and overmatch.ais().size() == 3)
