@@ -5,6 +5,11 @@ extends Node3D
 
 const ASSETS := "res://assets/units/"
 
+const CAM_ACTIONS := [
+	&"cam_forward", &"cam_back", &"cam_left",
+	&"cam_right", &"cam_rot_l", &"cam_rot_r",
+]
+
 const ROSTER := [
 	{"file": "mbt_e4_us_m1_abrams", "label": "M1A2 ABRAMS", "faction": 0, "pos": Vector3(-24, 0, 14)},
 	{"file": "mbt_e4_de_leopard2a6", "label": "LEOPARD 2A6", "faction": 0, "pos": Vector3(-8, 0, 14)},
@@ -254,8 +259,24 @@ func _run_self_test() -> void:
 			socket_fail += 1
 	_report.append("scale in range     %d / %d" % [_units.size() - scale_fail, _units.size()])
 	_report.append("sockets >= 9       %d / %d" % [_units.size() - socket_fail, _units.size()])
+	_check_input_map()
 	for line in _report:
 		print("[selftest] ", line)
+
+
+func _check_input_map() -> void:
+	## A malformed [input] block in project.godot parses without error but binds
+	## nothing, so the keyboard dies silently. Fail loudly instead.
+	var unbound := PackedStringArray()
+	for a in CAM_ACTIONS:
+		if not InputMap.has_action(a) or InputMap.action_get_events(a).is_empty():
+			unbound.append(a)
+	if unbound.is_empty():
+		_report.append("input map          %d / %d actions bound" % [CAM_ACTIONS.size(), CAM_ACTIONS.size()])
+	else:
+		var msg := "INPUT MAP BROKEN   unbound: " + ", ".join(unbound)
+		_report.append(msg)
+		push_error(msg)
 
 
 func _aabb_of(n: Node) -> AABB:

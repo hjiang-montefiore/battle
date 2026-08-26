@@ -55,8 +55,10 @@ func _process(dt: float) -> void:
 		move = move.normalized()
 		# pan in the camera's own ground plane, scaled by zoom so it feels
 		# constant on screen at any altitude
-		var f := Vector3(sin(_yaw), 0.0, cos(_yaw))
-		var r := Vector3(cos(_yaw), 0.0, -sin(_yaw))
+		# camera forward is (sin, cos); move.y is screen convention (W = -1), so
+		# both basis vectors are negated to cancel that sign
+		var f := Vector3(-sin(_yaw), 0.0, -cos(_yaw))
+		var r := Vector3(-cos(_yaw), 0.0, sin(_yaw))
 		var scale := _dist / 62.0
 		position += (r * move.x + f * move.y) * pan_speed * scale * dt
 
@@ -66,7 +68,9 @@ func _apply() -> void:
 	var pitch := deg_to_rad(lerp(pitch_near, pitch_far, t))
 	var back := Vector3(-sin(_yaw), 0.0, -cos(_yaw)) * cos(pitch) * _dist
 	_cam.position = back + Vector3(0.0, sin(pitch) * _dist, 0.0)
-	_cam.look_at_from_position(_cam.position, Vector3.ZERO, Vector3.UP)
+	# _cam.position is local to the rig; look_at works in global space and the
+	# rig's own origin is the ground point we orbit
+	_cam.look_at(global_position, Vector3.UP)
 
 
 func camera() -> Camera3D:
