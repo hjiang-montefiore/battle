@@ -13,8 +13,26 @@ extends RefCounted
 ## docs/11 already defines, and a force restriction is a filter on the roster
 ## docs/12 already enumerates by domain.
 
-# ── the eight factions, docs/08 ──────────────────────────────────────────────
-enum Faction { US, UK, GERMANY, FRANCE, PLA, RUSSIA, ROC, KPA }
+# ── factions ────────────────────────────────────────────────────────────────
+## docs/08 names eight. UKRAINE and JAPAN are additions, and they are cheap
+## ones for exactly the reason docs/08's art-scope section gives: factions
+## cluster into three EQUIPMENT LINEAGES, not eight national ones, so a new
+## faction inside an existing lineage is turret swaps, running gear and
+## textures over a shared skeleton and socket set.
+##
+##   UKRAINE  soviet lineage, alongside Russia and the KPA
+##   JAPAN    western lineage -- docs/08 already calls the Western group "the
+##            cheapest possible expansion", and the Theatres table lists the
+##            Taiwan Strait as "PLA vs. ROC, US, Japan-adjacent"
+##
+## NOTE: neither has art derivatives yet. They are expressible in a match and
+## correct in the simulation; on screen they will use their lineage's hardware
+## until tools/faction_models.py grows a "ua" and a "jp" row.
+enum Faction { US, UK, GERMANY, FRANCE, PLA, RUSSIA, ROC, KPA, UKRAINE, JAPAN }
+
+## Which parts library a faction is built from (docs/08, "Impact on art scope").
+## The PLA changes lineage mid-timeline, which is why this takes an epoch.
+enum Lineage { WESTERN, SOVIET, CHINESE }
 
 ## What is already on the map at match start. Deliberately independent of
 ## start_epoch: "advanced but tiny" and "obsolete but enormous" are the two most
@@ -81,7 +99,10 @@ var resource_mult: float = 1.0
 
 
 func _init(p: Dictionary = {}) -> void:
-	doctrine = SimDoctrine.make(SimDoctrine.Profile.COMBINED_ARMS)
+	# Apply the parameters FIRST, then fall back to the faction's historical
+	# default. Seeding doctrine before this made `doctrine == null` unreachable,
+	# so default_doctrine_for() never ran and every faction created without an
+	# explicit doctrine silently came out Combined Arms -- Russia included.
 	for k in p.keys():
 		if k in self:
 			set(k, p[k])
@@ -97,7 +118,26 @@ static func default_doctrine_for(faction_id: int) -> int:
 		Faction.KPA: return SimDoctrine.Profile.ATTRITION
 		Faction.ROC: return SimDoctrine.Profile.FORTRESS
 		Faction.US, Faction.PLA: return SimDoctrine.Profile.SENSOR_DOMINANCE
+		# A smaller force against a larger one of the SAME lineage cannot win
+		# the symmetric fight, so it attacks what the larger one runs on.
+		Faction.UKRAINE: return SimDoctrine.Profile.INTERDICTION
+		# Maritime, ASW-heavy, and an early AEW operator.
+		Faction.JAPAN: return SimDoctrine.Profile.SENSOR_DOMINANCE
 	return SimDoctrine.Profile.COMBINED_ARMS
+
+
+## docs/08: the PLA is Soviet-derived through epoch 4 and indigenous from
+## epoch 5. Everyone else holds one lineage for the whole timeline.
+static func lineage_for(faction_id: int, epoch: int) -> int:
+	match faction_id:
+		Faction.PLA:
+			return Lineage.CHINESE if epoch >= 5 else Lineage.SOVIET
+		Faction.RUSSIA, Faction.KPA, Faction.UKRAINE:
+			return Lineage.SOVIET
+		Faction.ROC:
+			# US-derived early, nearer Western late. Western either way.
+			return Lineage.WESTERN
+	return Lineage.WESTERN
 
 
 # ── domain restrictions ──────────────────────────────────────────────────────
@@ -257,6 +297,8 @@ static func _faction_name(f: int) -> String:
 		Faction.RUSSIA: return "Russia"
 		Faction.ROC: return "ROC"
 		Faction.KPA: return "KPA"
+		Faction.UKRAINE: return "Ukraine"
+		Faction.JAPAN: return "Japan"
 	return "?"
 
 

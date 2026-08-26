@@ -572,6 +572,26 @@ func _suite_match_setup() -> void:
 		fortress.aggression < SimDoctrine.make(SimDoctrine.Profile.BLITZ).aggression)
 
 	# Every published scenario builds and validates.
+	# Lineage, docs/08: the PLA changes lineage MID-TIMELINE, and everyone
+	# else holds one for the whole run.
+	_ok("the PLA is Soviet-derived through epoch 4",
+		SimPlayerSetup.lineage_for(SimPlayerSetup.Faction.PLA, 4)
+		== SimPlayerSetup.Lineage.SOVIET)
+	_ok("and indigenous from epoch 5 -- the lineage fork",
+		SimPlayerSetup.lineage_for(SimPlayerSetup.Faction.PLA, 5)
+		== SimPlayerSetup.Lineage.CHINESE)
+	_ok("Ukraine shares Russia's Soviet lineage, so neither out-generations the other",
+		SimPlayerSetup.lineage_for(SimPlayerSetup.Faction.UKRAINE, 5)
+		== SimPlayerSetup.lineage_for(SimPlayerSetup.Faction.RUSSIA, 5))
+	_ok("Japan is Western -- the cheapest expansion docs/08 describes",
+		SimPlayerSetup.lineage_for(SimPlayerSetup.Faction.JAPAN, 6)
+		== SimPlayerSetup.Lineage.WESTERN)
+	_ok("every faction has a name", (func():
+		for f in range(10):
+			if SimPlayerSetup._faction_name(f) == "?":
+				return false
+		return true).call())
+
 	var all_ok := true
 	var failing := ""
 	for key in SimMatchSetup.SCENARIOS:
@@ -580,7 +600,48 @@ func _suite_match_setup() -> void:
 		if problems.size() > 0:
 			all_ok = false
 			failing = "%s: %s" % [key, problems[0]]
-	_ok("all 6 docs/09 scenarios build and validate", all_ok, failing)
+	_ok("all %d scenarios build and validate" % SimMatchSetup.SCENARIOS.size(),
+		all_ok, failing)
+
+	# The two China/Russia scenarios are the same matchup at opposite ends of
+	# the timeline, and docs/08 says that is the point: near-identical early,
+	# philosophically opposed late.
+	var amur_early := SimMatchSetup.scenario("sino_russian_early")
+	var amur_late := SimMatchSetup.scenario("sino_russian_late")
+	_ok("early Sino-Russian is a same-lineage mirror match",
+		SimPlayerSetup.lineage_for(amur_early.players[0].faction, 2)
+		== SimPlayerSetup.lineage_for(amur_early.players[1].faction, 2))
+	_ok("late Sino-Russian is not -- the PLA has forked away",
+		SimPlayerSetup.lineage_for(amur_late.players[0].faction, 7)
+		!= SimPlayerSetup.lineage_for(amur_late.players[1].faction, 7))
+	_ok("late, Russia answers the sensor question with Denial",
+		amur_late.players[1].doctrine.profile == SimDoctrine.Profile.DENIAL,
+		SimDoctrine.name_of(amur_late.players[1].doctrine.profile))
+
+	# A faction created without an explicit doctrine must get its historical
+	# default, not a silent Combined Arms.
+	var bare_ru := SimPlayerSetup.new({"faction": SimPlayerSetup.Faction.RUSSIA})
+	_ok("Russia defaults to Denial when no doctrine is given",
+		bare_ru.doctrine.profile == SimDoctrine.Profile.DENIAL,
+		SimDoctrine.name_of(bare_ru.doctrine.profile))
+	var bare_kp := SimPlayerSetup.new({"faction": SimPlayerSetup.Faction.KPA})
+	_ok("the KPA defaults to Attrition",
+		bare_kp.doctrine.profile == SimDoctrine.Profile.ATTRITION,
+		SimDoctrine.name_of(bare_kp.doctrine.profile))
+	var bare_ua := SimPlayerSetup.new({"faction": SimPlayerSetup.Faction.UKRAINE})
+	_ok("Ukraine defaults to Interdiction -- attack what the bigger force runs on",
+		bare_ua.doctrine.profile == SimDoctrine.Profile.INTERDICTION,
+		SimDoctrine.name_of(bare_ua.doctrine.profile))
+
+	var atlantic := SimMatchSetup.scenario("north_atlantic")
+	_ok("North Atlantic is a naval theatre -- no ground forces on either side",
+		not atlantic.players[0].allows(SimPlayerSetup.Domain.GROUND)
+		and not atlantic.players[1].allows(SimPlayerSetup.Domain.GROUND),
+		atlantic.players[0].domains_description())
+
+	var eu := SimMatchSetup.scenario("central_europe")
+	_ok("Central Europe puts three Western factions on one team",
+		eu.teams()[0].size() == 3, "%d allies" % eu.teams()[0].size())
 
 	var coalition := SimMatchSetup.scenario("coalition")
 	_ok("Coalition puts the human and the US AI on one team",
