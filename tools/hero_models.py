@@ -149,6 +149,11 @@ def bake_ao_texture(obj, res=512, samples=24):
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
     sc.cycles.samples = samples
+    # Cycles seeds its sampler randomly per run, so the baked AO image — and
+    # therefore the embedded JPEG — differed between builds. Measured as an
+    # 816-byte delta on an otherwise identical tank. Pin the seed.
+    sc.cycles.seed = 20260825
+    sc.cycles.use_animated_seed = False
     sc.render.bake.margin = 8
     sc.render.bake.use_selected_to_active = False
     bpy.ops.object.select_all(action="DESELECT")

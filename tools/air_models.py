@@ -477,7 +477,12 @@ def attack_helo():
     p.append(cyl((0.42, -L * 0.46, 2.30), 0.20, 0.26, rot=(0, R(90), 0), v=12))
     p += fuselage(1.0, 0.30, 1.0, 1.0, z=2.30)
     p.append(fin(-L * 0.46, 2.1, 1.8, 0.9, 0.8, 0.20, 1.90))
-    p += _heli_glass(L * 0.26, 1.72, 0.62, 1.30, 0.52)
+    use("glass")                       # tandem stepped canopy
+    p.append(dome((0, L * 0.30, 1.62), 0.56, 0.95, 0.44, v=14))   # gunner, low
+    p.append(dome((0, L * 0.16, 1.86), 0.58, 1.00, 0.46, v=14))   # pilot, raised
+    use("body")
+    p.append(cube((0, L * 0.23, 1.76), (0.62, 0.30, 0.30)))       # step fairing
+    p.append(cyl((0, -L * 0.44, 0.34), 0.22, 0.24, rot=(0, R(90), 0), v=10))
     return p, dict(top=2.1, hull_l=L, hull_w=ROTOR, turret_top=3.0,
                    gun_z=1.05, gun_y=L * 0.30)
 

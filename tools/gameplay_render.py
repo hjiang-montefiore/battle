@@ -11,7 +11,7 @@ from mathutils import Vector, Matrix
 
 ROOT = "/Users/hjiang/Desktop/battle"
 OUT = os.path.join(ROOT, "art", "renders")
-TEX = os.path.join(ROOT, "art", "textures")
+TEX = "/Users/hjiang/Desktop/battle/art/textures"
 R = math.radians
 
 

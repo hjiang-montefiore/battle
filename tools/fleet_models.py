@@ -49,17 +49,23 @@ def boxhull(hull_l, hull_w, clearance, hull_h, nose=1.0, name="hull"):
 def ifv():
     """Infantry fighting vehicle: low hull, small two-man turret, autocannon
     plus a boxed ATGM launcher on the turret side."""
-    HL, HW, CL, HH = 6.60, 3.28, 0.44, 1.05
+    # published: 6.55 x 3.60 x 2.98 m, six road wheels, turret OFFSET RIGHT
+    HL, HW, CL, HH = 6.55, 3.60, 0.44, 1.40
     p = []
     h, top = boxhull(HL, HW, CL, HH, 1.55, "ifv_hull")
     p.append(h)
-    ROOF = top + 0.72
-    p.append(profile([(-0.95, top), (-0.80, ROOF - 0.10), (0.85, ROOF),
-                      (1.30, ROOF - 0.14), (1.30, top)], 1.85, "ifv_turret"))
-    p.append(cube((0, -0.55, top + 0.34), (0.62, 0.55, 0.42)))      # mantlet
-    p += barrel(-3.95, top + 0.40, 1.95, 0.048, 0.55, 0.070)        # autocannon
+    ROOF = 2.98
+    TX = 0.42                       # turret offset right, to clear the troop bay
+    p.append(profile([(-0.95, top), (-0.80, ROOF - 0.12), (0.85, ROOF),
+                      (1.30, ROOF - 0.16), (1.30, top)], 1.72, "ifv_turret"))
+    p[-1].location.x = TX
+    p.append(cube((TX, -0.55, top + 0.48), (0.60, 0.55, 0.46)))     # mantlet
+    p += barrel(-3.95, top + 0.56, 1.95, 0.048, 0.55, 0.070)        # 25 mm
+    p[-1].location.x = TX
     use("deck")
-    p.append(cube((0.92, 0.25, ROOF + 0.10), (0.40, 0.80, 0.34)))   # ATGM box
+    for k in range(2):                                              # TWO TOW tubes
+        p.append(cube((TX - 1.00, 0.30, ROOF - 0.34 + k * 0.34),
+                      (0.42, 0.92, 0.30)))
     use("body")
     p.append(cube((0, HL * 0.42, top + 0.30), (HW * 0.72, 0.14, 0.60)))  # ramp
     p += detail_kit(HL, HW, top, ROOF, -0.95, 1.30, era=0)
@@ -91,21 +97,24 @@ def recon_tracked():
 def sph():
     """Self-propelled howitzer: large turret, very long barrel with a big
     muzzle brake. Shoot-and-scoot, because counter-battery radar exists."""
-    HL, HW, CL, HH = 7.20, 3.45, 0.45, 1.18
+    # published: hull 6.2 m, 9.75 m gun forward, 3.15 m wide, 3.25 m tall
+    HL, HW, CL, HH = 6.20, 3.15, 0.45, 1.20
     p = []
-    h, top = boxhull(HL, HW, CL, HH, 1.30, "sph_hull")
+    h, top = boxhull(HL, HW, CL, HH, 1.20, "sph_hull")
     p.append(h)
-    ROOF = top + 1.02
-    p.append(profile([(-1.90, top + 0.10), (-1.70, ROOF), (1.85, ROOF),
-                      (2.35, ROOF - 0.30), (2.35, top), (-1.30, top)],
-                     2.95, "sph_turret"))
-    p.append(cube((0, -2.10, top + 0.60), (0.95, 0.70, 0.80)))
-    p += barrel(-8.40, top + 0.64, 5.60, 0.098, 1.20, 0.140)
+    ROOF = 3.25
+    # the M109's turret is enormous relative to the hull — nearly full width,
+    # near-vertical sides, and a deep rear bustle. That IS its silhouette.
+    p.append(profile([(-1.55, top + 0.05), (-1.40, ROOF), (1.55, ROOF),
+                      (2.05, ROOF - 0.35), (2.05, top), (-1.10, top)],
+                     2.92, "sph_turret"))
+    p.append(cube((0, -1.75, top + 0.75), (0.95, 0.70, 0.90)))
+    p += barrel(-(HL / 2 + 3.55), top + 0.85, 4.30, 0.098, 1.10, 0.140)
     use("deck")
     p.append(cyl((0, -8.30, top + 0.64), 0.175, 0.62, rot=(R(90), 0, 0), v=14))
     use("body")
-    p += detail_kit(HL, HW, top, ROOF, -1.90, 2.35, era=0)
-    p += running_gear(HL, HW, CL, 7, 0.33, 0.58)
+    p += detail_kit(HL, HW, top, ROOF, -1.55, 2.05, era=0)
+    p += running_gear(HL, HW, CL, 6, 0.33, 0.58)
     return p, dict(top=top, hull_l=HL, hull_w=HW, turret_top=ROOF,
                    gun_z=top + 0.64, gun_y=-1.90)
 
@@ -122,10 +131,11 @@ def mlrs():
     use("deck")
     p.append(cube((0, HL * 0.20, top + 0.86), (2.30, 3.05, 1.05),
                   rot=(R(-16), 0, 0)))                               # pod
+    # two 6-pack pods = twelve rockets, arranged six across and two high
     for r in range(2):
-        for c in range(3):
-            p.append(cyl((-0.72 + c * 0.72, HL * 0.20 - 1.45, top + 0.55 + r * 0.48),
-                         0.20, 3.00, rot=(R(74), 0, 0), v=10))
+        for c in range(6):
+            p.append(cyl((-1.05 + c * 0.42, HL * 0.20 - 1.45, top + 0.55 + r * 0.44),
+                         0.115, 3.00, rot=(R(74), 0, 0), v=8))
     use("body")
     for s in (-1, 1):
         p.append(cube((s * 1.20, HL * 0.16, top + 0.34), (0.24, 1.30, 0.68)))
