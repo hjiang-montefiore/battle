@@ -32,6 +32,33 @@ from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from blockout import REQUIRED_SOCKETS
 
+# art/CONVENTIONS.md scopes the nine-socket contract to "every ARMOURED
+# VEHICLE". Applying it to everything fails infantry -- who are rigged rather
+# than socketed (docs/14) -- and would demand a turret ring on a submarine.
+ARMOURED_SOCKETS = list(REQUIRED_SOCKETS)
+
+# Hulls and airframes still need somewhere to show damage, mount sensors and
+# hang stores; they do not need a gun mantlet or track sockets.
+HULL_SOCKETS = ["damage_hull", "sensor_mast",
+                "hardpoint_1", "hardpoint_2", "hardpoint_3", "hardpoint_4"]
+
+# Infantry carry no sockets at all. docs/14: they need a SKELETON, and the
+# upgrade system attaches to bones rather than to empties.
+SOCKET_CONTRACTS = {
+    "inf": [],
+    "nav": HULL_SOCKETS,
+    "sub": HULL_SOCKETS,
+    "str": HULL_SOCKETS,
+    "air": HULL_SOCKETS, "aew": HULL_SOCKETS, "mpa": HULL_SOCKETS,
+    "tkr": HULL_SOCKETS, "isr": HULL_SOCKETS, "ewa": HULL_SOCKETS,
+    "hel": HULL_SOCKETS, "uav": HULL_SOCKETS,
+}
+
+
+def sockets_required_for(role):
+    """The contract this role is actually held to."""
+    return SOCKET_CONTRACTS.get(role, ARMOURED_SOCKETS)
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Per-role envelopes: (length_z, width_x, height_y), metres. Deliberately
@@ -60,11 +87,24 @@ ROLE_LIMITS = {
     "ewa": ((10.0, 30.0), (8.0, 26.0), (2.5, 8.0)),
     "hel": ((10.0, 22.0), (8.0, 20.0), (2.5, 7.0)),
     "uav": ((1.5, 22.0), (1.5, 42.0), (0.3, 5.0)),
+    # Infantry are people: taller than they are long, and about 1.8 m of it.
+    "inf": ((0.25, 1.40), (0.35, 1.60), (1.40, 2.40)),
+    # Naval. Width can be a flight deck, so it is generous; a supercarrier is
+    # ~333 m long and a corvette ~26 m, and both must pass the same rule.
+    "nav": ((18.0, 360.0), (4.0, 95.0), (3.0, 55.0)),
+    "sub": ((12.0, 190.0), (2.5, 28.0), (4.0, 28.0)),
+    # Strategic sites: silos, bridges, airbases, radar arrays.
+    "str": ((4.0, 220.0), (2.5, 70.0), (2.0, 45.0)),
 }
 
 # Roles that sit on the ground plane and whose hull is longer than it is wide.
+# Infantry are excluded from BOTH halves: a standing figure is taller than it
+# is long, which is not a rotated export, and boots dipping below the origin is
+# a rig detail rather than a scale error.
 GROUND_ROLES = {"mbt", "afv", "art", "aad", "sam", "msl", "rad", "rec",
                 "log", "cmd", "eng", "ewj"}
+# These sit on a surface but are not longer-than-wide by rule.
+SURFACE_ROLES = {"nav", "sub", "str", "inf"}
 
 GROUND_PLANE_TOLERANCE = -0.02   # art/CONVENTIONS.md
 
@@ -193,7 +233,7 @@ def check(path, errors, warnings):
         return
     role = role_of(path)
 
-    for s in REQUIRED_SOCKETS:
+    for s in sockets_required_for(role):
         if f"SOCKET_{s}" not in m["sockets"]:
             errors.append(f"{rel}: missing SOCKET_{s}")
 
@@ -210,13 +250,14 @@ def check(path, errors, warnings):
                 errors.append(f"{rel}: {label} {value:.2f} m outside "
                               f"[{lo_}, {hi_}] for role '{role}'")
 
-    if role in GROUND_ROLES:
+    if role in GROUND_ROLES or role in SURFACE_ROLES:
         if m["lo"][1] < GROUND_PLANE_TOLERANCE:
             warnings.append(f"{rel}: geometry {m['lo'][1]:.3f} m below the "
                             f"ground plane (limit {GROUND_PLANE_TOLERANCE})")
         # A ground vehicle wider than it is long has almost certainly been
-        # exported rotated 90 degrees. Aircraft are exempt: wingspan.
-        if m["width"] > m["length"]:
+        # exported rotated 90 degrees. Aircraft are exempt (wingspan), and so
+        # are people and hulls.
+        if role in GROUND_ROLES and m["width"] > m["length"]:
             errors.append(f"{rel}: width {m['width']:.2f} m exceeds length "
                           f"{m['length']:.2f} m -- exported rotated?")
 
@@ -244,8 +285,10 @@ def main():
     for p in files:
         check(p, errors, warnings)
 
-    print(f"checked {len(files)} model(s) against {len(REQUIRED_SOCKETS)} "
-          f"required sockets and per-role dimension envelopes")
+    print(f"checked {len(files)} model(s) against per-role socket contracts "
+          f"and dimension envelopes "
+          f"({len(ARMOURED_SOCKETS)} sockets for armoured vehicles, "
+          f"{len(HULL_SOCKETS)} for hulls and airframes, none for infantry)")
 
     if warnings and not quiet:
         grouped = defaultdict(list)
