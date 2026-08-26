@@ -227,9 +227,16 @@ def role_of(path):
 def check(path, errors, warnings):
     rel = os.path.relpath(path, ROOT)
     doc = read_glb(path)
+
+    # An animation library is a legitimate .glb with no meshes at all -- a rig
+    # plus clips, which docs/14 says infantry need. It is not a model and none
+    # of the model rules apply to it.
+    if not doc.get("meshes") and doc.get("animations"):
+        return
+
     m = measure(doc)
     if m is None:
-        errors.append(f"{rel}: no positional geometry")
+        errors.append(f"{rel}: no positional geometry and no animations")
         return
     role = role_of(path)
 
