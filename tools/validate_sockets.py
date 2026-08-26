@@ -87,8 +87,11 @@ ROLE_LIMITS = {
     "ewa": ((10.0, 30.0), (8.0, 26.0), (2.5, 8.0)),
     "hel": ((10.0, 22.0), (8.0, 20.0), (2.5, 7.0)),
     "uav": ((1.5, 22.0), (1.5, 42.0), (0.3, 5.0)),
-    # Infantry are people: taller than they are long, and about 1.8 m of it.
-    "inf": ((0.25, 1.40), (0.35, 1.60), (1.40, 2.40)),
+    # Infantry are people. Width is the awkward one: a rifleman is under a
+    # metre across, but an engineer with arms out carrying a tool measures
+    # 2.2 m, and a two-man team pose will be wider still. The envelope catches
+    # a scale error -- a 5 m soldier, or a 0.2 m one -- not a proportion.
+    "inf": ((0.25, 1.80), (0.55, 2.80), (1.40, 2.60)),
     # Naval. Width can be a flight deck, so it is generous; a supercarrier is
     # ~333 m long and a corvette ~26 m, and both must pass the same rule.
     "nav": ((18.0, 360.0), (4.0, 95.0), (3.0, 55.0)),
