@@ -14,6 +14,24 @@ config/features=PackedStringArray("4.5", "Forward Plus")
 window/size/viewport_width=1600
 window/size/viewport_height=900
 
+; The HUD is laid out in absolute pixels, so without a stretch mode it drifts
+; on any window that is not 1600x900.
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[physics]
+
+; docs/06 tick budget: simulation 20-30 Hz. Godot's default is 60, and leaving
+; it implicit meant unit movement silently ran at 60 while the sim core ran at
+; 20 -- and unit paths are not tick-rate invariant, so the two disagreed.
+common/physics_ticks_per_second=20
+; Bound catch-up so a stall cannot spiral into a death march.
+common/max_physics_steps_per_frame=8
+
+; NOT set: 3d/physics_engine="Dummy". It would guard against RigidBody3D
+; creeping in, but docs/06 explicitly allows Godot physics for cosmetic debris,
+; and Dummy would silently break that later.
+
 [rendering]
 renderer/rendering_method="forward_plus"
 anti_aliasing/quality/msaa_3d=2

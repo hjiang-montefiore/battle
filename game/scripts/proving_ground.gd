@@ -1,9 +1,12 @@
 extends Node3D
 ## Proving ground: verifies that the art pipeline's output actually loads, sits
 ## at the right scale, keeps its sockets, and can be driven with RTS controls.
-## Milestone 1-3 scaffolding from docs/06-architecture.md — not the game.
+## Pre-milestone-1 harness from docs/06-architecture.md — not the game, and
+## not yet milestone 1: the deterministic tick loop lives in sim/, not here.
 
 const ASSETS := "res://assets/units/"
+const PLAYER_FACTION := 0
+const DRAG_THRESHOLD_PX := 11.0
 
 const CAM_ACTIONS := [
 	&"cam_forward", &"cam_back", &"cam_left",
@@ -141,8 +144,30 @@ func _spawn_roster() -> void:
 		unit.faction = entry.faction
 		unit.name = entry.file
 		add_child(unit)
-		unit.add_child(packed.instantiate())
+		var model := packed.instantiate()
+		unit.add_child(model)
+		# Cache the model's real bounds once. Selection, the ring and formation
+		# spacing all read it, so none of them has to guess a radius.
+		unit.set_footprint(_local_aabb(unit))
 		_units.append(unit)
+
+
+## Model bounds expressed in the unit's own local space.
+func _local_aabb(unit: Node3D) -> AABB:
+	var box := AABB()
+	var first := true
+	var to_local := unit.global_transform.affine_inverse()
+	for c in unit.find_children("*", "MeshInstance3D", true, false):
+		var mi := c as MeshInstance3D
+		var a: AABB = (to_local * mi.global_transform) * mi.get_aabb()
+		if first:
+			box = a
+			first = false
+		else:
+			box = box.merge(a)
+	if first:
+		return AABB(Vector3(-3, 0, -3), Vector3(6, 2.5, 6))
+	return box
 
 
 func _build_hud() -> void:
@@ -172,7 +197,9 @@ func _unhandled_input(e: InputEvent) -> void:
 			else:
 				_dragging = false
 				_box.visible = false
-				if _drag_from.distance_to(at) < 6.0:
+				# 6 px was about 1.1 mm on a 265 DPI panel: an ordinary click with a
+				# steady hand became a marquee that cleared the selection.
+				if _drag_from.distance_to(at) < DRAG_THRESHOLD_PX:
 					_pick(at, Input.is_key_pressed(KEY_SHIFT))
 				else:
 					_box_select(_drag_from, at, Input.is_key_pressed(KEY_SHIFT))
@@ -183,7 +210,7 @@ func _unhandled_input(e: InputEvent) -> void:
 		var b: Vector2 = (e as InputEventMouseMotion).position
 		_box.position = Vector2(minf(a.x, b.x), minf(a.y, b.y))
 		_box.size = (b - a).abs()
-		_box.visible = _box.size.length() > 6.0
+		_box.visible = _box.size.length() > DRAG_THRESHOLD_PX
 
 
 func _ground_point(screen: Vector2) -> Vector3:
@@ -195,6 +222,12 @@ func _ground_point(screen: Vector2) -> Vector3:
 	return from + dir * (-from.y / dir.y)
 
 
+## The player commands their own force. Without this the enemy T-72 could be
+## box-selected and driven around, which it could.
+func _selectable(u: Node3D) -> bool:
+	return u.faction == PLAYER_FACTION
+
+
 func _clear() -> void:
 	for u in _selected:
 		u.selected = false
@@ -204,14 +237,31 @@ func _clear() -> void:
 func _pick(screen: Vector2, additive: bool) -> void:
 	if not additive:
 		_clear()
-	var p := _ground_point(screen)
+	var cam: Camera3D = _rig.camera()
+	var from := cam.project_ray_origin(screen)
+	var dir := cam.project_ray_normal(screen)
 	var best: Node3D = null
-	var best_d := 4.5
+	var best_d := INF
 	for u in _units:
-		var d := Vector2(u.position.x - p.x, u.position.z - p.z).length()
-		if d < best_d:
+		if not _selectable(u):
+			continue
+		var d: float = u.ray_distance(from, dir)
+		if d >= 0.0 and d < best_d:
 			best_d = d
 			best = u
+	if best == null:
+		# Nothing under the cursor: fall back to the nearest hull to the ground
+		# point, so a click just off a vehicle still does the obvious thing.
+		var p := _ground_point(screen)
+		var near := 6.0
+		for u in _units:
+			if not _selectable(u):
+				continue
+			var c: Vector3 = u.marker_point()
+			var d := Vector2(c.x - p.x, c.z - p.z).length()
+			if d < near:
+				near = d
+				best = u
 	if best:
 		best.selected = true
 		if best not in _selected:
@@ -224,7 +274,14 @@ func _box_select(a: Vector2, b: Vector2, additive: bool) -> void:
 	var r := Rect2(Vector2(minf(a.x, b.x), minf(a.y, b.y)), (b - a).abs())
 	var cam: Camera3D = _rig.camera()
 	for u in _units:
-		var sp := cam.unproject_position(u.position + Vector3(0, 1.2, 0))
+		if not _selectable(u):
+			continue
+		var mp: Vector3 = u.marker_point()
+		# unproject_position mirrors points behind the camera onto the screen,
+		# so without this guard a marquee selects things behind you.
+		if cam.is_position_behind(mp):
+			continue
+		var sp := cam.unproject_position(mp)
 		if r.has_point(sp) and u not in _selected:
 			u.selected = true
 			_selected.append(u)
@@ -234,12 +291,24 @@ func _order(screen: Vector2) -> void:
 	if _selected.is_empty():
 		return
 	var p := _ground_point(screen)
-	# spread the formation so units do not stack on one point
 	var n := _selected.size()
 	var cols := int(ceil(sqrt(float(n))))
+	var rows := int(ceil(float(n) / float(cols)))
+	# Pitch from the largest thing actually selected, not a fixed 7 m. The SPH
+	# is 12.2 m long, so a 7 m grid parked it inside its neighbours.
+	var widest := 0.0
+	var longest := 0.0
+	for u in _selected:
+		var fs: Vector3 = u.footprint_size
+		widest = maxf(widest, fs.x)
+		longest = maxf(longest, fs.z)
+	var pitch_x: float = widest + 3.0
+	var pitch_z: float = longest + 3.0
 	for i in range(n):
-		var ox := (i % cols) * 7.0 - (cols - 1) * 3.5
-		var oz := float(i / cols) * 7.0
+		# BOTH axes centred on the click. Only ox was, so the group's centre of
+		# mass landed 6.4 m past where the player pointed.
+		var ox := (i % cols) * pitch_x - (cols - 1) * pitch_x * 0.5
+		var oz := float(i / cols) * pitch_z - (rows - 1) * pitch_z * 0.5
 		_selected[i].order_move(p + Vector3(ox, 0, oz))
 
 

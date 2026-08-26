@@ -9,6 +9,10 @@ extends Node3D
 @export var zoom_max := 140.0
 @export var pitch_near := 38.0   ## shallower when zoomed in
 @export var pitch_far := 58.0    ## more top-down when zoomed out
+## Half-extent of the playfield. The ground plane is 400x400 m, so the rig is
+## held inside it -- holding one pan key used to walk the view off the map into
+## bare sky with no cue where home was.
+@export var bounds_m := 200.0
 
 var _dist := 62.0
 var _yaw := 0.0
@@ -61,6 +65,15 @@ func _process(dt: float) -> void:
 		var r := Vector3(-cos(_yaw), 0.0, sin(_yaw))
 		var scale := _dist / 62.0
 		position += (r * move.x + f * move.y) * pan_speed * scale * dt
+		_clamp_to_bounds()
+
+
+## Keep the aim point on the map. The limit shrinks as you zoom out, so the
+## map edge stops at the frame edge instead of sliding into the middle.
+func _clamp_to_bounds() -> void:
+	var margin: float = maxf(bounds_m - _dist * 0.45, 20.0)
+	position.x = clampf(position.x, -margin, margin)
+	position.z = clampf(position.z, -margin, margin)
 
 
 func _apply() -> void:
