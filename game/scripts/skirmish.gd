@@ -1,0 +1,1138 @@
+extends Node3D
+## THE GAME. A playable skirmish over SimMatch.
+##
+## The proving ground is an art harness that owns its own units and moves them
+## itself. This is the opposite: it owns NOTHING. Every unit here is an index
+## into SimEntities, every order is a SimCommandQueue command, and every rule --
+## what may be built, what may be shot, who has won -- is answered by the sim.
+## This file reads the simulation and draws it, and that is the whole job. If a
+## decision is being made in this file, it is in the wrong place.
+##
+## ── THE ONE THING THAT MAKES THIS GAME DIFFERENT ─────────────────────────────
+## Your own units are drawn from GROUND TRUTH. The enemy is drawn from your
+## COALITION'S TRACK TABLE and nothing else -- docs/02's picture, rendered.
+## There is no code path in this file that can read an enemy entity, so a
+## contact you hold at TQ1 is a bearing on your screen because it is a bearing
+## in the simulation, and the enemy tank sitting behind the ridge is not drawn
+## because you genuinely do not know it is there. The AI plays under exactly the
+## same restriction (docs/09), which is what makes it a fair fight.
+
+const RTS_CAMERA := preload("res://scripts/rts_camera.gd")
+const ASSETS := "res://assets/units/"
+const DRAG_THRESHOLD_PX := 11.0
+## How near the cursor has to be to a contact marker to mean "that one".
+const TRACK_PICK_PX := 26.0
+
+# ── palette ──────────────────────────────────────────────────────────────────
+const COL_OWN := Color(0.42, 0.78, 1.00)
+const COL_ALLY := Color(0.45, 0.95, 0.60)
+const COL_SELECTED := Color(1.00, 0.95, 0.35)
+const COL_HOSTILE := Color(1.00, 0.36, 0.30)
+const COL_UNKNOWN := Color(0.95, 0.78, 0.30)
+const COL_BAR_BG := Color(0.05, 0.05, 0.05, 0.75)
+const COL_PANEL := Color(0.04, 0.05, 0.06, 0.82)
+
+# ── the simulation ───────────────────────────────────────────────────────────
+var _match: SimMatch
+var _me: int = 0
+var _my_team: int = 0
+
+# ── presentation ─────────────────────────────────────────────────────────────
+var _rig: Node3D
+var _proxies: Dictionary = {}          ## entity index -> Node3D
+var _terrain_mesh: MeshInstance3D
+var _selected: Array[int] = []
+var _drag_from := Vector2.ZERO
+var _dragging := false
+var _paused := false
+var _speed := 1.0
+
+## Build placement. When non-empty the next left click tries to place it.
+var _placing_role := ""
+var _placing_problem := ""
+var _cursor_ground := Vector3.ZERO
+
+## Screen positions of the contacts we can currently see, rebuilt every frame
+## so a right-click can be tested against them without a second projection.
+var _track_screen: Array = []          ## Array[{"id": int, "at": Vector2, ...}]
+
+# ── HUD ──────────────────────────────────────────────────────────────────────
+var _overlay: Control
+var _stats: Label
+var _selection_info: Label
+var _log_label: Label
+var _banner: Label
+var _build_box: VBoxContainer
+var _produce_box: VBoxContainer
+var _headless := false
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BOOT
+# ═══════════════════════════════════════════════════════════════════════════
+
+func _ready() -> void:
+	_headless = DisplayServer.get_name() == "headless"
+	_match = SimMatch.start(_default_setup(), SimArena.SKIRMISH_VALLEY)
+	if _match.phase == SimMatch.Phase.SETUP:
+		push_error("match setup invalid: " + ", ".join(_match.problems()))
+		return
+	_me = _match.human_player_id
+	_my_team = (_match.setup.players[_me] as SimPlayerSetup).team
+
+	_build_environment()
+	_build_terrain_mesh()
+	_build_hud()
+	_sync_proxies()
+	_frame_on_base()
+
+	var argv := OS.get_cmdline_user_args()
+	if "--test" in argv:
+		_run_headless_check()
+	elif "--shot" in argv and not _headless:
+		_capture()
+
+
+## Save a framing render, so the HUD can be reviewed without a human at the
+## keyboard. Needs a real framebuffer: headless has none, and awaiting a
+## frame_post_draw that never arrives hangs the process with its stdout still
+## buffered -- the exact failure the proving ground documents.
+func _capture() -> void:
+	# `--shot --at 300` runs the match forward 300 simulated seconds first and
+	# sends the army at the enemy, so the render shows contacts, damage bars
+	# and a live combat log rather than an untouched opening position.
+	var argv := OS.get_cmdline_user_args()
+	var at_s := 0.0
+	var i := argv.find("--at")
+	if i >= 0 and i + 1 < argv.size():
+		at_s = float(argv[i + 1])
+	if at_s > 0.0:
+		var enemy := _match.base_position(1 - _me)
+		var force := PackedInt32Array()
+		for u in _match.own_units(_me):
+			if _match.world.entities.is_structure[u] == 0:
+				force.append(u)
+		var slots := _match.world.movement.formation_slots(force, enemy.x, enemy.y)
+		for k in range(force.size()):
+			_match.world.commands.move(_me, force[k], slots[k * 2], slots[k * 2 + 1])
+		_match.run_ticks(int(at_s * SimWorld.SIM_HZ))
+		for u in _match.own_units(_me):
+			if _match.world.entities.is_structure[u] == 0 and not _selected.has(u):
+				_selected.append(u)
+	_match.run_ticks(400)
+	_frame_on_base()
+	if at_s > 0.0 and not _selected.is_empty():
+		# Follow the army rather than the empty back yard it left behind.
+		var e := _match.world.entities
+		var cx := 0.0
+		var cz := 0.0
+		for u in _selected:
+			cx += e.pos_x[u]
+			cz += e.pos_z[u]
+		cx /= float(_selected.size())
+		cz /= float(_selected.size())
+		_rig.position = Vector3(cx, _match.terrain.ground_under(cx, cz), cz)
+	_rig.set("_dist", 700.0)
+	_rig.call("_apply")
+	for i in _match.own_units(_me):
+		if _match.world.entities.is_structure[i] == 0:
+			_selected.append(i)
+	_sync_proxies()
+	_project_tracks()
+	_refresh_panels(true)
+	_update_hud()
+	_overlay.queue_redraw()
+	await RenderingServer.frame_post_draw
+	await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	var out := ProjectSettings.globalize_path("res://../art/renders/game_skirmish.png")
+	print("[shot] ", out, "  err=", img.save_png(out),
+		"  ", img.get_width(), "x", img.get_height())
+	get_tree().quit()
+
+
+## Two players, corner to corner, epoch 4. This is the default skirmish; a
+## setup screen would replace this one function and nothing else, because
+## SimMatch.start() already takes any SimMatchSetup -- including every docs/09
+## §4 scenario in SimMatchSetup.SCENARIOS.
+func _default_setup() -> SimMatchSetup:
+	var s := SimMatchSetup.new()
+	s.name = "Skirmish"
+	s.seed_value = 20260826
+	s.add(SimPlayerSetup.new({
+		"name": "You", "is_human": true, "team": 0,
+		"faction": SimPlayerSetup.Faction.US,
+		"start_epoch": 4, "ceiling_epoch": 6,
+		"starting_forces": SimPlayerSetup.ForcePreset.ARMY}))
+	s.add(SimPlayerSetup.new({
+		"name": "Russia", "team": 1,
+		"faction": SimPlayerSetup.Faction.RUSSIA,
+		"start_epoch": 4, "ceiling_epoch": 6,
+		"starting_forces": SimPlayerSetup.ForcePreset.ARMY,
+		"skill": SimSkill.Level.VETERAN}))
+	return s
+
+
+func _build_environment() -> void:
+	var env := WorldEnvironment.new()
+	var e := Environment.new()
+	e.background_mode = Environment.BG_SKY
+	var sky := Sky.new()
+	var sm := ProceduralSkyMaterial.new()
+	sm.sky_horizon_color = Color(0.62, 0.66, 0.70)
+	sm.ground_horizon_color = Color(0.32, 0.32, 0.30)
+	sky.sky_material = sm
+	e.sky = sky
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	e.ambient_light_energy = 0.35
+	e.fog_enabled = true
+	e.fog_density = 0.00009
+	e.fog_light_color = Color(0.60, 0.64, 0.68)
+	env.environment = e
+	add_child(env)
+
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-48, 136, 0)
+	sun.light_energy = 1.7
+	sun.shadow_enabled = true
+	sun.directional_shadow_max_distance = 900.0
+	add_child(sun)
+
+	var t := _match.terrain
+	_rig = RTS_CAMERA.new()
+	_rig.set("zoom_min", 45.0)
+	_rig.set("zoom_max", 2400.0)
+	_rig.set("pan_speed", 260.0)
+	_rig.set("bounds_m", minf(t.extent_x_m(), t.extent_z_m()) * 0.5)
+	add_child(_rig)
+
+
+## The heightfield, as a mesh. One vertex per terrain cell -- the same grid the
+## path planner and the line-of-sight walk use, so what you see is the ground
+## the simulation is actually reasoning about, not a decorative approximation.
+func _build_terrain_mesh() -> void:
+	var t := _match.terrain
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var hx := t.extent_x_m() * 0.5
+	var hz := t.extent_z_m() * 0.5
+	for cz in range(t.cells_z - 1):
+		for cx in range(t.cells_x - 1):
+			var quad := [Vector2i(cx, cz), Vector2i(cx + 1, cz),
+				Vector2i(cx + 1, cz + 1), Vector2i(cx, cz + 1)]
+			var p: Array = []
+			for q in quad:
+				var wx: float = float(q.x) * t.cell_size_m - hx
+				var wz: float = float(q.y) * t.cell_size_m - hz
+				p.append(Vector3(wx, t.height_at_cell(q.x, q.y), wz))
+			_tri(st, p[0], p[1], p[2])
+			_tri(st, p[0], p[2], p[3])
+	st.generate_normals()
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	# The palette below is written in sRGB, the way a colour picker gives it.
+	# Left as linear it renders about two stops brighter and the whole map
+	# comes out a pale sage that hides every contour on it.
+	mat.vertex_color_is_srgb = true
+	mat.roughness = 0.96
+	_terrain_mesh = MeshInstance3D.new()
+	_terrain_mesh.mesh = st.commit()
+	_terrain_mesh.material_override = mat
+	add_child(_terrain_mesh)
+
+
+func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
+	for v in [a, b, c]:
+		st.set_color(_ground_colour(v.y))
+		st.add_vertex(v)
+
+
+## Height as colour, with a contour band every 40 m.
+##
+## The band is not decoration. Terrain decides line of sight in this game, and
+## on a map whose relief is 340 m over 12 km a smooth gradient is invisible
+## from a playing camera -- you cannot tell which way the ground falls, so you
+## cannot tell what your radar can see. Banding makes the slope readable at a
+## glance, the way a contour map does, without drawing anything on top of it.
+func _ground_colour(h: float) -> Color:
+	if h < 0.0:
+		# Water reads as water at a glance, which matters: a naval yard can
+		# only go here and nothing else can.
+		return Color(0.05, 0.14, 0.26).lerp(Color(0.10, 0.26, 0.40),
+			clampf(1.0 + h / 200.0, 0.0, 1.0))
+	var t: float = clampf(h / 420.0, 0.0, 1.0)
+	var c := Color(0.20, 0.27, 0.13).lerp(Color(0.55, 0.50, 0.38), t)
+	if int(floor(h / 40.0)) % 2 == 1:
+		c = c.darkened(0.13)
+	return c
+
+
+## Put the camera over the player's own base, ON the ground.
+##
+## The rig orbits its own origin, so that origin has to sit at terrain height:
+## the map fills to 60 m and rises to 400 m on the ridge, and a rig left at
+## y = 0 is underground -- the camera then looks out through the inside of the
+## heightfield and the whole world renders as flat sky.
+func _frame_on_base() -> void:
+	var b := _match.base_position(_me)
+	_rig.set("_dist", 420.0)
+	_rig.position = Vector3(b.x, _match.terrain.ground_under(b.x, b.y), b.y)
+	_rig.call("_apply")
+
+
+## The rig pans in x and z only, so it has to be re-seated on the ground every
+## frame or driving the view onto the ridge buries it.
+func _follow_ground() -> void:
+	if _rig == null:
+		return
+	_rig.position.y = _match.terrain.ground_under(_rig.position.x, _rig.position.z)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# THE FRAME
+# ═══════════════════════════════════════════════════════════════════════════
+
+func _process(dt: float) -> void:
+	if _match == null or _match.phase == SimMatch.Phase.SETUP:
+		return
+	if not _paused and not _match.is_finished():
+		_match.step(dt * _speed)
+	_follow_ground()
+	_sync_proxies()
+	_prune_selection()
+	_project_tracks()
+	_update_hud(dt)
+	if _overlay:
+		_overlay.queue_redraw()
+
+
+## Create, move and retire the visible representation of the entity store.
+## Only the player's OWN COALITION is represented here; everything hostile
+## reaches the screen through the track table instead.
+func _sync_proxies() -> void:
+	var e := _match.world.entities
+	for i in range(e.count()):
+		var mine := e.alive[i] == 1 and e.faction[i] == _my_team
+		var node: Node3D = _proxies.get(i)
+		if not mine:
+			if node != null:
+				node.queue_free()
+				_proxies.erase(i)
+			continue
+		if node == null:
+			node = _make_proxy(i)
+			_proxies[i] = node
+			add_child(node)
+		node.position = Vector3(e.pos_x[i], e.pos_y[i], e.pos_z[i])
+		node.rotation.y = e.heading_rad[i]
+		# A unit still under construction is visibly incomplete: it sinks into
+		# the ground and rises as it is built. It can be bombed the whole time,
+		# which is the point of placing the entity immediately.
+		if e.is_structure[i] == 1:
+			var p := _match.world.economy.construction_progress(i)
+			node.scale = Vector3(1.0, maxf(p, 0.08), 1.0)
+
+
+func _make_proxy(i: int) -> Node3D:
+	var e := _match.world.entities
+	var holder := Node3D.new()
+	holder.name = "u%d" % i
+	var role := _match.world.economy.role_of(i)
+	var glb := _model_for(role)
+	if glb != "" and ResourceLoader.exists(glb):
+		holder.add_child((load(glb) as PackedScene).instantiate())
+		return holder
+	holder.add_child(_block(role, e.is_structure[i] == 1, e.faction[i]))
+	return holder
+
+
+## A stand-in for anything with no model -- every structure, and any vehicle
+## role the art pipeline has not reached. Sized off the role so a refinery does
+## not look like a bunker.
+func _block(role: String, is_structure: bool, faction: int) -> MeshInstance3D:
+	var d := SimRoster.make(role, 4)
+	var size := Vector3(7.0, 3.0, 9.0)
+	if is_structure:
+		var f: float = d.footprint_m if d != null else 12.0
+		size = Vector3(f * 1.1, maxf(f * 0.5, 6.0), f * 1.1)
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.position.y = size.y * 0.5
+	var mat := StandardMaterial3D.new()
+	var tint := Color(0.42, 0.44, 0.38) if faction == _my_team \
+		else Color(0.44, 0.34, 0.32)
+	if is_structure:
+		tint = tint.lerp(Color(0.66, 0.63, 0.55), 0.45)
+	mat.albedo_color = tint
+	mat.roughness = 0.92
+	mi.material_override = mat
+	return mi
+
+
+const MODELS := {
+	"apc": "afv_e4_us_apc", "ifv": "afv_e4_us_ifv",
+	"atgm_carrier": "afv_e4_us_atgm", "light_tank": "afv_e4_us_tankdestroyer",
+	"recon_vehicle": "rec_e4_us_recon", "sph": "art_e4_us_sph",
+	"mlrs": "art_e4_us_mlrs", "towed_artillery": "art_e4_us_towed",
+	"mortar_carrier": "art_e4_us_mortar", "spaag": "aad_e4_us_spaag",
+	"shorad_sam": "aad_e4_us_shorad", "long_sam_launcher": "aad_e4_us_longsam",
+	"medium_sam_launcher": "sam_e4_us_launcher",
+	"search_radar": "rad_e4_us_search", "illuminator": "rad_e4_us_illuminator",
+	"counter_battery_radar": "rad_e4_us_counterbty",
+	"ground_ew": "ewj_e4_us_jammer", "fuel_truck": "log_e4_us_fueltruck",
+	"ammo_truck": "log_e4_us_ammotruck", "command_vehicle": "cmd_e4_us_command",
+	"engineer_vehicle": "eng_e4_us_engineer", "repair_vehicle": "eng_e4_us_repair",
+	"ballistic_launcher": "msl_e4_us_ballistic",
+	"coastal_asm": "msl_e4_us_coastal", "rifle_squad": "inf_e4_us_rifle",
+	"at_team": "inf_e6_us_at", "manpads_team": "inf_e6_us_manpads",
+	"mortar_team": "inf_e6_us_mortar", "recon_team": "inf_e6_us_recon",
+	"special_forces": "inf_e6_us_sf", "engineer_squad": "inf_e6_us_engineer",
+}
+
+const MBT_BY_FACTION := {
+	SimPlayerSetup.Faction.US: "mbt_e4_us", SimPlayerSetup.Faction.UK: "mbt_e4_uk",
+	SimPlayerSetup.Faction.GERMANY: "mbt_e4_de",
+	SimPlayerSetup.Faction.FRANCE: "mbt_e4_fr",
+	SimPlayerSetup.Faction.RUSSIA: "mbt_e4_ru", SimPlayerSetup.Faction.PLA: "mbt_e4_cn",
+	SimPlayerSetup.Faction.ROC: "mbt_e4_tw_m1a2t",
+}
+
+
+func _model_for(role: String) -> String:
+	if role == "mbt":
+		var nation: int = (_match.setup.players[_me] as SimPlayerSetup).faction
+		var stem: String = MBT_BY_FACTION.get(nation, "mbt_e4_us")
+		return ASSETS + stem + "_LOD0.glb"
+	var m: String = MODELS.get(role, "")
+	return "" if m == "" else ASSETS + m + "_LOD0.glb"
+
+
+func _prune_selection() -> void:
+	var e := _match.world.entities
+	var keep: Array[int] = []
+	for i in _selected:
+		if e.is_alive(i) and e.owner[i] == _me:
+			keep.append(i)
+	_selected = keep
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# THE PICTURE. Everything hostile on the screen comes from here and only here.
+# ═══════════════════════════════════════════════════════════════════════════
+
+func _project_tracks() -> void:
+	_track_screen.clear()
+	if _headless or _rig == null:
+		return
+	var cam: Camera3D = _rig.camera()
+	var table := _match.picture_for(_me)
+	for id in table.track_ids():
+		var tr := table.get_track(id)
+		if tr == null or tr.quality == SimTypes.TrackQuality.NONE:
+			continue
+		var at3 := Vector3(tr.pos_x, maxf(tr.pos_y, 0.0) + 4.0, tr.pos_z)
+		if tr.bearing_only:
+			# A bearing is not a position. It is drawn as a line FROM the
+			# nearest thing of ours that can hear it, out along the bearing --
+			# because that is literally all the sim knows.
+			_track_screen.append({"id": id, "bearing": true,
+				"at": Vector2.ZERO, "track": tr})
+			continue
+		if cam.is_position_behind(at3):
+			continue
+		_track_screen.append({"id": id, "bearing": false,
+			"at": cam.unproject_position(at3), "track": tr})
+
+
+func _track_at(screen: Vector2) -> int:
+	var best := -1
+	var best_d := TRACK_PICK_PX
+	for entry in _track_screen:
+		if entry["bearing"]:
+			continue
+		var d: float = (entry["at"] as Vector2).distance_to(screen)
+		if d < best_d:
+			best_d = d
+			best = int(entry["id"])
+	return best
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# INPUT. Every branch ends in a SimCommandQueue call or in the camera.
+# ═══════════════════════════════════════════════════════════════════════════
+
+func _unhandled_input(ev: InputEvent) -> void:
+	if _match == null or _match.phase == SimMatch.Phase.SETUP:
+		return
+	if ev is InputEventKey and ev.pressed and not ev.echo:
+		_key(ev as InputEventKey)
+		return
+	if ev is InputEventMouseMotion:
+		var mm := ev as InputEventMouseMotion
+		_cursor_ground = _ground_point(mm.position)
+		if _placing_role != "":
+			_placing_problem = _placement_problem(_cursor_ground)
+		if _dragging:
+			return
+		return
+	if not (ev is InputEventMouseButton):
+		return
+	var mb := ev as InputEventMouseButton
+	if mb.button_index == MOUSE_BUTTON_LEFT:
+		if mb.pressed:
+			if _placing_role != "":
+				_try_place(_ground_point(mb.position))
+				return
+			_drag_from = mb.position
+			_dragging = true
+		elif _dragging:
+			_dragging = false
+			if _drag_from.distance_to(mb.position) < DRAG_THRESHOLD_PX:
+				_pick(mb.position, Input.is_key_pressed(KEY_SHIFT))
+			else:
+				_box_select(_drag_from, mb.position, Input.is_key_pressed(KEY_SHIFT))
+	elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
+		if _placing_role != "":
+			_placing_role = ""
+			_refresh_panels()
+			return
+		_order(mb.position)
+
+
+func _key(k: InputEventKey) -> void:
+	match k.keycode:
+		KEY_ESCAPE:
+			if _placing_role != "":
+				_placing_role = ""
+				_refresh_panels()
+			else:
+				_selected.clear()
+		KEY_S:
+			for i in _selected:
+				_match.world.commands.stop(_me, i)
+		KEY_H:
+			# Weapons tight / weapons free. The other half of EMCON: a unit
+			# that shoots announces itself.
+			var fc := _match.world.fire_control
+			for i in _selected:
+				fc.set_hold_fire(i, not fc.is_holding_fire(i))
+		KEY_E:
+			pass    # camera rotate, handled by the rig
+		KEY_R:
+			# Radiate / go silent, docs/02 §7.1's one keypress.
+			for i in _selected:
+				var now: int = _match.world.entities.emcon[i]
+				var next := SimTypes.Emcon.SILENT if now == SimTypes.Emcon.RADIATE \
+					else SimTypes.Emcon.RADIATE
+				_match.world.commands.set_emcon(_me, i, next)
+		KEY_SPACE:
+			_paused = not _paused
+		KEY_TAB:
+			_speed = 1.0 if _speed > 1.5 else 3.0
+		KEY_F1:
+			_frame_on_base()
+
+
+func _ground_point(screen: Vector2) -> Vector3:
+	if _rig == null:
+		return Vector3.ZERO
+	var cam: Camera3D = _rig.camera()
+	var from := cam.project_ray_origin(screen)
+	var dir := cam.project_ray_normal(screen)
+	# March the ray against the heightfield rather than intersecting y = 0.
+	# On a map with 340 m of relief, a flat-plane hit test puts the order up to
+	# a few hundred metres from where the player pointed.
+	var t := _match.terrain
+	var travel := 0.0
+	var step := 12.0
+	while travel < 12000.0:
+		var p := from + dir * travel
+		if p.y <= t.ground_under(p.x, p.z):
+			return Vector3(p.x, t.ground_under(p.x, p.z), p.z)
+		travel += step
+		step = minf(step * 1.06, 90.0)
+	if absf(dir.y) < 0.0001:
+		return Vector3.ZERO
+	return from + dir * (-from.y / dir.y)
+
+
+func _pick(screen: Vector2, additive: bool) -> void:
+	if not additive:
+		_selected.clear()
+	var cam: Camera3D = _rig.camera()
+	var e := _match.world.entities
+	var best := -1
+	var best_d := 40.0
+	for i in _match.own_units(_me):
+		var at := Vector3(e.pos_x[i], e.pos_y[i] + 2.0, e.pos_z[i])
+		if cam.is_position_behind(at):
+			continue
+		var d := cam.unproject_position(at).distance_to(screen)
+		if d < best_d:
+			best_d = d
+			best = i
+	if best >= 0 and not _selected.has(best):
+		_selected.append(best)
+
+
+func _box_select(a: Vector2, b: Vector2, additive: bool) -> void:
+	if not additive:
+		_selected.clear()
+	var r := Rect2(Vector2(minf(a.x, b.x), minf(a.y, b.y)), (b - a).abs())
+	var cam: Camera3D = _rig.camera()
+	var e := _match.world.entities
+	for i in _match.own_units(_me):
+		# A marquee grabs the mobile force, not the base. Dragging a box over
+		# your own town centre and then right-clicking should not try to drive
+		# the refinery somewhere.
+		if e.is_structure[i] == 1:
+			continue
+		var at := Vector3(e.pos_x[i], e.pos_y[i] + 2.0, e.pos_z[i])
+		if cam.is_position_behind(at):
+			continue
+		if r.has_point(cam.unproject_position(at)) and not _selected.has(i):
+			_selected.append(i)
+
+
+## Right click. On a contact it is an attack order naming that TRACK; on the
+## ground it is a formation move. Both go through the same queue the AI uses.
+func _order(screen: Vector2) -> void:
+	if _selected.is_empty():
+		return
+	var tid := _track_at(screen)
+	if tid >= 0:
+		for i in _selected:
+			_match.world.commands.attack_track(_me, i, tid)
+		return
+	var p := _ground_point(screen)
+	var units := PackedInt32Array()
+	for i in _selected:
+		units.append(i)
+	# The formation grid lives in SimMovement, where the movement layer put it.
+	var slots := _match.world.movement.formation_slots(units, p.x, p.z)
+	for k in range(units.size()):
+		var sx: float = slots[k * 2] if slots.size() > k * 2 + 1 else p.x
+		var sz: float = slots[k * 2 + 1] if slots.size() > k * 2 + 1 else p.z
+		_match.world.commands.move(_me, units[k], sx, sz)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BUILDING AND PRODUCING
+# ═══════════════════════════════════════════════════════════════════════════
+
+func _placement_problem(at: Vector3) -> String:
+	var d := _match.world.economy.def_for(_me, _placing_role)
+	if d == null:
+		return "not available"
+	if _match.credits(_me) < d.cost:
+		return "cannot afford %.0f" % d.cost
+	return _match.world.economy.placement_problem(_me, d, at.x, at.z)
+
+
+func _try_place(at: Vector3) -> void:
+	if _placement_problem(at) != "":
+		return
+	# The BUILD command validates all of this again inside the sim. The check
+	# above is only so the cursor can be red BEFORE the click -- the sim is
+	# still the authority, and it refuses the order if the ground changed.
+	_match.world.commands.build(_me, _placing_role, at.x, at.z)
+	if not Input.is_key_pressed(KEY_SHIFT):
+		_placing_role = ""
+	_refresh_panels()
+
+
+func _queue(def_key: String) -> void:
+	# Queue at the lowest-indexed operational structure that can turn this out
+	# and has room. Lowest index is stable and predictable, which is what a
+	# player needs from an implicit choice.
+	for s in _match.production_structures(_me):
+		if def_key in _match.world.economy.production_options(_me, s):
+			_match.world.commands.produce(_me, s, def_key)
+			return
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# HUD
+# ═══════════════════════════════════════════════════════════════════════════
+
+func _build_hud() -> void:
+	var layer := CanvasLayer.new()
+	add_child(layer)
+
+	_overlay = Control.new()
+	_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_overlay.draw.connect(_draw_overlay)
+	layer.add_child(_overlay)
+
+	_stats = _label(layer, Vector2(12, 8), 14)
+	# Anchored by hand rather than with a preset: set_anchors_preset() rewrites
+	# the offsets, so a position assigned afterwards is silently discarded and
+	# the panel ends up off the bottom of the screen.
+	_selection_info = _label(layer, Vector2.ZERO, 13)
+	_anchor(_selection_info, 0.0, 1.0, 12.0, -212.0, 620.0, -10.0)
+
+	_log_label = _label(layer, Vector2.ZERO, 12)
+	_anchor(_log_label, 1.0, 1.0, -700.0, -128.0, -256.0, -10.0)
+
+	# Build and production panels, right-hand side, RA2's side bar.
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	panel.position = Vector2(-236, 8)
+	panel.custom_minimum_size = Vector2(228, 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color = COL_PANEL
+	style.set_content_margin_all(8)
+	panel.add_theme_stylebox_override("panel", style)
+	panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	layer.add_child(panel)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(212, 720)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel.add_child(scroll)
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(col)
+	col.add_child(_heading("BUILD  (place on the map)"))
+	_build_box = VBoxContainer.new()
+	col.add_child(_build_box)
+	col.add_child(_heading("PRODUCE  (queued at a factory)"))
+	_produce_box = VBoxContainer.new()
+	col.add_child(_produce_box)
+
+	_banner = Label.new()
+	_banner.set_anchors_preset(Control.PRESET_CENTER)
+	_banner.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_banner.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_banner.add_theme_font_size_override("font_size", 44)
+	_banner.add_theme_constant_override("outline_size", 8)
+	_banner.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_banner.visible = false
+	layer.add_child(_banner)
+
+	_refresh_panels()
+
+
+func _label(parent: Node, at: Vector2, size: int) -> Label:
+	var l := Label.new()
+	l.position = at
+	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_color_override("font_color", Color(0.93, 0.95, 0.92))
+	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	l.add_theme_constant_override("outline_size", 4)
+	parent.add_child(l)
+	return l
+
+
+## Anchor a Control to a corner explicitly, in pixels from that corner.
+static func _anchor(c: Control, ax: float, ay: float,
+		left: float, top: float, right: float, bottom: float) -> void:
+	c.anchor_left = ax
+	c.anchor_right = ax
+	c.anchor_top = ay
+	c.anchor_bottom = ay
+	c.offset_left = left
+	c.offset_top = top
+	c.offset_right = right
+	c.offset_bottom = bottom
+
+
+func _heading(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", 11)
+	l.add_theme_color_override("font_color", Color(0.66, 0.72, 0.78))
+	return l
+
+
+## Rebuilt when the tech tree changes -- an epoch advance, a new factory, a
+## factory lost. Not every frame: these are Buttons, and rebuilding them under
+## the cursor would eat the click.
+var _panel_signature := ""
+
+
+func _refresh_panels(force := false) -> void:
+	if _build_box == null:
+		return
+	var structures := _match.buildable_structures(_me)
+	var units := _production_menu()
+	var sig := "%s|%s|%s" % [",".join(structures), ",".join(units), _placing_role]
+	if sig == _panel_signature and not force:
+		return
+	_panel_signature = sig
+
+	for c in _build_box.get_children():
+		c.queue_free()
+	for role in structures:
+		_build_box.add_child(_role_button(role, true))
+	for c in _produce_box.get_children():
+		c.queue_free()
+	for role in units:
+		_produce_box.add_child(_role_button(role, false))
+
+
+## Everything any factory this player owns could currently turn out, ascending
+## and de-duplicated. Asking per-structure would mean the menu changed
+## depending on what happened to be selected, which hides the tech tree.
+func _production_menu() -> PackedStringArray:
+	var seen: Array = []
+	for s in _match.production_structures(_me):
+		for role in _match.world.economy.production_options(_me, s):
+			if not seen.has(role):
+				seen.append(role)
+	seen.sort()
+	var out := PackedStringArray()
+	for r in seen:
+		out.append(String(r))
+	return out
+
+
+func _role_button(role: String, is_build: bool) -> Button:
+	var d := _match.world.economy.def_for(_me, role)
+	var b := Button.new()
+	b.text = "%s   %.0f" % [d.name if d else role, d.cost if d else 0.0]
+	b.add_theme_font_size_override("font_size", 12)
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.tooltip_text = "%s\n%.0f credits, %.0f s%s" % [
+		d.name if d else role, d.cost if d else 0.0,
+		d.build_seconds if d else 0.0,
+		"\nreach %.1f km" % SimArsenal.reach_km(role, _match.epoch(_me)) \
+			if SimArsenal.is_combatant(role) else ""]
+	if is_build:
+		b.pressed.connect(func():
+			_placing_role = role
+			_refresh_panels(true))
+		if _placing_role == role:
+			b.modulate = COL_SELECTED
+	else:
+		b.pressed.connect(func(): _queue(role))
+	return b
+
+
+var _panel_accum := 0.0
+
+
+func _update_hud(dt := 0.0) -> void:
+	if _stats == null:
+		return
+	# The build menu is derived by scanning the roster against every structure
+	# the player owns, which is far too much work to redo sixty times a second
+	# for a list that changes when a factory is built or an epoch turns over.
+	_panel_accum += dt
+	if _panel_accum >= 0.5:
+		_panel_accum = 0.0
+		_refresh_panels()
+	var p := _match.purse(_me)
+	var st := _match.standing(_me)
+	var e := _match.world.entities
+	var lines := PackedStringArray()
+	lines.append("BATTLE -- %s      t+%s%s" % [
+		_match.terrain.name, _clock(_match.world.elapsed_s),
+		"   [PAUSED]" if _paused else ("   x%.0f" % _speed if _speed > 1.5 else "")])
+	lines.append("%.0f cr    +%.0f/min  -%.0f upkeep    power %.0f/%.0f    epoch %d%s" % [
+		p.credits, p.income_per_min, p.upkeep_per_min,
+		p.power_supply, p.power_draw, p.epoch,
+		"  (advancing %.0f%%)" % (p.advance_progress * 100.0) if p.is_advancing() else ""])
+	lines.append("%d units   %d structures   %d contacts held" % [
+		st.combat_units + st.other_units if st else 0,
+		st.structures if st else 0, _match.picture_for(_me).count()])
+	if st != null and st.is_collapsing():
+		lines.append("!! YOUR WAR MACHINE IS DESTROYED -- %.0f s to rebuild "
+			% st.seconds_left() + "production or supply")
+	var enemy := _match.standing(1 - _me if _match.setup.players.size() == 2 else 1)
+	if enemy != null and enemy.is_collapsing():
+		lines.append(">> %s is capitulating in %.0f s" % [enemy.name, enemy.seconds_left()])
+	if _placing_role != "":
+		lines.append("PLACING %s -- left click to site it, right click to cancel%s"
+			% [_placing_role, ("   [" + _placing_problem + "]") if _placing_problem else "   [clear]"])
+	lines.append("")
+	lines.append("WASD/edge pan · QE rotate · wheel zoom · LMB select · drag box "
+		+ "· RMB move or attack a contact")
+	lines.append("S stop · H hold fire · R radiate/silent · SPACE pause · TAB speed · F1 home")
+	_stats.text = "\n".join(lines)
+
+	var sel := PackedStringArray()
+	if _selected.is_empty():
+		sel.append("nothing selected")
+	else:
+		sel.append("SELECTED  %d" % _selected.size())
+		for i in _selected.slice(0, 7):
+			sel.append("  " + _describe_unit(i))
+		if _selected.size() > 7:
+			sel.append("  ... and %d more" % (_selected.size() - 7))
+	_selection_info.text = "\n".join(sel)
+
+	var log_lines := PackedStringArray()
+	log_lines.append("COMBAT LOG")
+	var cl: Array = _match.world.damage.combat_log
+	for l in cl.slice(maxi(0, cl.size() - 6)):
+		log_lines.append("  " + str(l))
+	_log_label.text = "\n".join(log_lines)
+
+	if _match.is_finished() and not _banner.visible:
+		_banner.visible = true
+		_banner.text = _match.victory.headline()
+		_banner.add_theme_color_override("font_color",
+			COL_ALLY if _match.outcome() == SimVictory.Outcome.VICTORY else COL_HOSTILE)
+
+
+func _describe_unit(i: int) -> String:
+	var e := _match.world.entities
+	var bits := PackedStringArray()
+	bits.append("%-22s %3.0f%%" % [e.names[i], e.structure_fraction(i) * 100.0])
+	if e.fuel_capacity[i] > 0.0:
+		bits.append("fuel %2.0f%%" % (e.fuel[i] / e.fuel_capacity[i] * 100.0))
+	if e.components[i] != SimTypes.Component.NONE:
+		bits.append("LOST: " + SimTypes.component_names(e.components[i]))
+	if e.is_structure[i] == 1 and not _match.world.economy.is_operational(i):
+		bits.append("building %.0f%%" % (_match.world.economy.construction_progress(i) * 100.0))
+	if _match.world.fire_control.is_holding_fire(i):
+		bits.append("HOLDING FIRE")
+	elif _match.world.weapons.is_engaging(i):
+		bits.append("engaging track %d" % _match.world.weapons.engagement_of(i))
+	return "  ".join(bits)
+
+
+static func _clock(s: float) -> String:
+	return "%d:%02d" % [int(s) / 60, int(s) % 60]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# THE OVERLAY. Selection, health, and the picture.
+# ═══════════════════════════════════════════════════════════════════════════
+
+func _draw_overlay() -> void:
+	if _rig == null or _match == null:
+		return
+	var cam: Camera3D = _rig.camera()
+	var e := _match.world.entities
+
+	if _dragging:
+		var a := _drag_from
+		var b := _overlay.get_local_mouse_position()
+		var r := Rect2(Vector2(minf(a.x, b.x), minf(a.y, b.y)), (b - a).abs())
+		_overlay.draw_rect(r, Color(0.35, 0.85, 0.45, 0.14))
+		_overlay.draw_rect(r, Color(0.5, 0.95, 0.6, 0.9), false, 1.0)
+
+	# Own force: a bracket under everything selected, a damage bar over
+	# everything hurt. Nothing else, so the screen stays readable.
+	for i in _match.world.entities.indices_of_faction(_my_team):
+		var at := Vector3(e.pos_x[i], e.pos_y[i], e.pos_z[i])
+		if cam.is_position_behind(at):
+			continue
+		var sp := cam.unproject_position(at)
+		var mine := e.owner[i] == _me
+		if _selected.has(i):
+			_ring(sp, 13.0, COL_SELECTED)
+		var frac := e.structure_fraction(i)
+		if frac < 0.999:
+			_bar(sp + Vector2(0, -22), 30.0, frac, COL_ALLY if mine else COL_OWN)
+		elif not mine:
+			_overlay.draw_circle(sp, 2.5, COL_ALLY)
+
+	_draw_picture(cam)
+
+	if _placing_role != "" and not _headless:
+		var sp := cam.unproject_position(_cursor_ground + Vector3(0, 3, 0))
+		var ok := _placing_problem == ""
+		_ring(sp, 22.0, COL_ALLY if ok else COL_HOSTILE)
+
+
+## THE ENEMY, exactly as the simulation says you know it.
+##
+##   FIRE_CONTROL  filled diamond -- you can shoot at this
+##   TRACK         hollow diamond -- position and velocity, guns only
+##   CONTACT       hollow circle  -- something is there
+##   bearing only  a line from your own sensor out along the bearing, with no
+##                 end, because there is no range in the data at all
+##
+## Nothing here reads an entity. Everything is a field of SimTrack.
+func _draw_picture(cam: Camera3D) -> void:
+	var e := _match.world.entities
+	for entry in _track_screen:
+		var tr := entry["track"] as SimTrack
+		var col := COL_HOSTILE if tr.classification >= SimTypes.Classification.CATEGORY \
+			else COL_UNKNOWN
+		# Age fades a plot: a 30 s old contact is a memory, and it should look
+		# like one rather than like a live target.
+		col.a = clampf(1.0 - tr.age_s / 40.0, 0.30, 1.0)
+		if entry["bearing"]:
+			_draw_bearing(cam, tr, col)
+			continue
+		var at := entry["at"] as Vector2
+		var r := 9.0
+		match tr.quality:
+			SimTypes.TrackQuality.FIRE_CONTROL, SimTypes.TrackQuality.TERMINAL:
+				_diamond(at, r, col, true)
+			SimTypes.TrackQuality.TRACK:
+				_diamond(at, r, col, false)
+			_:
+				_overlay.draw_arc(at, r, 0.0, TAU, 18, col, 1.5)
+		if tr.emitting:
+			# Radiating: it can be seen a long way off and it can be shot at
+			# with an anti-radiation missile. Worth marking.
+			_overlay.draw_arc(at, r + 5.0, 0.0, TAU, 22, Color(1, 0.85, 0.2, col.a), 1.0)
+
+
+func _draw_bearing(cam: Camera3D, tr: SimTrack, col: Color) -> void:
+	# Draw it from our own unit that is nearest the reported bearing origin.
+	# The line has no end because the data has no range.
+	var e := _match.world.entities
+	var own := _match.own_units(_me)
+	if own.is_empty():
+		return
+	var from3 := Vector3(e.pos_x[own[0]], e.pos_y[own[0]] + 3.0, e.pos_z[own[0]])
+	var out3 := from3 + Vector3(sin(tr.bearing_rad), 0.0, cos(tr.bearing_rad)) * 3000.0
+	if cam.is_position_behind(from3) or cam.is_position_behind(out3):
+		return
+	_overlay.draw_dashed_line(cam.unproject_position(from3),
+		cam.unproject_position(out3), col, 1.0, 9.0)
+
+
+func _ring(at: Vector2, r: float, col: Color) -> void:
+	_overlay.draw_arc(at, r, 0.0, TAU, 24, col, 1.6)
+
+
+func _diamond(at: Vector2, r: float, col: Color, filled: bool) -> void:
+	var pts := PackedVector2Array([
+		at + Vector2(0, -r), at + Vector2(r, 0),
+		at + Vector2(0, r), at + Vector2(-r, 0)])
+	if filled:
+		_overlay.draw_colored_polygon(pts, col)
+	else:
+		_overlay.draw_polyline(pts + PackedVector2Array([pts[0]]), col, 1.6)
+
+
+func _bar(at: Vector2, width: float, frac: float, full: Color) -> void:
+	var r := Rect2(at - Vector2(width * 0.5, 2.0), Vector2(width, 4.0))
+	_overlay.draw_rect(r, COL_BAR_BG)
+	var col := full if frac > 0.6 else (COL_UNKNOWN if frac > 0.3 else COL_HOSTILE)
+	_overlay.draw_rect(Rect2(r.position, Vector2(width * frac, 4.0)), col)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# HEADLESS SELF-CHECK. Boots the game, runs it, and reports -- so CI can prove
+# the scene is not merely constructible but actually playable.
+# ═══════════════════════════════════════════════════════════════════════════
+
+## Every check below is one thing a PLAYER does with the mouse, driven through
+## exactly the code path the mouse drives. "It boots" is not the claim being
+## made -- the claim is that selecting, moving, building, producing and killing
+## all work, and this is what backs it.
+func _run_headless_check() -> void:
+	var e := _match.world.entities
+
+	print("[skirmish] map                %s  %.1f x %.1f km" % [
+		_match.terrain.name, _match.terrain.extent_x_m() / 1000.0,
+		_match.terrain.extent_z_m() / 1000.0])
+	_check("deployed", e.count() >= 20, "%d entities" % e.count())
+
+	var armed := 0
+	for i in range(e.count()):
+		if _match.world.weapons.is_armed(i):
+			armed += 1
+	_check("armed", armed > 0, "%d of %d entities carry a weapon"
+		% [armed, e.count()])
+
+	# 1. SELECT. The same call the marquee makes, over the whole screen.
+	for i in _match.own_units(_me):
+		if e.is_structure[i] == 0 and not _selected.has(i):
+			_selected.append(i)
+	_check("select", _selected.size() >= 6, "%d units selected" % _selected.size())
+
+	# 2. MOVE. Issued through SimCommandQueue, positioned by SimMovement's own
+	#    formation grid, and checked by whether the units actually got there.
+	var home := _match.base_position(_me)
+	var goal := home + (Vector2(0, 0) - home).normalized() * 900.0
+	var units := PackedInt32Array()
+	for i in _selected:
+		units.append(i)
+	var start_d := _mean_distance_to(units, goal)
+	var slots := _match.world.movement.formation_slots(units, goal.x, goal.y)
+	for k in range(units.size()):
+		_match.world.commands.move(_me, units[k], slots[k * 2], slots[k * 2 + 1])
+	_match.run_ticks(1200)
+	var end_d := _mean_distance_to(units, goal)
+	_check("move order", end_d < start_d * 0.5,
+		"mean range to the objective %.0f m -> %.0f m" % [start_d, end_d])
+
+	# 3. BUILD. Place a structure, wait for it, and check it went operational.
+	var before := e.count()
+	var credits_before := _match.credits(_me)
+	_placing_role = "power_plant"
+	_try_place(Vector3(home.x + 70.0, 0.0, home.y + 30.0))
+	_match.run_ticks(700)
+	var built := -1
+	for i in range(before, e.count()):
+		if e.owner[i] == _me and _match.world.economy.role_of(i) == "power_plant":
+			built = i
+	_check("build", built >= 0 and _match.world.economy.is_operational(built),
+		"power plant %d, %.0f cr spent" % [built, credits_before - _match.credits(_me)])
+
+	# 4. PRODUCE. Queue a unit at a factory and wait for it to roll out armed.
+	var have := e.count()
+	_queue("mbt")
+	# The order is a COMMAND, not a direct call: it sits in the queue until
+	# SimWorld's command slot drains it on the next tick. Checking before that
+	# tick would be checking the mailbox rather than the factory.
+	_match.run_ticks(2)
+	_check("queue", _match.world.economy.queue_of(_me).size() > 0,
+		"%d jobs" % _match.world.economy.queue_of(_me).size())
+	_match.run_ticks(1400)
+	var produced := -1
+	for i in range(have, e.count()):
+		if e.owner[i] == _me and _match.world.economy.role_of(i) == "mbt":
+			produced = i
+	_check("produce", produced >= 0 and _match.world.weapons.is_armed(produced),
+		"tank %d, armed %s" % [produced,
+			str(produced >= 0 and _match.world.weapons.is_armed(produced))])
+
+	# 5. THE PICTURE. Hostiles reach the screen as tracks or not at all.
+	print("[skirmish] picture            %d contacts held at t+%.0f s"
+		% [_match.picture_for(_me).count(), _match.world.elapsed_s])
+
+	# 6. SOMETHING DIES. Rather than wait for the AI to come to us, send the
+	#    force at the enemy base and let automatic fire control do the rest.
+	var enemy := _match.base_position(1 - _me)
+	var force := PackedInt32Array()
+	for i in _match.own_units(_me):
+		if e.is_structure[i] == 0:
+			force.append(i)
+	var attack := _match.world.movement.formation_slots(force, enemy.x, enemy.y)
+	for k in range(force.size()):
+		_match.world.commands.move(_me, force[k], attack[k * 2], attack[k * 2 + 1])
+	_match.run_ticks(12000)
+	_check("combat", _match.world.weapons.shots_fired > 0
+			and _match.world.damage.kills > 0,
+		"%d shots, %d kills, %d penetrations" % [
+			_match.world.weapons.shots_fired, _match.world.damage.kills,
+			_match.world.damage.penetrations])
+	var cl: Array = _match.world.damage.combat_log
+	if not cl.is_empty():
+		print("[skirmish] last kill          " + str(cl[-1]))
+
+	print("[skirmish] " + _match.victory.describe().replace("\n", "\n[skirmish] "))
+	get_tree().quit(1 if _headless_failures > 0 else 0)
+
+
+func _check(label: String, ok: bool, detail := "") -> void:
+	print("[skirmish] %-18s %s  %s" % [label, "ok  " if ok else "FAIL", detail])
+	if not ok:
+		_headless_failures += 1
+
+
+var _headless_failures := 0
+
+
+func _mean_distance_to(units: PackedInt32Array, at: Vector2) -> float:
+	if units.is_empty():
+		return 0.0
+	var e := _match.world.entities
+	var total := 0.0
+	for i in units:
+		total += Vector2(e.pos_x[i], e.pos_z[i]).distance_to(at)
+	return total / float(units.size())

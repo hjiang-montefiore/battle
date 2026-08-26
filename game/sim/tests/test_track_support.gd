@@ -92,3 +92,11 @@ func _initialize() -> void:
 	print("\n  %d passed, %d failed" % [_pass, _fail])
 	print("  PASS" if _fail == 0 else "  FAIL")
 	quit(0 if _fail == 0 else 1)
+
+
+## Safety net. A parse or runtime error inside _initialize() skips quit() and
+## leaves the SceneTree spinning with its stdout unflushed -- which looks
+## exactly like a hang and hides the error that caused it. Returning true here
+## guarantees the process exits after one iteration no matter what.
+func _process(_delta: float) -> bool:
+	return true

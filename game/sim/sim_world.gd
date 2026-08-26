@@ -37,6 +37,17 @@ var economy: SimEconomy
 ## combat subsystem at the two call sites the spine marked for it -- the
 ## ATTACK_TRACK order below, and step 8c in _combat_slot().
 var weapons: SimWeaponCycle
+## Slot 8b.5. Automatic target selection: which of MY OWN faction's tracks
+## should each armed unit be shooting at? Null unless a match layer installs
+## one, because the proving ground and the unit tests want units that only ever
+## fire when explicitly ordered to. SimWeaponCycle answers "may I shoot at this
+## track?"; this answers "which track?", and it answers it from the same
+## per-faction table a human player is looking at.
+var fire_control: SimFireControl = null
+## When true, a unit created by the economy is given the weapons its role
+## carries as it appears. Off by default: the spine's own tests spawn unarmed
+## units on purpose, and turning this on would change what they measure.
+var arm_on_spawn: bool = false
 ## player id -> SimAiDirector. Iterated through ai_player_ids(), which sorts,
 ## because docs/06 forbids relying on Dictionary order anywhere in the sim and
 ## two AIs deciding in an unstable order is a desync.
@@ -71,14 +82,31 @@ func _init(seed_value: int = 12345) -> void:
 	damage = SimDamage.new(entities, rng.fork(0x0DA3))
 	economy = SimEconomy.new(entities, rng.fork(0xEC0))
 	weapons = SimWeaponCycle.new(entities, munitions, solver, rng.fork(0xC0B))
+	# docs/04's "an aircraft that runs dry is destroyed" is the economy's rule
+	# but the damage layer's authority -- nothing but SimDamage may kill. Wiring
+	# them together here is what lets the economy apply it through its owner
+	# rather than behind its back.
+	economy.set_damage(damage)
 
 
 ## Load a theatre. Without one the world is a featureless plane, which is what
 ## the proving ground and most unit tests want.
 func set_theatre(key: String) -> SimTerrain:
-	terrain = SimTheatre.build(key, rng.state())
-	solver.terrain = terrain
-	movement.set_terrain(terrain)
+	return use_terrain(SimTheatre.build(key, rng.state()))
+
+
+## Install a heightfield built anywhere -- a docs/08 theatre, a compact skirmish
+## arena, or a test fixture -- and hand it to EVERY system that needs it.
+##
+## This exists because there were four of them and only two were being told.
+## The sensor solver and the path planner were wired; the economy was not, so
+## in a real match placement had terrain == null and silently skipped the water
+## check, the map bounds and the build radius. One entry point is the fix.
+func use_terrain(t: SimTerrain) -> SimTerrain:
+	terrain = t
+	solver.terrain = t
+	movement.set_terrain(t)
+	economy.set_terrain(t)
 	return terrain
 
 
@@ -274,7 +302,13 @@ func _execute_command(c: SimCommandQueue.Command) -> bool:
 			# entity here: docs/09 §1.3, a track is a hypothesis, not a pointer,
 			# and the only place it becomes an index is inside the weapon cycle
 			# where a projectile in flight genuinely needs one.
-			return weapons.engage(c.unit, c.track_id)
+			if not weapons.engage(c.unit, c.track_id):
+				return false
+			# A hand-picked target is not second-guessed by automatic
+			# retargeting until the track it names is gone.
+			if fire_control != null:
+				fire_control.note_manual_order(c.unit)
+			return true
 		SimTypes.OrderKind.CANCEL:
 			return false
 	return false
@@ -284,6 +318,23 @@ func _execute_command(c: SimCommandQueue.Command) -> bool:
 ## since this slot last ran, not the simulation tick -- fuel burn is per minute.
 func _economy_slot(dt: float) -> void:
 	economy.step(dt)
+	if arm_on_spawn:
+		_arm_new_units()
+
+
+## Everything the economy created on this tick gets the weapons its ROLE
+## carries. This is the seam the combat layer left open on purpose: it built a
+## working weapon cycle and said "nothing arms units today". Whoever owns the
+## roster does, and the roster is the economy's.
+##
+## spawned_this_step is an ascending PackedInt32Array rebuilt each economy tick,
+## so this is deterministic and costs nothing on a tick that spawned nothing.
+func _arm_new_units() -> void:
+	for i in economy.spawned_this_step:
+		var d := economy.def_of(i)
+		if d == null:
+			continue
+		SimArsenal.arm(weapons, i, d.role, d.epoch)
 
 
 ## Slot 4. Path planning and steering.
@@ -312,6 +363,13 @@ func _combat_slot(dt: float) -> void:
 
 	# 8b. Burn-down, crew recovery, wreck expiry.
 	damage.step(dt)
+
+	# 8b.5. WHICH track? Before the weapon cycle, so a target chosen on this
+	# tick can be fired at on this tick; after damage, so a unit that just died
+	# is never assigned one. It writes no entity state -- its only output is an
+	# engagement on the weapon cycle, the same one an ATTACK_TRACK order sets.
+	if fire_control != null:
+		fire_control.step(dt)
 
 	# 8c. The weapon cycle. Reload timers, SimWeaponGate checks and launches --
 	# after damage, so a unit killed this tick does not get to fire, and after
@@ -343,6 +401,13 @@ func ai_view_for(player_id: int, faction_id: int,
 		commands,
 		setup,
 		player_id)
+
+
+## An eliminated player stops thinking. Called by the match layer when a player
+## is knocked out; without it a defeated AI keeps issuing orders to an army that
+## no longer exists and keeps paying for the decision loop every tick.
+func remove_ai(player_id: int) -> bool:
+	return ai.erase(player_id)
 
 
 ## Ascending, always. docs/06: never iterate an unordered container where order

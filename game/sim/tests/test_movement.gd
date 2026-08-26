@@ -30,6 +30,8 @@ func _init() -> void:
 	_suite_formations()
 	_suite_determinism()
 	_suite_command_path()
+	_suite_budget()
+	_suite_terrain_follow()
 	_suite_honesty()
 
 	print("  " + "-".repeat(66))
@@ -143,8 +145,9 @@ func _suite_orders() -> void:
 			break
 	_ok("a queue of two moves is executed in order and both are reached",
 		seen_first and reached_second)
+	var settle := _run_until_arrival(w2, u2, 200)
 	_ok("and the queue is empty afterwards",
-		w2.movement.order_count(u2) == 0 and w2.movement.has_arrived(u2))
+		w2.movement.order_count(u2) == 0 and settle > 0)
 
 	# STOP and HOLD.
 	var w3 := _world(3, _flat_terrain())
@@ -208,10 +211,13 @@ func _suite_steering() -> void:
 	_ok("a unit accelerates from rest at its quoted rate",
 		v1 > 0.0 and v1 <= e.accel_ms2[u] / SimWorld.SIM_HZ + 0.001,
 		"%.3f m/s after one tick" % v1)
-	w.run_ticks(60)
+	# 30 m/s at 4 m/s^2 is 7.5 seconds -- 150 ticks. Asserting the time as well
+	# as the value is what makes this a test of the acceleration model rather
+	# than of the top speed constant.
+	w.run_ticks(160)
 	_ok("and reaches top speed on open ground",
 		absf(e.speed_ms[u] - e.max_speed_ms[u]) < 0.5,
-		"%.1f of %.1f m/s" % [e.speed_ms[u], e.max_speed_ms[u]])
+		"%.1f of %.1f m/s after 8 s" % [e.speed_ms[u], e.max_speed_ms[u]])
 
 	var ticks := _run_until_arrival(w, u, 3000)
 	_ok("it arrives", ticks > 0, "%d ticks" % ticks)
@@ -334,24 +340,40 @@ func _suite_pathfinding() -> void:
 			all_dry = false
 	_ok("and no waypoint of it is in the water", all_dry)
 
+	# ... and no LEG of it crosses water either. Checked at CELL resolution,
+	# which is the standard the sim itself uses: the heightfield is the terrain,
+	# and height_at()'s bilinear filter bleeds a metre of interpolated "water" up
+	# to half a cell inland of the last wet cell. A route that grazes that
+	# interpolated shoreline is dry ground; a route that enters a wet CELL is not.
 	var legs_dry := true
 	var ax := e2.pos_x[u2]
 	var az := e2.pos_z[u2]
 	for k in range(route.size() / 2):
 		var bx := route[k * 2]
 		var bz := route[k * 2 + 1]
-		for s in range(1, 40):
-			var t := float(s) / 40.0
-			if lake.is_water(ax + (bx - ax) * t, az + (bz - az) * t):
+		for s in range(0, 601):
+			var t := float(s) / 600.0
+			var c := lake._to_cell(ax + (bx - ax) * t, az + (bz - az) * t)
+			if lake.height_at_cell(c.x, c.y) < 0.0:
 				legs_dry = false
 		ax = bx
 		az = bz
 	_ok("nor does any LEG of it cross water", legs_dry)
 
 	w2.movement.order_move(u2, 1200.0, 0.0)
-	var ticks := _run_until_arrival(w2, u2, 4000)
+	var ticks := -1
+	var got_wet := false
+	for n in range(4000):
+		w2.run_ticks(1)
+		var c := lake._to_cell(e2.pos_x[u2], e2.pos_z[u2])
+		if lake.height_at_cell(c.x, c.y) < 0.0:
+			got_wet = true
+		if w2.movement.has_arrived(u2):
+			ticks = n + 1
+			break
 	_ok("and the unit drives the route to the far shore", ticks > 0,
 		"%d ticks" % ticks)
+	_ok("without at any point driving into the lake", not got_wet)
 	_ok("arriving on the far side of the lake",
 		e2.pos_x[u2] > 1100.0 and _dist(e2, u2, 1200.0, 0.0) <= 6.0)
 
@@ -379,8 +401,17 @@ func _suite_pathfinding() -> void:
 	_ok("a click in the water plans to the nearest dry ground", not shore.is_empty())
 	var last_dry := true
 	if not shore.is_empty():
-		last_dry = not lake.is_water(shore[shore.size() - 2], shore[shore.size() - 1])
+		var c := lake._to_cell(shore[shore.size() - 2], shore[shore.size() - 1])
+		last_dry = lake.height_at_cell(c.x, c.y) >= 0.0
 	_ok("and that ground is dry", last_dry)
+	_ok("and the order is amended to it, so the unit can actually arrive",
+		w4.movement.last_goal_relocated)
+	w4.movement.order_move(u4, 0.0, 0.0)
+	var wet_ticks := _run_until_arrival(w4, u4, 4000)
+	_ok("a unit sent into the lake stops at the water's edge and reports arrival",
+		wet_ticks > 0, "%d ticks" % wet_ticks)
+	var cend := lake._to_cell(w4.entities.pos_x[u4], w4.entities.pos_z[u4])
+	_ok("standing on dry land", lake.height_at_cell(cend.x, cend.y) >= 0.0)
 
 	# A ship is the mirror image: water is passable, land is not.
 	var boat := w4.entities.add("boat", 0, -1200.0, 0.0, 0.0,
@@ -400,11 +431,15 @@ func _suite_pathfinding() -> void:
 	cliff.add_ridge(0.0, -1600.0, 0.0, 1600.0, 2000.0, 300.0)
 	var w5 := _world(35, cliff)
 	var u5 := _add_vehicle(w5, "tank", 0, -800.0, 0.0)
-	_ok("a 2000 m ridge is impassable on gradient alone",
-		not w5.movement.is_passable(u5, 0.0, 0.0),
-		"grade %.2f" % w5.movement.grade_at(0.0, 0.0))
+	# The CREST of a ridge is flat; it is the FLANK that stops a tank, which is
+	# why this samples 150 m off the centreline and not on it.
+	_ok("the flank of a 2000 m ridge is impassable on gradient alone",
+		not w5.movement.is_passable(u5, -150.0, 0.0),
+		"grade %.2f" % w5.movement.grade_at(-150.0, 0.0))
 	_ok("and the flat ground beside it is not",
 		w5.movement.is_passable(u5, -800.0, 0.0))
+	_ok("so there is no route over it for a tracked vehicle",
+		w5.movement.plan_path(u5, 800.0, 0.0).is_empty())
 
 	# Aircraft ignore the ground entirely.
 	var flyer := w5.entities.add("jet", 0, -800.0, 9000.0, 0.0,
@@ -513,9 +548,15 @@ func _suite_formations() -> void:
 	var wet := w2.movement.formation_slots(group, 0.0, 0.0, 60.0)
 	var any_wet := false
 	for k in range(4):
-		if lake.is_water(wet[k * 2], wet[k * 2 + 1]):
+		var c := lake._to_cell(wet[k * 2], wet[k * 2 + 1])
+		if lake.height_at_cell(c.x, c.y) < 0.0:
 			any_wet = true
 	_ok("no formation slot is placed in water", not any_wet)
+	var all_reachable := true
+	for k in range(4):
+		if not w2.movement.is_passable(group[k], wet[k * 2], wet[k * 2 + 1]):
+			all_reachable = false
+	_ok("and every slot is somewhere the unit could actually stand", all_reachable)
 
 
 # ── determinism ──────────────────────────────────────────────────────────────
@@ -528,8 +569,14 @@ func _suite_determinism() -> void:
 	var h2 := _movement_scenario(4242)
 	_ok("two runs from one seed produce the same state hash", h1 == h2,
 		"%d vs %d" % [h1, h2])
-	var h3 := _movement_scenario(4243)
-	_ok("and a different seed is a different world", h3 != h1)
+	# NOT asserted: that a different seed gives a different world. It does not,
+	# and that is deliberate -- movement draws from its RNG stream ZERO times.
+	# Steering and A* are pure functions of last tick's state, so the only thing
+	# that changes the outcome is a different ORDER.
+	var h3 := _movement_scenario_alt(4242)
+	_ok("a different order is a different world", h3 != h1)
+	_ok("but a different seed alone is not: movement rolls no dice",
+		_movement_scenario(9991) == h1)
 
 	# The A* itself, twice over, on two independently built terrains: the
 	# tie-break must be the cell index rule and never hash order.
@@ -561,6 +608,21 @@ func _movement_scenario(seed_value: int) -> int:
 	w.commands.move(0, a, 1200.0, 0.0)
 	w.commands.move(1, b, -1200.0, 0.0)
 	w.commands.move(0, c, 900.0, -700.0)
+	w.run_ticks(900)
+	return w.state_hash()
+
+
+## The same scenario with one order changed.
+func _movement_scenario_alt(seed_value: int) -> int:
+	var t := _flat_terrain()
+	t.carve_sea(-300.0, -500.0, 300.0, 500.0, 40.0)
+	var w := _world(seed_value, t)
+	var a := _add_vehicle(w, "a", 0, -1200.0, -200.0, 0)
+	var b := _add_vehicle(w, "b", 1, 1200.0, 200.0, 1)
+	var c := _add_vehicle(w, "c", 0, -1200.0, 300.0, 0)
+	w.commands.move(0, a, 1200.0, 0.0)
+	w.commands.move(1, b, -1200.0, 0.0)
+	w.commands.move(0, c, 900.0, -690.0)      # ten metres to the north
 	w.run_ticks(900)
 	return w.state_hash()
 
@@ -606,8 +668,11 @@ func _suite_command_path() -> void:
 
 	w.commands.move(0, mine, 600.0, 0.0)
 	w.run_ticks(60)
+	# Three seconds at 4 m/s^2 from rest is 18 m. Asserting the number rather
+	# than "it moved" is what makes this a test of the command path AND of the
+	# acceleration reaching it intact.
 	_ok("a MOVE command through the queue actually moves the unit",
-		e.pos_x[mine] > 20.0, "%.1f m travelled" % e.pos_x[mine])
+		absf(e.pos_x[mine] - 18.0) < 1.5, "%.1f m travelled in 3 s" % e.pos_x[mine])
 
 	# Ownership is validated in the spine, not trusted; movement must not
 	# provide a way round it.
@@ -631,6 +696,108 @@ func _suite_command_path() -> void:
 	w.run_ticks(2)
 	_ok("a STOP command through the queue halts the unit",
 		e.speed_ms[mine] == 0.0 and e.has_dest[mine] == 0)
+
+
+# ── work budgeting and terrain following ─────────────────────────────────────
+
+func _suite_budget() -> void:
+	_suite("Bounded work per tick")
+
+	# The pool bounds the WORK, not just the number of plans. Eight
+	# cross-theatre searches on one tick is eight times the worst case, and a
+	# frame does not care how many plans it was.
+	var maze := SimTerrain.new(96, 96, 50.0, "maze")
+	maze.fill(0.0)
+	for k in range(5):
+		var x := -1600.0 + float(k) * 700.0
+		var z0 := -2300.0 if k % 2 == 0 else -900.0
+		maze.carve_sea(x, z0, x + 80.0, z0 + 3200.0, 40.0)
+	var w := _world(81, maze)
+	var group := PackedInt32Array()
+	for k in range(40):
+		var u := _add_vehicle(w, "t%d" % k, 0, -2300.0, -800.0 + float(k) * 40.0)
+		w.entities.set_mobility(u, 60.0, 6.0, 1.2)   # keep the test short
+		group.append(u)
+	for u in group:
+		w.movement.order_move(u, 2300.0, 0.0)
+	var worst := 0
+	for _t in range(60):
+		var before := w.movement.plans_run
+		w.run_ticks(1)
+		worst = maxi(worst, w.movement.plans_run - before)
+	_ok("no tick ever runs more plans than the replan budget",
+		worst <= w.movement.replan_budget_per_tick, "worst tick ran %d" % worst)
+	_ok("and the expansion pool is never set below the per-plan cap, "
+		+ "or unreachable would be indistinguishable from slow",
+		w.movement.expansion_budget_per_tick >= w.movement.max_search_cells)
+
+	# Forty units through a slalom, all ordered to the SAME point rather than to
+	# a formation. That is deliberate: only one of them can stand on it, and a
+	# unit that circles its objective forever because its own side is in the way
+	# is the most recognisable pathfinding failure in the genre.
+	var arrived := 0
+	for _t in range(6000):
+		w.run_ticks(1)
+		arrived = 0
+		for u in group:
+			if w.movement.has_arrived(u):
+				arrived += 1
+		if arrived == 40:
+			break
+	_ok("forty units cross a five-wall slalom and all report arrival",
+		arrived == 40, "%d of 40" % arrived)
+	_ok("no order was abandoned as unreachable along the way",
+		w.movement.orders_abandoned == 0)
+	_ok("and running out of tick was never mistaken for running out of route",
+		w.movement.plans_failed == 0,
+		"%d deferred, %d failed" % [w.movement.plans_deferred, w.movement.plans_failed])
+	var spread := 0.0
+	for u in group:
+		spread = maxf(spread, _dist(w.entities, u, 2300.0, 0.0))
+	_ok("they stack up around the objective rather than on it",
+		spread > 6.0 and spread < 120.0, "furthest %.0f m from the point" % spread)
+	_ok("and none of them ended up in the water",
+		_none_in_water(w, group, maze))
+
+
+func _none_in_water(w: SimWorld, units: PackedInt32Array, t: SimTerrain) -> bool:
+	for u in units:
+		var c := t._to_cell(w.entities.pos_x[u], w.entities.pos_z[u])
+		if t.height_at_cell(c.x, c.y) < 0.0:
+			return false
+	return true
+
+
+func _suite_terrain_follow() -> void:
+	_suite("Ground units stay on the ground")
+
+	var hills := _flat_terrain()
+	hills.add_ridge(-1600.0, 0.0, 1600.0, 0.0, 240.0, 800.0)
+	var w := _world(91, hills)
+	var e := w.entities
+	var u := _add_vehicle(w, "tank", 0, 0.0, -1200.0)
+	w.movement.order_move(u, 0.0, 1200.0)
+	w.run_ticks(600)
+	var ground := hills.ground_under(e.pos_x[u], e.pos_z[u])
+	_ok("a moving vehicle rides the terrain it is crossing",
+		absf(e.pos_y[u] - ground) < 1.0,
+		"y %.1f, ground %.1f" % [e.pos_y[u], ground])
+	_ok("and it climbed, rather than starting there", e.pos_y[u] > 5.0)
+
+	# It is done by writing VELOCITY. Position is _integrate()'s alone.
+	var before := e.pos_y[u]
+	w.movement.step(1.0 / SimWorld.SIM_HZ)
+	_ok("the climb is a vertical velocity, never a position write",
+		e.pos_y[u] == before and e.vel_y[u] != 0.0)
+
+	# An aircraft is left alone: its altitude is not movement's business.
+	var jet := e.add("jet", 0, 0.0, 9000.0, 0.0, SimSignature.new(4.0), [],
+		SimTypes.Category.AIR)
+	e.set_mobility(jet, 250.0, 8.0, 0.2)
+	e.vel_y[jet] = 3.0
+	w.movement.order_move(jet, 1200.0, 0.0)
+	w.run_ticks(10)
+	_ok("an aircraft keeps its own vertical velocity", e.vel_y[jet] == 3.0)
 
 
 # ── honesty ──────────────────────────────────────────────────────────────────

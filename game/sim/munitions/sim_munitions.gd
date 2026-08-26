@@ -162,6 +162,48 @@ func _noisemaker_defeats(seeker_mode: int) -> bool:
 
 ## Flares are a HARD counter in epochs 1-3, a coin flip in 4-5, and near
 ## worthless against imaging seekers from epoch 6 (docs/10 §5, docs/11 §6).
+## Physical radius of a target, metres -- what "hitting it" actually means.
+##
+## Placeholder by CATEGORY until entities carry a real per-unit size. It is a
+## placeholder on purpose and is marked as one: the honest home for this is a
+## hull dimension on SimUnitDef, which does not exist yet. But leaving the fuze
+## at a hard 1.5 m for everything is worse than a rough category value, because
+## it makes a destroyer as hard to hit as a jeep.
+##
+## These are half-extents of a typical unit of each kind, deliberately modest:
+## a hit should still be a hit, and the number must never grow large enough to
+## turn a near miss into a kill.
+func _target_extent(i: int) -> float:
+	match entities.category[i]:
+		SimTypes.Category.SURFACE:
+			return 12.0      # a frigate is ~130 m x 15 m; this is the beam
+		SimTypes.Category.SUBSURFACE:
+			return 5.0       # a hull ~10 m across
+		SimTypes.Category.AIR:
+			return 5.0       # wingspan order, not fuselage
+		_:
+			return 2.0       # an armoured vehicle
+	return 1.5
+
+
+## Is this weapon the sort of thing a flare can seduce at all?
+##
+## Asking `guidance == IR_EO` directly was wrong, and wrong in a way that
+## inverted a rule docs/10 states explicitly. torpedo_wake_homing() sets
+## guidance = IR_EO to mean "gated by its own seeker, not the net" -- the enum
+## has no value for an autonomous seeker, so IR_EO was borrowed for it. The
+## flare check then read that borrowed value literally, and a SHIP POPPING
+## AIRCRAFT FLARES decoyed the one weapon docs/10 §5 says cannot be decoyed.
+##
+## Susceptibility is a property of the munition, not of a bare enum comparison.
+## A torpedo is never flare-susceptible: its countermeasure is the noisemaker,
+## handled separately, and a wake-homer ignores that too.
+func _flare_susceptible(def: SimMunitionDef) -> bool:
+	if def.is_torpedo():
+		return false
+	return def.guidance == SimTypes.Guidance.IR_EO
+
+
 ## S4 imaging IR is one of the eight cliffs: flares stop working.
 func _flare_defeats(seeker_gen: int) -> bool:
 	if seeker_gen <= 3:
@@ -225,7 +267,8 @@ func step(dt: float) -> void:
 		var tz := entities.pos_z[p.target_truth] if truth_valid else 0.0
 
 		p.step(dt, gx, gy, gz, gvx, gvy, gvz, has_guidance,
-			tx, ty, tz, truth_valid)
+			tx, ty, tz, truth_valid, 400000.0,
+			_target_extent(p.target_truth) if truth_valid else 1.5)
 
 		if not p.alive:
 			_retire(idx, p)
@@ -256,7 +299,7 @@ func _pre_flight_checks(p: SimProjectile, _dt: float) -> bool:
 	if p.def.tier == SimMunitionDef.Tier.A and r < 6000.0:
 		var g := p.def.guidance
 		var fseq: int = _flare_seq.get(p.target_truth, 0)
-		if (g == SimTypes.Guidance.IR_EO) and _flares.get(p.target_truth, 0.0) > 0.0 \
+		if _flare_susceptible(p.def) and _flares.get(p.target_truth, 0.0) > 0.0 \
 				and p.flare_resolved_seq < fseq:
 			p.flare_resolved_seq = fseq
 			if _flare_defeats(p.def.seeker_gen):

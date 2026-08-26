@@ -99,6 +99,38 @@ func begin_epoch_advance() -> bool:
 	return economy.begin_epoch_advance(player_id) if economy != null else false
 
 
+## Everything this player may build or produce right now, ascending. The
+## economy answers for THIS id only -- another player's tech tree is not
+## reachable from here, and docs/09 §1.2 lists it as a leak if it were.
+func buildable() -> PackedStringArray:
+	return economy.buildable(player_id) if economy != null else PackedStringArray()
+
+
+## What one of this player's structures can turn out, ascending.
+func production_options(structure_unit: int) -> PackedStringArray:
+	if economy == null:
+		return PackedStringArray()
+	return economy.production_options(player_id, structure_unit)
+
+
+## The def behind a key, at THIS player's epoch. Cost, name, category -- the
+## same card the human's build menu shows.
+func def_for(def_key: String) -> SimUnitDef:
+	return economy.def_for(player_id, def_key) if economy != null else null
+
+
+## What the next epoch costs this player. docs/09 §4 makes ceilings public;
+## the price of the step is the player's own business either way.
+func epoch_advance_cost() -> float:
+	return economy.advance_cost(player_id) if economy != null else 0.0
+
+
+## False when this AI has no purse at all, which is a legitimate setup (a
+## scenario with fixed forces and no economy).
+func has_purse() -> bool:
+	return economy != null and economy.purse(player_id) != null
+
+
 ## What this player has queued. docs/09 §1.2 lists another player's queue as a
 ## leak, which is why the id is not a parameter.
 func production_queue() -> Array:

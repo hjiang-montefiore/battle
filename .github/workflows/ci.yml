@@ -35,6 +35,54 @@ jobs:
       - name: Simulation core tests
         run: godot --path game --headless --script res://sim/tests/run_sim_tests.gd
 
+      # Each subsystem owns its own test file rather than a shared runner, so
+      # the job has to name them. A file that exits non-zero fails the build.
+      - name: Subsystem tests
+        run: |
+          set -euo pipefail
+          for t in test_spine test_combat test_movement test_economy \
+                   test_ai test_match test_terminal_hit test_track_support; do
+            echo "=== $t ==="
+            godot --path game --headless --script "res://sim/tests/$t.gd"
+          done
+
+  skirmish:
+    name: The game is playable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot ${{ env.GODOT_VERSION }} (headless)
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/godotengine/godot/releases/download"
+          FILE="Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          curl -fsSL -o godot.zip "$BASE/${GODOT_VERSION}-stable/${FILE}.zip"
+          unzip -q godot.zip
+          mv "$FILE" /usr/local/bin/godot
+          chmod +x /usr/local/bin/godot
+
+      - name: Import assets
+        run: godot --path game --headless --import
+
+      # Not "the scene constructs" -- every line below is a thing a player does
+      # with the mouse, driven through the same code path the mouse drives.
+      - name: Boot the skirmish and play it
+        run: |
+          set -euo pipefail
+          godot --path game --headless res://scenes/skirmish.tscn -- --test \
+            2>&1 | tee skirmish.log
+          if grep -q "FAIL" skirmish.log; then
+            echo "::error::the skirmish self-check failed"
+            exit 1
+          fi
+          for step in deployed armed select "move order" build queue produce combat; do
+            if ! grep -q "\[skirmish\] $step " skirmish.log; then
+              echo "::error::the skirmish never reported '$step'"
+              exit 1
+            fi
+          done
+
   proving-ground:
     name: Proving ground boots
     runs-on: ubuntu-latest
@@ -57,7 +105,10 @@ jobs:
       - name: Boot and check the self-test
         run: |
           set -euo pipefail
-          godot --path game --headless --quit-after 120 2>&1 | tee boot.log
+          # Named explicitly: the main scene is the skirmish now, and this
+          # job exists to keep the ART HARNESS working, not the game.
+          godot --path game --headless res://scenes/proving_ground.tscn \
+            --quit-after 120 2>&1 | tee boot.log
 
           # Every self-test counter must read N / N, and the input map must be
           # fully bound. The dead input map that shipped for a day looked

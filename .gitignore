@@ -25,11 +25,34 @@ venv/
 .idea/
 *.swp
 
-# ── Notes ──────────────────────────────────────────────────────────────
-# art/blockout/ and art/renders/ ARE tracked on purpose: tools/hero_models.py
-# is not byte-reproducible (two runs of the unmodified script emit different
-# GLBs for identical geometry), so the generated art cannot be rebuilt exactly
-# and has to be versioned rather than regenerated.
+# ── Generated art ──────────────────────────────────────────────────────
+# This block REVERSES an earlier decision recorded here, and the reversal is
+# the point, so the old reasoning is kept rather than deleted:
+#
+#   "art/blockout/ and art/renders/ ARE tracked on purpose: hero_models.py is
+#    not byte-reproducible, so the generated art cannot be rebuilt exactly and
+#    has to be versioned rather than regenerated."
+#
+# That is true about reproducibility and wrong about what to do. Because the
+# build is not byte-reproducible, every rebuild rewrote ~200 MB of binaries
+# with different bytes for identical geometry, and git keeps every version
+# forever. Tracking them made the repository grow by the full art payload on
+# each build. It was also tracked TWICE: art/blockout (107 MB) and its synced
+# copy in game/assets (104 MB), out of ~230 MB total.
+#
+# The real fix is to make the build runnable by anyone (done: no hardcoded
+# paths) and publish art as release artefacts.
+#
+# art/reference/ is deliberately NOT here: those are downloaded 3-view drawings
+# and their authored region sidecars. They are INPUTS, nothing regenerates
+# them, and no verification result is reproducible without them.
+art/blockout/
+art/textures/
+art/renders/
+art/silhouettes/
+art/verify/
+game/assets/units/
+
 .dem_cache/
 
 # Per-unit child scripts written by tools/build_all.py, removed after each run.

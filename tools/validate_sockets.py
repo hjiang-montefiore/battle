@@ -46,6 +46,9 @@ HULL_SOCKETS = ["damage_hull", "sensor_mast",
 # upgrade system attaches to bones rather than to empties.
 SOCKET_CONTRACTS = {
     "inf": [],
+    # Structures have no turret, no gun mantlet and no tracks. docs/12's 19
+    # roles are built by tools/structure_models.py under the "bld" prefix.
+    "bld": HULL_SOCKETS,
     "nav": HULL_SOCKETS,
     "sub": HULL_SOCKETS,
     "str": HULL_SOCKETS,
@@ -78,6 +81,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROLE_LIMITS = {
     # SPAAG / SHORAD / long SAM
     "aad": ((4.3, 14.8), (1.9, 5.4), (2.2, 8.3)),
+    # structures. Smallest is the bunker (10 m footprint, 3 m crown); largest
+    # is the airbase (48 m footprint). Height runs to the fixed radar's 28 m
+    # tower and the refinery's 22 m column, so the ceiling is set above both.
+    "bld": ((5.0, 56), (5.0, 56), (1.5, 34)),
     # airborne early warning
     "aew": ((12.6, 68), (12.1, 65), (2.8, 17.4)),
     # IFV / APC / ATGM / tank destroyer
@@ -135,7 +142,7 @@ ROLE_LIMITS = {
 GROUND_ROLES = {"mbt", "afv", "art", "aad", "sam", "msl", "rad", "rec",
                 "log", "cmd", "eng", "ewj"}
 # These sit on a surface but are not longer-than-wide by rule.
-SURFACE_ROLES = {"nav", "sub", "str", "inf"}
+SURFACE_ROLES = {"nav", "sub", "str", "inf", "bld"}
 
 GROUND_PLANE_TOLERANCE = -0.02   # art/CONVENTIONS.md
 

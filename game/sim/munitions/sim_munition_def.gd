@@ -308,7 +308,14 @@ static func torpedo_wake_homing() -> SimMunitionDef:
 	## wake -- and useless against a submerged submarine, which leaves none.
 	var t := torpedo_heavyweight(30.0, TorpedoSeeker.WAKE)
 	t.name = "wake-homing torpedo"
-	t.guidance = SimTypes.Guidance.IR_EO   # gated by its own seeker, not the net
+	# IR_EO is borrowed here to mean "autonomous seeker, needs a TRACK to launch
+	# but no network afterwards" -- the Guidance enum has no value for that, and
+	# IR_EO's launch requirement (TRACK) happens to be exactly right. It does
+	# NOT mean this weapon sees heat. Anything reading guidance to decide
+	# countermeasure susceptibility must ask is_torpedo() first; see
+	# SimMunitions._flare_susceptible(), which exists because this line once
+	# let a ship decoy a wake-homing torpedo with aircraft flares.
+	t.guidance = SimTypes.Guidance.IR_EO
 	return t
 
 

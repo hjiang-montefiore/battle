@@ -60,6 +60,7 @@ MODULES = [
     ("air_models",     "e4_air",         "AIR"),
     ("navy_models",    "e4_navy",        "NAVY"),
     ("strategic_models", "e4_strategic",  "STRATEGIC"),
+    ("structure_models", "e4_structures", "STRUCTURES"),
 ]
 
 CHILD = r'''

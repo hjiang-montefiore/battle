@@ -66,6 +66,15 @@ var separation_radius_m: float = 14.0
 ## navigator competing with the path.
 var separation_strength: float = 0.35
 
+## Ordering a whole company to one point is the commonest order in an RTS, and
+## only one of them can stand on it. A unit that has loitered this close to its
+## destination for this long, with neighbours pressed against it, has arrived --
+## the point is occupied by its own side. Without this they orbit the objective
+## for the rest of the match at walking pace, which is the single most
+## recognisable pathfinding failure in the genre.
+var crowd_arrive_radius_m: float = 30.0
+var crowd_arrive_ticks: int = 20
+
 ## Ground and surface units are held on the surface by writing vel_y, never by
 ## writing pos_y -- position stays _integrate()'s alone.
 var terrain_follow: bool = true
@@ -76,6 +85,16 @@ var terrain_follow: bool = true
 ## is a frame-long stall, and a partial route that is replanned on arrival is
 ## what hierarchical pathfinding does anyway.
 var max_search_cells: int = 4000
+## Total A* expansions all plans on one tick may share between them. Set equal to
+## max_search_cells on purpose: it means AT MOST one full-budget search lands in
+## any one tick, whatever the replan budget allows, so the worst tick costs one
+## long plan and not eight. Anything past the pool is deferred to the next tick.
+##
+## Do not set it BELOW max_search_cells without understanding the consequence: a
+## search cut short by the pool comes back as a partial route, and a genuinely
+## unreachable destination then looks like a slow one and is retried forever
+## instead of being abandoned.
+var expansion_budget_per_tick: int = 4000
 ## Ticks to wait before retrying a plan that failed, and how many failures
 ## before the order is abandoned as unreachable.
 var replan_cooldown_ticks: int = 10
@@ -112,16 +131,43 @@ var _cooldown := PackedInt32Array()
 var _fail := PackedInt32Array()
 var _stall := PackedInt32Array()
 var _hold := PackedInt32Array()
+var _near_dest := PackedInt32Array()   ## consecutive ticks loitering at the goal
 ## 1 when THIS layer put the unit into MoveState.COMBAT, so that arriving
 ## restores IDLE without clobbering a COMBAT the player set by hand.
 var _combat_set := PackedInt32Array()
 
+# ── terrain memo. Static ground, so one answer per cell per category ───────
+var _cache_category: int = -1
+var _pass_cache := PackedByteArray()     ## 0 unknown, 1 passable, 2 blocked
+var _speed_cache := PackedFloat32Array() ## -1 unknown, else 0..1 going
+
 # ── A* scratch, reused between plans so a search does not allocate ──────────
+##
+## Flat arrays with a GENERATION STAMP rather than Dictionaries. Three reasons,
+## in order of importance: a Dictionary lookup in GDScript costs several times an
+## array index and the inner loop runs a quarter of a million times on a long
+## plan; a stamp means a new search costs nothing to start, where clearing a
+## hundred thousand cells would dominate a short one; and an array has no hash
+## order to accidentally depend on, which is the determinism rule in docs/06.
 var _open_f := PackedFloat64Array()
 var _open_c := PackedInt32Array()
-var _g: Dictionary = {}
-var _came: Dictionary = {}
-var _closed: Dictionary = {}
+var _gen: int = 0
+var _stamp := PackedInt32Array()        ## generation this cell's g was written
+var _gscore := PackedFloat32Array()
+var _parent := PackedInt32Array()
+var _closed_stamp := PackedInt32Array()
+## Expansions left in this tick's shared pool. Budgeting plan COUNT alone is not
+## enough: eight cross-theatre searches on one tick is eight times the worst
+## case, and a frame does not care how many plans it was.
+var _pool: int = 0
+var _in_step: bool = false
+## True when the last plan returned nothing because the tick's expansion pool was
+## already spent. That is NOT the same as "no route exists", and conflating the
+## two is a real bug with a very confusing signature: forty units ordered at once
+## spend the pool on the first eight, the other thirty-two get an empty route,
+## count it as a failure three times over, and abandon a perfectly walkable
+## order. Deferred plans are simply retried.
+var _last_plan_deferred: bool = false
 
 ## Neighbour offsets in a FIXED order. The order is part of the determinism
 ## contract: with equal f the heap already tie-breaks on cell index, and a fixed
@@ -143,6 +189,10 @@ func _init(store: SimEntities, terrain_ref: SimTerrain = null,
 
 func set_terrain(t: SimTerrain) -> void:
 	terrain = t
+	# The memo describes the old ground. Drop it.
+	_cache_category = -1
+	_pass_cache.resize(0)
+	_speed_cache.resize(0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -338,6 +388,7 @@ func _ensure_capacity() -> void:
 		_fail.append(0)
 		_stall.append(0)
 		_hold.append(0)
+		_near_dest.append(0)
 		_combat_set.append(0)
 
 
@@ -353,6 +404,8 @@ func step(dt: float) -> void:
 	_ensure_capacity()
 	var n := entities.count()
 	var budget := replan_budget_per_tick
+	_pool = expansion_budget_per_tick
+	_in_step = true
 	if separation_enabled:
 		_build_neighbour_buckets()
 
@@ -394,6 +447,7 @@ func step(dt: float) -> void:
 				plans_deferred += 1
 
 		_steer(i, dt)
+	_in_step = false
 
 
 ## Stop where you stand, without losing the order.
@@ -421,6 +475,11 @@ func _adopt_destination(i: int) -> void:
 func _replan(i: int) -> void:
 	var route := plan_path(i, entities.dest_x[i], entities.dest_z[i])
 	if route.is_empty():
+		if _last_plan_deferred:
+			# Ran out of tick, not out of options. Ask again next tick, and do
+			# NOT count it against the unit's patience.
+			_needs_replan[i] = 1
+			return
 		_fail[i] += 1
 		_cooldown[i] = replan_cooldown_ticks
 		if _fail[i] >= max_plan_failures:
@@ -475,14 +534,25 @@ func _steer(i: int, dt: float) -> void:
 
 	var dest_dist := _dist(px, pz, entities.dest_x[i], entities.dest_z[i])
 
-	# ── arrival
-	if dest_dist <= arrive_radius_m:
+	# ── arrival, either on the point or as close to it as the crowd allows
+	var crowded_in := false
+	if dest_dist <= crowd_arrive_radius_m and separation_enabled:
+		if _neighbour_count(i, px, pz) > 0:
+			_near_dest[i] += 1
+			crowded_in = _near_dest[i] >= crowd_arrive_ticks
+		else:
+			_near_dest[i] = 0
+	else:
+		_near_dest[i] = 0
+
+	if dest_dist <= arrive_radius_m or crowded_in:
 		entities.speed_ms[i] = 0.0
 		entities.vel_x[i] = 0.0
 		entities.vel_z[i] = 0.0
 		entities.vel_y[i] = 0.0
 		entities.path_len[i] = 0
 		entities.path_cursor[i] = 0
+		_near_dest[i] = 0
 		_pop_front(i)
 		return
 
@@ -618,6 +688,28 @@ func _build_neighbour_buckets() -> void:
 		_buckets[key] = arr
 
 
+## How many friendly movers are pressed against this one. Same buckets, same
+## fixed offset order, so it is as deterministic as the separation itself.
+func _neighbour_count(i: int, px: float, pz: float) -> int:
+	var r := maxf(separation_radius_m, 1.0)
+	var cx := int(floor(px / r))
+	var cz := int(floor(pz / r))
+	var n := 0
+	for oz in range(-1, 2):
+		for ox in range(-1, 2):
+			var key := _bucket_key(cx + ox, cz + oz)
+			if not _buckets.has(key):
+				continue
+			for j in (_buckets[key] as PackedInt32Array):
+				if j == i:
+					continue
+				var dx := px - entities.pos_x[j]
+				var dz := pz - entities.pos_z[j]
+				if dx * dx + dz * dz < r * r:
+					n += 1
+	return n
+
+
 func _separation(i: int, px: float, pz: float, top: float) -> Vector2:
 	var r := maxf(separation_radius_m, 1.0)
 	var cx := int(floor(px / r))
@@ -689,44 +781,122 @@ func is_passable(unit: int, x_m: float, z_m: float) -> bool:
 
 ## Passability of one cell, by category. The single definition; everything else
 ## routes through it.
+##
+## MEMOISED, and that is not a micro-optimisation. An A* expansion asks this
+## about eight neighbours plus two orthogonals per diagonal -- two dozen times
+## per expansion -- and the GROUND answer costs four height samples to work out a
+## gradient. Uncached, one 300 km cross-theatre plan spends a third of a second
+## recomputing the same slopes. The memo is a flat byte per cell (0 unknown,
+## 1 passable, 2 blocked) for whichever category is being asked about; terrain is
+## static, so an answer once computed is good for the whole match.
 func _cell_ok(category: int, cx: int, cz: int) -> bool:
 	if cx < 0 or cz < 0 or cx >= terrain.cells_x or cz >= terrain.cells_z:
 		return false
-	var h := terrain.height_at_cell(cx, cz)
-	match category:
-		SimTypes.Category.AIR:
-			return true
-		SimTypes.Category.SURFACE:
-			return h < 0.0
-		SimTypes.Category.SUBSURFACE:
-			return h < -shoal_depth_m
-	# GROUND
-	if h < 0.0:
-		return false
-	return _cell_grade(cx, cz) <= max_grade
+	if category == SimTypes.Category.AIR:
+		return true
+	_prime_cache(category)
+	return _pass_cache[cz * terrain.cells_x + cx] == 1
 
 
-## Fraction of top speed the ground here allows, 0..1.
+## The memo is for ONE category at a time. A mixed force replans a ship and then
+## a tank and pays a rebuild between them; keeping four live caches is not worth
+## it, because a Packed array held inside an Array is copy-on-write and every
+## write would copy the whole grid.
+##
+## Built in ONE tight pass over terrain.heights rather than lazily per cell. The
+## reason is GDScript's call overhead, which is what actually costs here: a
+## per-cell version spends a microsecond or two crossing function boundaries for
+## every neighbour the search looks at, and a long plan looks at a quarter of a
+## million. Paid once per terrain per category, it is a few milliseconds on a
+## test map and a fraction of a second on a 320 x 320 theatre -- and the search
+## afterwards is two array reads per neighbour.
+func _prime_cache(category: int) -> void:
+	var n := terrain.cells_x * terrain.cells_z
+	if _cache_category == category and _pass_cache.size() == n:
+		return
+	_build_cache(category)
+
+
+## Pre-compute the going for a category, so the first move order of a match does
+## not pay for it. A loading screen should call this.
+func prime_terrain(category := SimTypes.Category.GROUND) -> void:
+	if terrain != null:
+		_prime_cache(category)
+
+
+func _build_cache(category: int) -> void:
+	var w := terrain.cells_x
+	var h := terrain.cells_z
+	var n := w * h
+	var heights := terrain.heights
+	var inv_2s := 1.0 / (2.0 * terrain.cell_size_m)
+	var span := maxf(max_grade - gentle_grade, 0.0001)
+	var pass_out := PackedByteArray()
+	pass_out.resize(n)
+	var going_out := PackedFloat32Array()
+	going_out.resize(n)
+	for cz in range(h):
+		var row := cz * w
+		var row_up := (cz + 1 if cz + 1 < h else cz) * w
+		var row_dn := (cz - 1 if cz > 0 else cz) * w
+		for cx in range(w):
+			var k := row + cx
+			var e := heights[k]
+			var blocked := false
+			var going := 1.0
+			match category:
+				SimTypes.Category.SURFACE:
+					blocked = e >= 0.0
+					var d := -e
+					if d < shoal_depth_m:
+						going = clampf(0.35 + 0.65 * (d / maxf(shoal_depth_m, 0.001)),
+							0.35, 1.0)
+				SimTypes.Category.SUBSURFACE:
+					blocked = e >= -shoal_depth_m
+				_:
+					# GROUND: water and gradient both stop a vehicle, and the
+					# gradient is the same central difference grade_at() reports.
+					if e < 0.0:
+						blocked = true
+					else:
+						var xr := cx + 1 if cx + 1 < w else cx
+						var xl := cx - 1 if cx > 0 else cx
+						var gx := (heights[row + xr] - heights[row + xl]) * inv_2s
+						var gz := (heights[row_up + cx] - heights[row_dn + cx]) * inv_2s
+						var g := sqrt(gx * gx + gz * gz)
+						if g > max_grade:
+							blocked = true
+						elif g > gentle_grade:
+							going = lerpf(1.0, min_grade_speed, (g - gentle_grade) / span)
+			pass_out[k] = 2 if blocked else 1
+			going_out[k] = going
+	_pass_cache = pass_out
+	_speed_cache = going_out
+	_cache_category = category
+
+
+## Cached going, 0..1, for one cell.
+func _cell_going(category: int, cx: int, cz: int) -> float:
+	if category == SimTypes.Category.AIR:
+		return 1.0
+	_prime_cache(category)
+	return _speed_cache[cz * terrain.cells_x + cx]
+
+
+
+## Fraction of top speed the ground here allows, 0..1. Read from the same memo
+## the planner costs its cells with, so the route a unit picks and the speed it
+## then makes are answers to the same question.
 func speed_multiplier(unit: int, x_m: float, z_m: float) -> float:
 	if terrain == null:
 		return 1.0
 	var cat := entities.category[unit] if _valid(unit) else SimTypes.Category.GROUND
 	if cat == SimTypes.Category.AIR or cat == SimTypes.Category.SUBSURFACE:
 		return 1.0
-	var c := _cell_at(x_m, z_m)
-	if cat == SimTypes.Category.SURFACE:
-		# Shoal water is slow water.
-		var d := maxf(-terrain.height_at_cell(c % terrain.cells_x, c / terrain.cells_x), 0.0)
-		if d >= shoal_depth_m:
-			return 1.0
-		return clampf(0.35 + 0.65 * (d / maxf(shoal_depth_m, 0.001)), 0.35, 1.0)
-	var g := _cell_grade(c % terrain.cells_x, c / terrain.cells_x)
-	if g <= gentle_grade:
+	if not _in_bounds(x_m, z_m):
 		return 1.0
-	if g >= max_grade:
-		return min_grade_speed
-	var t := (g - gentle_grade) / maxf(max_grade - gentle_grade, 0.0001)
-	return lerpf(1.0, min_grade_speed, t)
+	var c := _cell_at(x_m, z_m)
+	return _cell_going(cat, c % terrain.cells_x, c / terrain.cells_x)
 
 
 ## Rise over run at a point: a central difference across the neighbouring CELLS,
@@ -776,6 +946,7 @@ func plan_path(unit: int, x_m: float, z_m: float) -> PackedFloat32Array:
 	if not _valid(unit):
 		return PackedFloat32Array()
 	plans_run += 1
+	_last_plan_deferred = false
 	last_goal_relocated = false
 	last_goal_x = x_m
 	last_goal_z = z_m
@@ -817,7 +988,10 @@ func plan_path(unit: int, x_m: float, z_m: float) -> PackedFloat32Array:
 
 	var cells := _astar(unit, start_cell, goal_cell)
 	if cells.is_empty():
-		plans_failed += 1
+		if _last_plan_deferred:
+			plans_deferred += 1
+		else:
+			plans_failed += 1
 		return PackedFloat32Array()
 
 	var exact := cells[cells.size() - 1] == goal_cell
@@ -836,10 +1010,14 @@ func plan_path(unit: int, x_m: float, z_m: float) -> PackedFloat32Array:
 func _astar(unit: int, start_cell: int, goal_cell: int) -> PackedInt32Array:
 	_open_f.clear()
 	_open_c.clear()
-	_g.clear()
-	_came.clear()
-	_closed.clear()
+	_new_generation()
 	last_expansions = 0
+	var cap := max_search_cells
+	if _in_step:
+		cap = mini(cap, _pool)
+	if cap <= 0:
+		_last_plan_deferred = true
+		return PackedInt32Array()
 
 	var w := terrain.cells_x
 	var h := terrain.cells_z
@@ -847,8 +1025,18 @@ func _astar(unit: int, start_cell: int, goal_cell: int) -> PackedInt32Array:
 	var gx := goal_cell % w
 	var gz := goal_cell / w
 
-	_g[start_cell] = 0.0
+	_stamp[start_cell] = _gen
+	_gscore[start_cell] = 0.0
+	_parent[start_cell] = -1
 	_heap_push(_octile(start_cell % w, start_cell / w, gx, gz) * cell, start_cell)
+
+	# Local handles on the memo. The inner loop below runs a quarter of a million
+	# times on a long plan, and two array reads per neighbour is the difference
+	# between a plan and a frame drop.
+	var cat := entities.category[unit] if _valid(unit) else SimTypes.Category.GROUND
+	_prime_cache(cat)
+	var going := _speed_cache
+	var passable := _pass_cache
 
 	var best := start_cell
 	var best_h := _octile(start_cell % w, start_cell / w, gx, gz)
@@ -861,53 +1049,54 @@ func _astar(unit: int, start_cell: int, goal_cell: int) -> PackedInt32Array:
 
 	while _open_c.size() > 0:
 		var cur := _heap_pop()
-		if _closed.has(cur):
+		if _closed_stamp[cur] == _gen:
 			continue
-		_closed[cur] = true
+		_closed_stamp[cur] = _gen
 		if cur == goal_cell:
+			_spend(last_expansions)
 			return _reconstruct(start_cell, goal_cell)
 		last_expansions += 1
-		if last_expansions >= max_search_cells:
+		if last_expansions >= cap:
 			budget_exhausted = true
 			break
 
 		var cx := cur % w
 		var cz := cur / w
-		var cur_g: float = _g[cur]
+		var cur_g := _gscore[cur]
 		for d in NEIGHBOURS:
 			var nx: int = cx + d.x
 			var nz: int = cz + d.y
 			if nx < 0 or nz < 0 or nx >= w or nz >= h:
 				continue
 			var ncell := nz * w + nx
-			if _closed.has(ncell):
+			if _closed_stamp[ncell] == _gen:
 				continue
-			if not _cell_passable(unit, ncell):
+			if passable[ncell] != 1:
 				continue
 			var diagonal: bool = d.x != 0 and d.y != 0
 			if diagonal:
 				# No corner cutting: a tank does not squeeze between two cliffs
 				# through the point where they touch.
-				if not _cell_passable(unit, cz * w + nx):
-					continue
-				if not _cell_passable(unit, nz * w + cx):
+				if passable[cz * w + nx] != 1 or passable[nz * w + cx] != 1:
 					continue
 			var step_m: float = cell * (SQRT2 if diagonal else 1.0)
 			# Cost is TIME, not distance: slow ground is expensive ground, so a
 			# route round a hill beats a route over it exactly when it is
 			# quicker. The heuristic uses the cheapest possible cost per metre
 			# (1.0) and stays admissible.
-			var ng: float = cur_g + step_m / maxf(_cell_speed(unit, ncell), 0.01)
-			if _g.has(ncell) and float(_g[ncell]) <= ng:
+			var ng: float = cur_g + step_m / maxf(going[ncell], 0.01)
+			if _stamp[ncell] == _gen and _gscore[ncell] <= ng:
 				continue
-			_g[ncell] = ng
-			_came[ncell] = cur
+			_stamp[ncell] = _gen
+			_gscore[ncell] = ng
+			_parent[ncell] = cur
 			var hh := _octile(nx, nz, gx, gz)
 			if hh < best_h:
 				best_h = hh
 				best = ncell
 			_heap_push(ng + hh * cell, ncell)
 
+	_spend(last_expansions)
 	if not budget_exhausted:
 		return PackedInt32Array()      # unreachable: there is no route at all
 	if best == start_cell:
@@ -915,13 +1104,31 @@ func _astar(unit: int, start_cell: int, goal_cell: int) -> PackedInt32Array:
 	return _reconstruct(start_cell, best)
 
 
+## Reset the search without clearing a hundred thousand cells: bump the
+## generation, and every stale stamp stops matching.
+func _new_generation() -> void:
+	var n := terrain.cells_x * terrain.cells_z
+	if _stamp.size() != n:
+		_stamp.resize(n); _stamp.fill(0)
+		_gscore.resize(n); _gscore.fill(0.0)
+		_parent.resize(n); _parent.fill(-1)
+		_closed_stamp.resize(n); _closed_stamp.fill(0)
+		_gen = 0
+	_gen += 1
+
+
+func _spend(expansions: int) -> void:
+	if _in_step:
+		_pool -= expansions
+
+
 func _reconstruct(start_cell: int, end_cell: int) -> PackedInt32Array:
 	var rev := PackedInt32Array()
 	var c := end_cell
 	var guard := 0
-	while c != start_cell and _came.has(c) and guard < 100000:
+	while c != start_cell and _parent[c] >= 0 and guard < 100000:
 		rev.append(c)
-		c = _came[c]
+		c = _parent[c]
 		guard += 1
 	var out := PackedInt32Array()
 	for k in range(rev.size() - 1, -1, -1):
@@ -1056,9 +1263,11 @@ func _cell_passable(unit: int, cell: int) -> bool:
 	return _cell_ok(cat, cell % w, cell / w)
 
 
-func _cell_speed(unit: int, cell: int) -> float:
-	var w := terrain.cells_x
-	return speed_multiplier(unit, _cell_centre_x(cell % w), _cell_centre_z(cell / w))
+## Rebuild the memo if a tunable that feeds it is changed after the fact.
+func invalidate_terrain_cache() -> void:
+	_cache_category = -1
+	_pass_cache.resize(0)
+	_speed_cache.resize(0)
 
 
 ## Expanding ring search for somewhere legal to stand. Deterministic: rings

@@ -68,8 +68,18 @@ func solve(dt: float, tick: int = 0) -> void:
 		for s in obs_sensors:
 			var sensor := s as SimSensorDef
 			# Stagger sensors across ticks so cost spreads instead of spiking.
-			if sensor.revisit_seconds > 0.0 and tick > 0:
-				var period := maxi(1, int(round(sensor.revisit_seconds)))
+			#
+			# revisit_seconds is in SECONDS, and it used to be compared against
+			# the SOLVE COUNTER -- so a 4 s revisit meant "every fourth solve",
+			# which at SENSOR_HZ = 5 is 0.8 s. `dt` is the elapsed time since
+			# the previous solve and is already passed in, so converting here
+			# costs nothing and makes the field mean what it is called. A
+			# mechanically-scanned search radar really does sweep past a target
+			# once a rotation and see nothing in between (docs/02 §9), so this
+			# is realism and a large saving at the same time: the solve is
+			# O(sensors x targets) and this is a divisor on the sensor term.
+			if sensor.revisit_seconds > 0.0 and tick > 0 and dt > 0.0:
+				var period := maxi(1, int(round(sensor.revisit_seconds / dt)))
 				if (tick + sensor.phase_offset) % period != 0:
 					continue
 			_run_sensor(observer, sensor, table)

@@ -520,30 +520,56 @@ func _spine_scenario(seed_value: int) -> int:
 # ── honesty ──────────────────────────────────────────────────────────────────
 
 func _suite_honesty() -> void:
-	_suite("The spine reports what is NOT built")
+	## THIS SUITE WAS INVERTED, DELIBERATELY, AND HERE IS WHY.
+	##
+	## It used to assert that damage, movement, economy and the AI were STUBS
+	## and said so -- which was the correct assertion for a spine whose four
+	## subsystems had not been written yet. They have been written. The old
+	## assertions did not fail because something broke; they failed because
+	## the thing they were guarding against stopped being true, and a test
+	## that asserts a stub is a stub is a test that must be rewritten the day
+	## the stub is filled in.
+	##
+	## What is worth keeping is the PROPERTY, not the polarity:
+	## subsystem_status() and describe() must tell the truth about what is
+	## wired, whichever way the truth currently runs. So the suite now asserts
+	## that the four report themselves as real AND that each one actually does
+	## the thing it claims -- which is a strictly stronger check than the one
+	## it replaces, because a subsystem cannot pass it by lying.
+	_suite("The spine reports accurately what is and is not built")
 
 	var w := SimWorld.new(1)
 	var st := w.subsystem_status()
-	_ok("damage is declared, not implemented, and says so", st["damage"] == false)
-	_ok("movement is declared, not implemented, and says so", st["movement"] == false)
-	_ok("economy is declared, not implemented, and says so", st["economy"] == false)
-	_ok("the AI is declared, not implemented, and says so", st["ai"] == false)
-	_ok("and describe() names them rather than looking finished",
-		w.describe().contains("NOT IMPLEMENTED"))
+	_ok("damage reports itself implemented", st["damage"] == true)
+	_ok("movement reports itself implemented", st["movement"] == true)
+	_ok("economy reports itself implemented", st["economy"] == true)
+	# There is no AI in a bare world, so the honest answer is still false --
+	# subsystem_status() asks whether any registered director is real.
+	_ok("a world with no AI registered says so", st["ai"] == false)
+	_ok("and describe() no longer lists the three as missing",
+		not w.describe().contains("NOT IMPLEMENTED: movement, damage, economy"))
 
-	# The stubs must be inert, not wrong. A stub that quietly kills things is
-	# worse than one that does nothing.
+	# And each claim is cashed. A subsystem that reports true and does nothing
+	# is worse than one that reports false.
 	var e := w.entities
 	var t := _add_tank(w, "tank", 0, 0.0, 0.0, 600.0, SimTypes.ArmorType.COMPOSITE)
 	var before := e.structure[t]
 	var outcome := w.damage.resolve_impact(t, SimTypes.Facet.FRONT,
-		SimTypes.DamageClass.KE, 900.0)
-	_ok("the damage stub resolves nothing and admits it",
-		not outcome.resolved and not outcome.killed and e.structure[t] == before)
-	_ok("the movement stub plans no path",
-		w.movement.plan_path(t, 100.0, 100.0).is_empty())
-	_ok("the economy stub spawns nothing",
+		SimTypes.DamageClass.KE, 2400.0)
+	_ok("the damage layer resolves an impact and takes structure off",
+		outcome.resolved and e.structure[t] < before,
+		"%.1f -> %.1f" % [before, e.structure[t]])
+	w.use_terrain(SimTerrain.new(64, 64, 200.0, "flat"))
+	e.set_mobility(t, 12.0, 2.0, 0.6)
+	_ok("the movement layer plans a real path",
+		not w.movement.plan_path(t, 900.0, 900.0).is_empty())
+	# The economy still refuses to spawn for a player who does not exist --
+	# that was never a stub, it is the ownership rule.
+	_ok("the economy refuses to spawn for an unregistered player",
 		w.economy.spawn_unit(0, "mbt", 0.0, 0.0) == -1)
+	w.economy.add_player(0, 5000.0, 4, 6)
+	_ok("and spawns a fully configured unit for one that does",
+		w.economy.spawn_unit(0, "mbt", 400.0, 400.0) >= 0)
 
 	# But the seam they plug into is real: a round that arrives must produce an
 	# impact record with a facet derived from geometry, ready for the resolver.

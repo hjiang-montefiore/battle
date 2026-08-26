@@ -131,6 +131,10 @@ var _losses_since_strategic: int = 0
 var _sensor_losses_since_strategic: int = 0
 var _datalink_up: bool = true
 var _last_build_s: float = -1.0e9
+## Units pulled out of the line. Held there with hysteresis, because a unit
+## that the tactical layer withdraws and the operational layer re-commits on
+## the same second is a unit that drives back and forth under fire.
+var _withdrawn: Dictionary = {}
 
 
 func _init(world_view: SimAiWorldView, seeded: SimRng) -> void:
@@ -346,7 +350,10 @@ func _adapt() -> void:
 	var ceiling: int = view.setup.ceiling_epoch if view.setup != null else 7
 	var epoch := view.epoch()
 	var at_ceiling := epoch >= ceiling
-	var behind_on_epoch := not at_ceiling and view.credits() >= SimAiPlan.TECH_RESERVE
+	var advance_cost: float = view.epoch_advance_cost()
+	if advance_cost <= 0.0:
+		advance_cost = SimAiPlan.TECH_RESERVE
+	var behind_on_epoch := not at_ceiling and view.credits() >= advance_cost
 	var fuel_starved := fuel_n > 0 and (fuel_sum / float(fuel_n)) < 0.30
 	var own_aew_dying := _sensor_losses_since_strategic > 0
 
@@ -361,68 +368,99 @@ func _adapt() -> void:
 
 
 ## Build, expand, produce. docs/09 §5 drives the mix; SimAiPlan turns the
-## weights into the one thing the AI is most short of.
+## weights into the one thing the AI is most short of, and the economy answers
+## what this player can actually afford to make of it.
 ##
-## HONEST NOTE: SimEconomy is still a stub, so every request below is refused
-## at the command boundary and nothing is actually built. The DECISION is real
-## and testable (the commands appear in the queue with the expected keys); the
-## PRODUCTION is not, and will not be until the economy agent lands.
+## Every question asked here is asked about THIS player -- own credits, own
+## epoch, own build menu, own factories. docs/09 §1.2 lists the other player's
+## income, queue and stockpile as leaks, and none of them is reachable.
 func _economy() -> void:
-	if view.economy == null:
+	if not view.has_purse():
 		return
 	var credits := view.credits()
 
-	# Teching up. docs/05: it costs resources AND time, and the time is the
-	# risk -- so a tech-biased doctrine spends earlier and an aggressive one
-	# waits until it has a cushion.
+	# 1. TECHING UP. docs/05: it costs resources AND time, and the time is the
+	# risk -- so a tech-biased doctrine spends earlier and a cautious one keeps
+	# a cushion. The economy also requires a research facility, which is why
+	# the build order below buys one.
 	var ceiling: int = view.setup.ceiling_epoch if view.setup != null else 7
 	if view.epoch() < ceiling and doctrine.tech_bias > 0.45:
-		var threshold: float = SimAiPlan.TECH_RESERVE * (1.6 - doctrine.tech_bias)
-		if credits >= threshold:
+		var cost := view.epoch_advance_cost()
+		if cost <= 0.0:
+			cost = SimAiPlan.TECH_RESERVE
+		if credits >= cost * (1.0 + 0.8 * (1.0 - doctrine.tech_bias)):
 			if view.begin_epoch_advance():
 				epoch_advances_requested += 1
-				log_decision("advancing epoch (tech bias %.2f)" % doctrine.tech_bias)
+				credits = view.credits()
+				log_decision("advancing epoch (tech bias %.2f, %.0f cr)"
+					% [doctrine.tech_bias, cost])
 
-	# The production mix.
+	# 2. THE FORCE MIX, counted off its own army.
 	var counts := {"sensors": 0, "air_defence": 0, "supply": 0, "line": 0}
 	var factories := PackedInt32Array()
+	var own_structure_names := {}
 	for i in view.forces.indices():
 		var role := _role_of(i)
-		if role == SimAiRoles.Unit.PRODUCTION:
-			factories.append(i)
+		if view.forces.is_structure(i):
+			own_structure_names[view.forces.unit_name(i)] = true
+			if role == SimAiRoles.Unit.PRODUCTION:
+				factories.append(i)
+			continue
 		var bucket := SimAiPlan.bucket_of(role)
 		if bucket != "":
 			counts[bucket] = int(counts[bucket]) + 1
 
-	var mix := SimAiPlan.desired_mix(doctrine, skill)
-	var bucket := SimAiPlan.biggest_deficit(counts, mix)
-	var prefer_air := view.setup != null \
-		and view.setup.allows(SimPlayerSetup.Domain.AIR)
-	var want_role := SimAiPlan.role_for_bucket(bucket, prefer_air)
-	var key := SimAiPlan.key_for_role(want_role)
-	var cost := SimAiPlan.cost_of_role(want_role)
+	# 3. THE BASE. One structure per strategic tick at most: an AI that queues
+	# its whole build order in one frame is an AI with no build order.
+	_build_out(credits, own_structure_names)
 
-	var spent := 0.0
+	# 4. PRODUCTION, at every factory that has a free slot.
 	for f in factories:
-		if credits - spent < cost:
-			break
+		var options := view.production_options(f)
+		if options.is_empty():
+			continue
+		var key := SimAiPlan.choose_production(view, doctrine, skill, options,
+			counts, credits)
+		if key == "":
+			continue
+		var d := view.def_for(key)
+		if d == null or d.cost > credits:
+			continue
 		view.order_produce(f, key)
 		orders_production += 1
-		spent += cost
-	if not factories.is_empty():
-		log_decision("producing %s (short of %s)" % [key, bucket])
+		credits -= d.cost
+		counts[SimAiPlan.bucket_of_def(d)] = \
+			int(counts.get(SimAiPlan.bucket_of_def(d), 0)) + 1
+		log_decision("producing %s at %d (%.0f cr)" % [key, f, d.cost])
 
-	# Expansion. One attempt per strategic tick at most, and only when there is
-	# somewhere sensible to put it.
-	if factories.size() < 2 and has_home \
-			and credits >= SimAiPlan.cost_of_role(SimAiRoles.Unit.PRODUCTION) \
-			and elapsed_s - _last_build_s > 20.0:
-		var site := _build_site(factories.size())
-		view.order_build(SimAiPlan.key_for_role(SimAiRoles.Unit.PRODUCTION),
-			site[0], site[1])
+
+## Put up the next building in this doctrine's order that it does not already
+## have. Own structures are recognised by their own names against its own build
+## menu -- the AI knows what it built.
+func _build_out(credits: float, own_structure_names: Dictionary) -> void:
+	if not has_home or elapsed_s - _last_build_s < 8.0:
+		return
+	var menu := view.buildable()
+	if menu.is_empty():
+		return
+	var have := {}
+	for role in menu:
+		var d := view.def_for(role)
+		if d != null and own_structure_names.has(d.name):
+			have[role] = true
+	for role in SimAiPlan.base_build_order(doctrine):
+		if have.has(role) or not menu.has(role):
+			continue
+		var d := view.def_for(role)
+		if d == null or not d.is_structure or d.cost > credits:
+			continue
+		var site := _build_site(have.size())
+		view.order_build(role, site[0], site[1])
 		orders_production += 1
 		_last_build_s = elapsed_s
-		log_decision("expanding: factory at %.0f, %.0f" % [site[0], site[1]])
+		log_decision("building %s at %.0f, %.0f (%.0f cr)"
+			% [role, site[0], site[1], d.cost])
+		return
 
 
 ## A deterministic ring of candidate sites around home, skipping water. The
@@ -556,20 +594,42 @@ func _choose_posture() -> void:
 	var force_ratio := _force_strength_ratio()
 	var previous := posture
 
+	# COHESION, not a force comparison: _force_strength_ratio() is this army's
+	# strength against its OWN peak, so 1.0 means intact and 0.5 means half
+	# destroyed. Aggression therefore sets WILLINGNESS and cohesion sets
+	# CAPABILITY, and the commit threshold is where the two meet.
+	#
+	# The previous ladder gated ATTACK on `aggression >= 0.55` alone, which made
+	# four of the eight doctrines structurally incapable of ever attacking --
+	# including COMBINED_ARMS at exactly 0.50, which is the DEFAULT. Two default
+	# opponents therefore produced a permanent stalemate: measured, a peer match
+	# ran 30 simulated minutes, made contact once at t+240 s, took two
+	# casualties, withdrew to its start line and sat there while both sides
+	# built units forever. The victory condition could never fire because
+	# neither side ever threatened the other's production.
+	#
+	# Now every doctrine can attack; they differ in how intact they insist on
+	# being first. Blitz commits at 0.53 cohesion (it will attack while losing),
+	# Combined Arms at 0.78, Fortress at 0.99 (effectively only when untouched).
+	var commit_at := 1.05 - 0.55 * aggression
 	if force_ratio < BASE_GROUP_BREAK - 0.25 * aggression:
 		posture = Posture.WITHDRAW
 	elif committable.is_empty():
-		posture = Posture.DEFEND if aggression < 0.6 else Posture.PROBE
-	elif aggression >= 0.55:
+		# Nothing to shoot at is a reason to go LOOKING, not a reason to sit at
+		# home. Losing contact used to drop a 0.5-aggression AI to DEFEND
+		# permanently, because its beliefs expired after 240 s and nothing ever
+		# refreshed them -- the AI blinded itself and then declined to scout.
+		posture = Posture.PROBE if aggression >= 0.35 else Posture.DEFEND
+	elif force_ratio >= commit_at:
 		posture = Posture.ATTACK
 	elif aggression >= 0.30:
 		posture = Posture.PROBE
 	else:
 		posture = Posture.HOLD
 	if previous != posture:
-		log_decision("posture %s -> %s (strength %.2f, %d committable)" % [
+		log_decision("posture %s -> %s (cohesion %.2f, commit at %.2f, %d committable)" % [
 			POSTURE_NAMES.get(previous, "?"), POSTURE_NAMES.get(posture, "?"),
-			force_ratio, committable.size()])
+			force_ratio, commit_at, committable.size()])
 
 
 func _force_strength_ratio() -> float:
@@ -671,8 +731,13 @@ func _assign_objectives() -> void:
 			group.state = SimAiGroup.State.WITHDRAWING
 			group.set_objective_point(home_x, home_z)
 			continue
-		if cursor < committable.size():
-			var belief := committable[cursor] as SimAiMemory.Belief
+		if not committable.is_empty():
+			# One contact per group while there are enough to go round, so the
+			# axes really are separate axes. When there are fewer contacts than
+			# groups the later ones double up on the most urgent rather than
+			# sitting at home -- massing on one axis is right when there is only
+			# one thing to mass on.
+			var belief := committable[cursor % committable.size()] as SimAiMemory.Belief
 			belief.claimed_by = group.id
 			cursor += 1
 			var pt := belief.predicted(elapsed_s, SimSkill.prediction(skill))
@@ -828,7 +893,7 @@ func _move_formation(group: SimAiGroup, gx: float, gz: float) -> void:
 	var pz := dir[0]
 	for k in range(group.members.size()):
 		var i: int = group.members[k]
-		if not view.forces.can_move(i):
+		if not view.forces.can_move(i) or _withdrawn.has(i):
 			continue
 		var lane := float(k % FORMATION_WIDTH) - float(FORMATION_WIDTH - 1) * 0.5
 		var rank := float(k / FORMATION_WIDTH)
@@ -864,10 +929,16 @@ func _break_contact_if_hurt() -> void:
 		var hp := view.forces.structure_fraction(i)
 		var lost_firepower := (view.forces.components_lost(i)
 			& SimTypes.Component.FIREPOWER) != 0
+		if hp > withdraw_at + 0.15 and not lost_firepower:
+			# Recovered, and a component does not grow back -- so this only ever
+			# releases a unit that was pulled out for structure damage.
+			_withdrawn.erase(i)
+			continue
 		if hp > withdraw_at and not lost_firepower:
 			continue
 		if not has_home:
 			continue
+		_withdrawn[i] = true
 		_order_move_if_needed(i, home_x, home_z)
 
 
@@ -885,6 +956,11 @@ func _engage() -> void:
 		if weapons.is_empty():
 			continue
 		var p := view.forces.position(i)
+		# Longest thing this unit carries, so a contact nothing could reach is
+		# skipped before the gate is ever called.
+		var reach_km := 0.0
+		for wd0 in weapons:
+			reach_km = maxf(reach_km, (wd0 as SimWeaponDef).max_range_km)
 		var chosen := -1
 		var chosen_weapon := ""
 		var chosen_reason := ""
@@ -895,6 +971,11 @@ func _engage() -> void:
 			var track := view.tracks.get_track(belief.track_id)
 			if track == null:
 				continue
+			if not belief.bearing_only:
+				var pt0 := belief.predicted(elapsed_s, SimSkill.prediction(skill))
+				if sqrt(pow(p[0] - pt0[0], 2.0) + pow(p[2] - pt0[1], 2.0)) \
+						> reach_km * 1000.0:
+					continue
 			for wd in weapons:
 				var weapon := wd as SimWeaponDef
 				var rk := _range_km_for(p, belief, weapon)

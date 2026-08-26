@@ -57,6 +57,17 @@ var fuel_s: float = 0.0
 var wire_intact: bool = true
 var launcher_heading: float = 0.0
 
+## Physical radius of the thing being shot at, metres.
+##
+## A miss distance is measured to the target's CENTRE, so deciding a hit
+## against a hard 1.5 m meant every target in the game -- an 8 m tank, a 60 m
+## airliner, a 155 m destroyer -- was treated as a point 1.5 m across. Against
+## a warship that is asking the round to pass within 1.5 m of the exact middle
+## of the hull, which is not what hitting a ship means.
+##
+## Defaults to 1.5 so a caller that does not know stays exactly as it was.
+var target_radius_m: float = 1.5
+
 ## Miss distance at closest approach, recorded by _resolve_terminal() so the
 ## damage layer can read what actually happened instead of re-deriving it.
 var miss_distance_m: float = INF
@@ -154,9 +165,11 @@ func step(dt: float, guide_x: float, guide_y: float, guide_z: float,
 		guide_vx: float, guide_vy: float, guide_vz: float,
 		has_guidance: bool,
 		truth_x: float, truth_y: float, truth_z: float, truth_valid: bool,
-		world_radius_m: float = 400000.0) -> void:
+		world_radius_m: float = 400000.0,
+		target_extent_m: float = 1.5) -> void:
 	if not alive:
 		return
+	target_radius_m = target_extent_m
 	time_s += dt
 
 	# ── terminator 1: self-destruct ─────────────────────────────────────────
@@ -357,14 +370,14 @@ func _resolve_terminal(miss_distance: float) -> void:
 	miss_distance_m = miss_distance
 	match def.fuze:
 		SimMunitionDef.Fuze.CONTACT:
-			if miss_distance <= 1.5:
+			if miss_distance <= target_radius_m:
 				terminate(SimMunitionDef.Termination.HIT,
 					"direct hit at T+%.1f s" % time_s)
 			else:
 				terminate(SimMunitionDef.Termination.MISS_AIM,
 					"missed by %.1f m -- aim error" % miss_distance)
 		SimMunitionDef.Fuze.PROXIMITY, SimMunitionDef.Fuze.AIRBURST:
-			if miss_distance <= 1.5:
+			if miss_distance <= target_radius_m:
 				terminate(SimMunitionDef.Termination.HIT,
 					"direct hit at T+%.1f s" % time_s)
 			elif miss_distance <= def.lethal_radius_m:
@@ -374,7 +387,7 @@ func _resolve_terminal(miss_distance: float) -> void:
 				terminate(SimMunitionDef.Termination.MISS_AIM,
 					"missed by %.0f m" % miss_distance)
 		_:
-			if miss_distance <= 2.0:
+			if miss_distance <= target_radius_m + 0.5:
 				terminate(SimMunitionDef.Termination.HIT,
 					"struck and penetrated at T+%.1f s" % time_s)
 			else:
@@ -387,9 +400,9 @@ func _resolve_terminal(miss_distance: float) -> void:
 ## of the lethal radius.
 func damage_fraction(miss_distance: float) -> float:
 	if def.fuze == SimMunitionDef.Fuze.CONTACT:
-		return 1.0 if miss_distance <= 1.5 else 0.0
+		return 1.0 if miss_distance <= target_radius_m else 0.0
 	if def.lethal_radius_m <= 0.0:
-		return 1.0 if miss_distance <= 1.5 else 0.0
+		return 1.0 if miss_distance <= target_radius_m else 0.0
 	return clampf(1.0 - (miss_distance / def.lethal_radius_m), 0.0, 1.0)
 
 

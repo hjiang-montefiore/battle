@@ -44,22 +44,45 @@ munitions simulated from launch to hit — are designed but unimplemented. Build
 Requires **Godot 4.5**. No other dependencies.
 
 ```bash
-godot --path game                          # play
-godot --path game --headless --quit-after 200   # boot and run the self-test
-godot --path game -- --shot                # render a framed screenshot of the roster
+godot --path game                          # play a skirmish
+godot --path game res://scenes/proving_ground.tscn   # the art harness
+godot --path game --headless --script res://sim/tests/run_sim_tests.gd   # sim tests
+godot --path game --headless res://scenes/skirmish.tscn -- --test        # play it headless
+godot --path game -- --shot                # render a framed screenshot
 ```
 
-The self-test prints on every boot:
+The main scene is the **skirmish**: two bases at opposite corners of a 12.8 km valley
+with a ridge down the middle, one human against one AI. The proving ground is still
+there and still runs its own self-test; it is the art harness, not the game.
+
+`-- --test` boots the skirmish headless and plays it — selecting, moving, building,
+producing, attacking — then prints what happened:
 
 ```
-[selftest] units spawned      11 / 11
-[selftest] scale in range     11 / 11
-[selftest] sockets >= 9       11 / 11
-[selftest] input map          6 / 6 actions bound
+[skirmish] deployed           ok    44 entities
+[skirmish] armed              ok    24 of 44 entities carry a weapon
+[skirmish] select             ok    14 units selected
+[skirmish] move order         ok    mean range to the objective 1156 m -> 84 m
+[skirmish] build              ok    power plant 49, 1083 cr spent
+[skirmish] produce            ok    tank 53, armed true
+[skirmish] combat             ok    747 shots, 43 kills, 134 penetrations
+[skirmish] VICTORY   t+765 s
 ```
 
-**Controls.** `WASD` or screen edge to pan · `Q`/`E` to rotate · wheel to zoom ·
-left-click to select · drag to box-select · `shift` to add · right-click to move.
+**Controls.** `WASD` or screen edge to pan · `Q`/`E` rotate · wheel zoom ·
+left-click select · drag box-select · `shift` add · right-click move, or right-click a
+contact to attack it · `S` stop · `H` hold fire · `R` radiate / go silent ·
+`SPACE` pause · `TAB` speed · `F1` recentre on your base.
+
+**What you see is what you know.** Your own units are drawn from the simulation. The
+enemy is drawn from *your* faction's track table and nothing else — a hollow circle is a
+contact, a diamond is a track, a filled diamond is a firing solution, and a dashed line
+is a bearing with no range in it. A tank behind the ridge is not on your screen because
+you do not know it is there. The AI plays under the same restriction.
+
+**Winning.** You win by destroying the enemy's ability to make war: every production
+structure and every supply source. An army with neither has two minutes to rebuild or
+take ground before it capitulates. There is no mop-up phase.
 
 ---
 

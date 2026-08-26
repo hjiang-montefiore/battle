@@ -41,26 +41,35 @@ const NAMES := {
 	Unit.PRODUCTION: "production", Unit.BASE: "base", Unit.UNKNOWN: "unknown",
 }
 
-## Substring -> role, tried in this order. Lower-cased match on the unit's own
+## Keyword -> role, tried IN THIS ORDER against the WORDS of the unit's own
 ## name. Order matters, so this is an Array of pairs and never a Dictionary --
 ## docs/06 forbids letting iteration order decide an outcome.
+##
+## Matched per WORD rather than as a substring, which is not fussiness: the
+## substring version classified "factory" as a SAM battery, because "factory"
+## contains "tor". It then handed the building a 40 km missile and let it
+## shoot. A classifier that is wrong in that direction hands the AI a weapon it
+## does not have, which looks exactly like cheating from the other side.
 const KEYWORDS := [
 	["aew", Unit.AEW], ["awacs", Unit.AEW], ["sentry", Unit.AEW],
-	["e-3", Unit.AEW], ["e-2", Unit.AEW], ["mainstay", Unit.AEW],
+	["mainstay", Unit.AEW],
 	["tanker", Unit.SUPPLY], ["supply", Unit.SUPPLY], ["fuel", Unit.SUPPLY],
-	["truck", Unit.SUPPLY], ["oiler", Unit.SUPPLY], ["logi", Unit.SUPPLY],
-	["sam", Unit.SAM], ["patriot", Unit.SAM], ["s-300", Unit.SAM],
-	["s-400", Unit.SAM], ["buk", Unit.SAM], ["tor", Unit.SAM],
-	["hawk", Unit.SAM], ["aspide", Unit.SAM],
+	["truck", Unit.SUPPLY], ["oiler", Unit.SUPPLY], ["logistics", Unit.SUPPLY],
+	["ammunition", Unit.SUPPLY], ["engineer", Unit.SUPPLY],
+	["repair", Unit.SUPPLY], ["sapper", Unit.SUPPLY],
+	["sam", Unit.SAM], ["manpads", Unit.SAM], ["spaag", Unit.SAM],
+	["shorad", Unit.SAM], ["patriot", Unit.SAM],
 	["radar", Unit.SENSOR], ["esm", Unit.SENSOR], ["jammer", Unit.SENSOR],
-	["illuminator", Unit.SENSOR], ["ewr", Unit.SENSOR],
+	["illuminator", Unit.SENSOR], ["ew", Unit.SENSOR],
+	["command", Unit.SENSOR],
 	["scout", Unit.SCOUT], ["recon", Unit.SCOUT], ["brdm", Unit.SCOUT],
 	["hmmwv", Unit.SCOUT],
 	["infantry", Unit.INFANTRY], ["squad", Unit.INFANTRY],
-	["rifle", Unit.INFANTRY], ["at team", Unit.INFANTRY],
+	["rifle", Unit.INFANTRY], ["team", Unit.INFANTRY],
 	["factory", Unit.PRODUCTION], ["barracks", Unit.PRODUCTION],
 	["works", Unit.PRODUCTION], ["yard", Unit.PRODUCTION],
-	["hangar", Unit.PRODUCTION], ["plant", Unit.PRODUCTION],
+	["hangar", Unit.PRODUCTION], ["airbase", Unit.PRODUCTION],
+	["helipad", Unit.PRODUCTION], ["plant", Unit.PRODUCTION],
 ]
 
 
@@ -73,18 +82,19 @@ static func name_of(role: int) -> String:
 ## that always exists.
 static func classify(unit_name: String, category: int, structure: bool,
 		max_speed_ms: float) -> int:
-	var n := unit_name.to_lower()
+	var words := _words(unit_name)
 	for pair in KEYWORDS:
-		if n.contains(pair[0] as String):
-			var r: int = pair[1]
-			# A structure never becomes a mobile role, and vice versa.
-			if structure:
-				if r == Unit.PRODUCTION or r == Unit.SENSOR or r == Unit.SAM:
-					return r
-				return Unit.BASE
-			if r == Unit.PRODUCTION:
-				continue
-			return r
+		if not _matches(words, pair[0] as String):
+			continue
+		var r: int = pair[1]
+		# A structure never becomes a mobile role, and vice versa.
+		if structure:
+			if r == Unit.PRODUCTION or r == Unit.SENSOR or r == Unit.SAM:
+				return r
+			return Unit.BASE
+		if r == Unit.PRODUCTION:
+			continue
+		return r
 	if structure:
 		return Unit.BASE
 	match category:
@@ -98,6 +108,30 @@ static func classify(unit_name: String, category: int, structure: bool,
 		# Immobile and not a structure: a towed or emplaced set.
 		return Unit.SENSOR
 	return Unit.ARMOR
+
+
+## Lower-cased words of a name, split on anything that is not a letter or a
+## digit, so "AEW&C Aircraft", "Anti-Tank Team" and "T-80" all tokenise sanely.
+static func _words(unit_name: String) -> PackedStringArray:
+	var out := PackedStringArray()
+	var current := ""
+	for ch in unit_name.to_lower():
+		if (ch >= "a" and ch <= "z") or (ch >= "0" and ch <= "9"):
+			current += ch
+		else:
+			if current != "":
+				out.append(current)
+			current = ""
+	if current != "":
+		out.append(current)
+	return out
+
+
+static func _matches(words: PackedStringArray, keyword: String) -> bool:
+	for w in words:
+		if w == keyword or (w as String).begins_with(keyword):
+			return true
+	return false
 
 
 ## Does this role belong in a manoeuvre group?
