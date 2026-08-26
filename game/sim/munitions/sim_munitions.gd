@@ -39,6 +39,16 @@ var _noise_seq: Dictionary = {}
 var launched: int = 0
 var terminated: int = 0
 
+## THE SPINE'S ADDITION. Every round that stopped flying during the MOST RECENT
+## step(), snapshotted. This is the missing seam: the combat slot in
+## sim_world.gd drains it into SimDamage, which is how a round arriving finally
+## has a consequence.
+##
+## Cleared at the top of every step(), so it holds exactly one tick of arrivals.
+## Snapshots rather than SimProjectile references, because the pool reuses those
+## the moment somebody fires again.
+var last_impacts: Array = []      ## Array[SimImpact]
+
 
 func _init(store: SimEntities, sensor_solver: SimSensorSolver, seeded: SimRng) -> void:
 	entities = store
@@ -160,6 +170,7 @@ func _chaff_defeats(seeker_gen: int) -> bool:
 # ── the tick ─────────────────────────────────────────────────────────────────
 
 func step(dt: float) -> void:
+	last_impacts.clear()
 	_decay_countermeasures(dt)
 
 	var still: Array = []
@@ -348,6 +359,7 @@ func _guidance_valid(p: SimProjectile, track: SimTrack) -> bool:
 
 func _retire(idx: int, p: SimProjectile) -> void:
 	terminated += 1
+	last_impacts.append(_snapshot(p))
 	if p.def.tier == SimMunitionDef.Tier.A or p.termination == SimMunitionDef.Termination.HIT:
 		combat_log.append("%-9s %s" % [p.def.name, p.log_line()])
 		if combat_log.size() > max_log:
@@ -376,3 +388,41 @@ func is_balanced() -> bool:
 func recent_log(n := 12) -> String:
 	var start: int = maxi(0, combat_log.size() - n)
 	return "\n".join(combat_log.slice(start))
+
+
+## Copy out everything the damage layer needs before the projectile goes back
+## into the pool. The FACET is computed here, from the round's own velocity
+## against the target's heading -- docs/10 §6 and docs/03: hit location is
+## geometry, never a roll, and this is where that geometry is still available.
+func _snapshot(p: SimProjectile) -> SimImpact:
+	var im := SimImpact.new()
+	im.target = p.target_truth
+	im.shooter = p.shooter
+	im.faction = p.faction
+	im.termination = p.termination
+	im.termination_detail = p.termination_detail
+	im.miss_distance_m = p.miss_distance_m if p.miss_distance_m < INF else 0.0
+	im.blast_fraction = p.damage_fraction(im.miss_distance_m)
+	im.range_m = p.distance_flown_m()
+	im.impact_speed_ms = p.speed()
+	im.time_s = p.time_s
+	im.munition_name = p.def.name
+	im.damage_class = p.def.damage_class
+	im.penetration_mm = p.def.penetration_mm
+	im.tandem = p.def.tandem
+	var heading := 0.0
+	if entities.is_alive(p.target_truth):
+		heading = entities.heading_rad[p.target_truth]
+	im.facet = p.impact_facet(heading)
+	return im
+
+
+## Arrivals only -- direct hits and proximity detonations inside the lethal
+## radius. Everything else on last_impacts is a round that did not get there,
+## which the combat log still wants to report and the damage layer does not.
+func arrivals() -> Array:
+	var out: Array = []
+	for im in last_impacts:
+		if (im as SimImpact).is_arrival():
+			out.append(im)
+	return out

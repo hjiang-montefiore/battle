@@ -1162,6 +1162,27 @@ func _suite_terrain() -> void:
 		var taebaek := kr.height_at_latlon(37.75, 128.55)
 		_ok("the Taebaek range is high ground", taebaek > 600.0, "%.0f m" % taebaek)
 
+		var eu := SimTheatre.build(SimTheatre.CENTRAL_EUROPE)
+		# The box was originally centred inland and came back 0% water, which
+		# threw away the Baltic approaches and the amphibious flank.
+		# 54.45N 13.40E is Ruegen ITSELF, which reads +17 m and is correct --
+		# the island is land. Probe open water north of it instead.
+		var baltic := eu.height_at_latlon(55.00, 14.00)
+		_ok("the Baltic is in Central Europe", baltic < 0.0,
+			"%.0f m in open Baltic" % baltic)
+		_ok("and Ruegen is still an island in it",
+			eu.height_at_latlon(54.45, 13.40) > 0.0
+			and eu.height_at_latlon(54.80, 13.50) < 0.0,
+			"%.0f m on the island, %.0f m just north" % [
+				eu.height_at_latlon(54.45, 13.40), eu.height_at_latlon(54.80, 13.50)])
+		var kiel := eu.height_at_latlon(54.55, 10.30)
+		_ok("and so is Kiel Bay", kiel < 0.0, "%.0f m" % kiel)
+		var harz := eu.height_at_latlon(51.80, 10.62)
+		_ok("without losing the Harz", harz > 300.0, "%.0f m" % harz)
+		_ok("Central Europe is mostly land with a sea flank",
+			_water_fraction(eu) > 0.10 and _water_fraction(eu) < 0.45,
+			"%.0f%% water" % (_water_fraction(eu) * 100.0))
+
 		var na := SimTheatre.build(SimTheatre.NORTH_ATLANTIC)
 		_ok("the GIUK gap is almost entirely water",
 			_water_fraction(na) > 0.85, "%.0f%% water" % (_water_fraction(na) * 100.0))

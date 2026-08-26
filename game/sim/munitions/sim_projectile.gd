@@ -57,6 +57,16 @@ var fuel_s: float = 0.0
 var wire_intact: bool = true
 var launcher_heading: float = 0.0
 
+## Miss distance at closest approach, recorded by _resolve_terminal() so the
+## damage layer can read what actually happened instead of re-deriving it.
+var miss_distance_m: float = INF
+## Where it was fired from, so the arrival RANGE is known -- KE penetration
+## falls with range (docs/03) and the resolver needs the real number, not the
+## range the shooter thought it was firing at.
+var launch_x: float = 0.0
+var launch_y: float = 0.0
+var launch_z: float = 0.0
+
 var _prev_range: float = INF
 var _launch_range: float = 0.0
 
@@ -68,6 +78,8 @@ func launch(munition: SimMunitionDef, from_x: float, from_y: float, from_z: floa
 	def = munition
 	alive = true
 	x = from_x; y = from_y; z = from_z
+	launch_x = from_x; launch_y = from_y; launch_z = from_z
+	miss_distance_m = INF
 	shooter = shooter_index
 	faction = faction_id
 	target_truth = target_index
@@ -328,6 +340,7 @@ func _guide(dt: float, tx: float, ty: float, tz: float,
 ## which is what produces the wounded-and-withdrawing units that make a battle
 ## feel like a battle.
 func _resolve_terminal(miss_distance: float) -> void:
+	miss_distance_m = miss_distance
 	match def.fuze:
 		SimMunitionDef.Fuze.CONTACT:
 			if miss_distance <= 1.5:
@@ -405,3 +418,12 @@ func log_line() -> String:
 	return "%-13s %s %s" % [
 		SimMunitionDef.termination_name(termination),
 		"·", termination_detail]
+
+
+## Straight-line distance from the launch point to where the round is now.
+## The arrival range docs/03 needs for the KE penetration curve.
+func distance_flown_m() -> float:
+	var dx := x - launch_x
+	var dy := y - launch_y
+	var dz := z - launch_z
+	return sqrt(dx * dx + dy * dy + dz * dz)

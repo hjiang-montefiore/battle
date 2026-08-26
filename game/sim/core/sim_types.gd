@@ -102,3 +102,150 @@ static func guidance_name(g: int) -> String:
 		Guidance.GNSS_INS: return "GNSS_INS"
 		Guidance.ANTI_RADIATION: return "ANTI_RADIATION"
 	return "?"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# THE SPINE. Vocabulary the damage, movement, economy and AI layers share.
+# Added here rather than in each subsystem because four agents have to agree
+# on these integers, and an enum defined twice is an enum that will disagree.
+# ═══════════════════════════════════════════════════════════════════════════
+
+## Which armour facet a round arrives at. docs/03 lists FRONT_HULL,
+## FRONT_TURRET, SIDE, REAR, TOP and BELLY; hull and turret are collapsed into
+## one FRONT here because SimProjectile.impact_facet() -- which is the ONLY
+## thing that decides a facet, from impact geometry and never from a roll --
+## cannot distinguish them without a turret bounding volume. The ordering is
+## bit-for-bit identical to SimProjectile.Facet and test_spine.gd asserts it.
+enum Facet { FRONT = 0, SIDE = 1, REAR = 2, TOP = 3, BELLY = 4 }
+const FACET_COUNT := 5
+
+
+## docs/03 armour types, in the order of the effectiveness matrix. The index
+## stored per facet in SimEntities is one of these.
+enum ArmorType {
+	NONE = 0,             ## unarmoured: trucks, radars, aircraft, infantry
+	CAST = 1,             ## 1950s cast homogeneous
+	RHA = 2,              ## 1950s rolled homogeneous -- the 1.00 baseline
+	SPACED = 3,           ## 1960s
+	NERA = 4,             ## 1960s-70s siliceous-cored
+	COMPOSITE = 5,        ## 1970s-80s Chobham class
+	COMPOSITE_HEAVY = 6,  ## late 1980s, heavy-metal mesh
+	ERA_LIGHT = 7,        ## 1980s reactive
+	ERA_HEAVY = 8,        ## 1990s+ reactive
+	MODULAR_ERA = 9,      ## 2000s+ modular composite + ERA
+}
+
+
+## docs/03 damage classes. KE bleeds with range; CE does not. That asymmetry is
+## the engagement grammar -- at long range an ATGM out-penetrates a tank gun,
+## at short range the gun wins -- so it belongs in the shared vocabulary.
+enum DamageClass {
+	KE = 0,         ## AP, APCR, APDS, APFSDS. Penetration falls with range
+	CE = 1,         ## HEAT, tandem, EFP, RPG. Flat with range
+	HESH = 2,       ## squash head. Flat; defeated by spaced/composite
+	OVERMATCH = 3,  ## very large calibre on thin plate; ignores slope
+	BLAST = 4,      ## fragmentation and proximity warheads -- no penetration
+}
+
+
+## Two survivability models, one for each half of the game (docs/03, closing
+## section). Armoured vehicles resolve penetration against a facet; ships and
+## aircraft carry negligible armour and survive by defeating the weapon before
+## it arrives. This selector says which one a unit uses.
+enum DamageModel {
+	UNARMORED = 0,  ## infantry, trucks, radars: structure pool only
+	ARMORED = 1,    ## the docs/03 facet x penetrator matrix
+	AIRFRAME = 2,   ## aircraft: structure pool, no facet resolution
+	HULL = 3,       ## warships: structure pool plus compartment damage
+	STRUCTURE = 4,  ## buildings: large structure pool, immobile
+}
+
+
+## Behind-armor effects, docs/03. Stored as a BITMASK per unit, not as a health
+## bar: "resolve what it hit, not a subtraction". SENSOR_KILL is the row that
+## links docs/03 to docs/02 -- a blind tank is alive and cannot engage.
+enum Component {
+	NONE = 0,
+	MOBILITY = 1,      ## immobilised. The turret still traverses
+	FIREPOWER = 2,     ## mobile but cannot fire
+	SENSORS = 4,       ## optics/thermals/FCR gone. Alive and blind
+	CREW = 8,          ## degraded rate of fire, accuracy, reaction
+	CATASTROPHIC = 16, ## ammunition detonation. Total loss
+}
+
+
+## What a unit is doing with its engine. Drives the docs/04 fuel burn rates and
+## the docs/02 acoustic/IR signature, so it is shared rather than private to
+## the movement layer.
+enum MoveState {
+	IDLE = 0,      ## stationary, systems running -- burn_idle
+	MOVING = 1,    ## economical movement -- burn_cruise
+	COMBAT = 2,    ## flank speed / full military power -- burn_combat
+	IMMOBILE = 3,  ## mobility-killed or out of fuel. Cannot move at all
+	DEAD = 4,
+}
+
+
+## Commands crossing the presentation/AI boundary into the sim. Both the human
+## player's mouse and the AI director push these; neither writes entity state
+## directly. docs/06: "Godot's job is to render this and submit commands to it."
+enum OrderKind {
+	NONE = 0,
+	MOVE = 1,          ## go to a world point
+	STOP = 2,
+	ATTACK_TRACK = 3,  ## engage a TRACK ID, never an entity index (docs/09 §1.3)
+	SET_EMCON = 4,
+	SET_MOVE_STATE = 5,
+	PRODUCE = 6,       ## queue a unit at a structure
+	BUILD = 7,         ## place a structure at a world point
+	CANCEL = 8,
+}
+
+
+static func facet_name(f: int) -> String:
+	match f:
+		Facet.FRONT: return "FRONT"
+		Facet.SIDE: return "SIDE"
+		Facet.REAR: return "REAR"
+		Facet.TOP: return "TOP"
+		Facet.BELLY: return "BELLY"
+	return "?"
+
+
+static func armor_type_name(a: int) -> String:
+	match a:
+		ArmorType.NONE: return "NONE"
+		ArmorType.CAST: return "CAST"
+		ArmorType.RHA: return "RHA"
+		ArmorType.SPACED: return "SPACED"
+		ArmorType.NERA: return "NERA"
+		ArmorType.COMPOSITE: return "COMPOSITE"
+		ArmorType.COMPOSITE_HEAVY: return "COMPOSITE_HEAVY"
+		ArmorType.ERA_LIGHT: return "ERA_LIGHT"
+		ArmorType.ERA_HEAVY: return "ERA_HEAVY"
+		ArmorType.MODULAR_ERA: return "MODULAR_ERA"
+	return "?"
+
+
+static func damage_class_name(d: int) -> String:
+	match d:
+		DamageClass.KE: return "KE"
+		DamageClass.CE: return "CE"
+		DamageClass.HESH: return "HESH"
+		DamageClass.OVERMATCH: return "OVERMATCH"
+		DamageClass.BLAST: return "BLAST"
+	return "?"
+
+
+## The components a unit has lost, as a readable list. Feeds the combat log,
+## which docs/10 §10 calls "the tutorial".
+static func component_names(mask: int) -> String:
+	if mask == 0:
+		return "intact"
+	var out := PackedStringArray()
+	if mask & Component.MOBILITY: out.append("mobility")
+	if mask & Component.FIREPOWER: out.append("firepower")
+	if mask & Component.SENSORS: out.append("sensors")
+	if mask & Component.CREW: out.append("crew")
+	if mask & Component.CATASTROPHIC: out.append("catastrophic")
+	return ", ".join(out)

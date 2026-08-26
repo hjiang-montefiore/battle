@@ -56,8 +56,11 @@ THEATRES = {
     },
     "central_europe": {
         "name": "Central Europe",
-        # The North German Plain, the Harz, and the Thuringian forest.
-        "lat": 51.30, "lon": 11.00, "extent_km": 480.0,
+        # The North German Plain, the Harz, and the Baltic coast. Centred at
+        # 51.3 the box was entirely inland and came back 0% water, which threw
+        # away the amphibious flank and the Baltic approaches that make this
+        # theatre a coalition problem rather than a purely ground one.
+        "lat": 53.40, "lon": 12.20, "extent_km": 480.0,
     },
     "north_atlantic": {
         "name": "North Atlantic",

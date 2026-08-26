@@ -86,6 +86,28 @@ var seeker_gen: int = 3        ## S-ladder, docs/11 §6
 var seeker_activation_km: float = 18.0   ## ARH goes autonomous here
 var rcs_m2: float = 0.05       ## projectiles are entities in the sensor solver
 
+# ── warhead, docs/03 ─────────────────────────────────────────────────────────
+## THE SPINE'S ADDITION. Everything above describes how a round FLIES. These
+## four describe what it does when it arrives, and without them docs/10 and
+## docs/03 never meet: rounds flew and nothing could be hurt by them.
+##
+## docs/03: "penetration is a property of THE ROUND, not the tank. The same
+## 120 mm tube fired ~350 mm rounds in 1979 and ~750 mm rounds in 2003."
+## Ammunition is therefore an independently upgradeable ladder that applies to
+## units already in the field -- so the number lives here, on the munition, and
+## never on the launcher.
+var damage_class: int = SimTypes.DamageClass.BLAST
+## Millimetres of RHA equivalent, QUOTED AT 2 km. SimArmor.penetration_at_range_mm()
+## adjusts it for the range the round actually arrived at: KE bleeds, CE does not.
+var penetration_mm: float = 0.0
+## Tandem warhead: a precursor charge detonates the reactive block before the
+## main jet arrives, which docs/03 says defeats ERA outright. Worthless against
+## composite, which is what keeps it a specialist rather than a straight upgrade.
+var tandem: bool = false
+## Structure damage on a penetration or against an unarmoured target, before
+## the blast falloff in SimProjectile.damage_fraction() is applied.
+var warhead_damage: float = 100.0
+
 # ── hard limits. NOTHING may remain on the map indefinitely. ─────────────────
 ## Self-destruct. Every real munition has one, and a projectile that never
 ## terminates is both a bug and a memory leak.
