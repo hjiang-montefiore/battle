@@ -37,6 +37,7 @@ func _init() -> void:
 	_suite_match_setup()
 	_suite_munitions()
 	_suite_nothing_stays_forever()
+	_suite_asw()
 
 	print("  " + "-".repeat(66))
 	if _failed == 0:
@@ -822,3 +823,87 @@ func _suite_nothing_stays_forever() -> void:
 	up.vx = 0.0; up.vy = 800.0; up.vz = 0.0
 	w3.run_ticks(int(150.0 * SimWorld.SIM_HZ))
 	_ok("a round fired straight up comes back down", not up.alive, up.log_line())
+
+
+# ── docs/02 §8 -- the acoustic domain, pillar 6 ─────────────────────────────
+
+func _suite_asw() -> void:
+	_suite("Anti-submarine warfare (docs/02 §8) -- pillar 6")
+
+	# docs/02 §8.1: a single passive array gives a BEARING and nothing else.
+	# Turning that into a firing solution needs motion analysis or a second
+	# platform, which is why hunting a submarine is slow and cooperative.
+	var shallow := _asw_case(40.0, false, 4.0, 8.0, 0.0)
+	_ok("passive sonar detects a submarine above the layer",
+		shallow.quality >= SimTypes.TrackQuality.CONTACT,
+		SimTypes.quality_name(shallow.quality))
+	_ok("and gives a bearing only -- no firing solution", shallow.bearing_only)
+
+	# docs/02 §8.3: the thermocline. An ABSOLUTE shield against a hull sonar
+	# above it, and the reason depth is a real tactical axis.
+	var deep := _asw_case(40.0, true, 4.0, 8.0, 0.0)
+	_ok("a submarine below the layer is invisible to a hull sonar above it",
+		deep.quality == SimTypes.TrackQuality.NONE,
+		SimTypes.quality_name(deep.quality))
+
+	# The N3 counter: stream the array below the layer and it comes back.
+	var towed := _asw_case(40.0, true, 4.0, -8.0, 0.0)
+	_ok("a towed array streamed below the layer regains the contact",
+		towed.quality >= SimTypes.TrackQuality.CONTACT,
+		SimTypes.quality_name(towed.quality))
+
+	# docs/02 §8.4: "A ship at flank speed is deaf."
+	var deaf := _asw_case(40.0, false, 4.0, 8.0, 18.0)
+	_ok("a hunter at flank speed goes deaf",
+		deaf.quality == SimTypes.TrackQuality.NONE,
+		SimTypes.quality_name(deaf.quality))
+
+	# "A submarine at flank speed is loud." Radiated noise rises steeply with
+	# shaft RPM, so a sprinting boat is heard from further away.
+	var w := SimWorld.new(9)
+	var quiet_boat := w.entities.add("creeping", 1, 0, -50, 0,
+		SimSignature.new(200.0, 0.2, 100.0), [], SimTypes.Category.SUBSURFACE)
+	w.entities.set_velocity(quiet_boat, 2.5, 0.0, 0.0)
+	var loud_boat := w.entities.add("sprinting", 1, 0, -50, 0,
+		SimSignature.new(200.0, 0.2, 100.0), [], SimTypes.Category.SUBSURFACE)
+	w.entities.set_velocity(loud_boat, 15.0, 0.0, 0.0)
+	var quiet_db := w.entities.effective_acoustic_db(quiet_boat)
+	var loud_db := w.entities.effective_acoustic_db(loud_boat)
+	_ok("a submarine at flank speed is measurably louder", loud_db > quiet_db + 5.0,
+		"%.1f dB creeping vs %.1f dB sprinting" % [quiet_db, loud_db])
+
+	# docs/02 §8.2: pinging is the same trap as radar, underwater. An active
+	# set is two-way and gives a real solution; it also announces the hunt.
+	var ping := SimSensorDef.new({"name": "hull sonar active",
+		"domain": SimTypes.Domain.ACOUSTIC_ACTIVE,
+		"reference_range_km": 25.0, "mount_height_m": 8.0,
+		"max_quality": SimTypes.TrackQuality.FIRE_CONTROL})
+	_ok("an active sonar is two-way, like a radar", ping.is_two_way())
+	_ok("and is not bearing-only, so it can produce a solution",
+		not ping.is_bearing_only())
+	var passive := SimSensorDef.new({"domain": SimTypes.Domain.ACOUSTIC_PASSIVE})
+	_ok("a passive array is one-way and bearing-only",
+		passive.is_bearing_only() and not passive.is_two_way())
+
+
+func _asw_case(range_km: float, below_layer: bool, sub_speed: float,
+		mount_m: float, hunter_speed: float) -> SimTrack:
+	var w := SimWorld.new(5)
+	var e := w.entities
+	var hunter := e.add("frigate", 0, 0, 8, 0,
+		SimSignature.new(3000.0, 1.0, 110.0),
+		[SimSensorDef.new({
+			"name": "towed array" if mount_m < 0.0 else "hull sonar",
+			"domain": SimTypes.Domain.ACOUSTIC_PASSIVE,
+			"reference_range_km": 60.0, "mount_height_m": mount_m,
+			"max_quality": SimTypes.TrackQuality.TRACK})],
+		SimTypes.Category.SURFACE)
+	e.set_velocity(hunter, hunter_speed, 0.0, 0.0)
+	var sub := e.add("submarine", 1, range_km * 1000.0, -50.0, 0,
+		SimSignature.new(200.0, 0.2, 100.0), [], SimTypes.Category.SUBSURFACE)
+	e.depth_m[sub] = 200.0 if below_layer else 40.0
+	e.below_layer[sub] = 1 if below_layer else 0
+	e.set_velocity(sub, -sub_speed, 0.0, 0.0)
+	w.run_ticks(12)
+	var t := w.track_table_for(0)._track_for_truth(sub)
+	return t if t != null else SimTrack.new()
