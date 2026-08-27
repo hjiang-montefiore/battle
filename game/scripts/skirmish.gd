@@ -462,13 +462,16 @@ func _build_oil_markers() -> void:
 		var y := _match.terrain.ground_under(f.x, f.y)
 		var slick := MeshInstance3D.new()
 		var disc := CylinderMesh.new()
-		disc.top_radius = 62.0
-		disc.bottom_radius = 62.0
-		disc.height = 1.5
+		# Sized for the halved map, and NOT pure black: at 0.10 albedo the disc
+		# read as a hole cut in the ground rather than a patch of oil-soaked
+		# earth, which is a surprisingly strong illusion at a shallow camera.
+		disc.top_radius = 36.0
+		disc.bottom_radius = 36.0
+		disc.height = 1.0
 		disc.radial_segments = 20
 		slick.mesh = disc
 		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.10, 0.09, 0.07)
+		m.albedo_color = Color(0.20, 0.17, 0.13)
 		m.roughness = 0.55
 		m.metallic = 0.35
 		slick.material_override = m
@@ -478,15 +481,15 @@ func _build_oil_markers() -> void:
 		# angle and this has to be findable while you are looking for it.
 		var post := MeshInstance3D.new()
 		var cyl := CylinderMesh.new()
-		cyl.top_radius = 1.6
-		cyl.bottom_radius = 4.5
-		cyl.height = 26.0
+		cyl.top_radius = 1.2
+		cyl.bottom_radius = 3.2
+		cyl.height = 18.0
 		cyl.radial_segments = 8
 		post.mesh = cyl
 		var pm := StandardMaterial3D.new()
 		pm.albedo_color = Color(0.16, 0.14, 0.10)
 		post.material_override = pm
-		post.position = Vector3(f.x, y + 13.0, f.y)
+		post.position = Vector3(f.x, y + 9.0, f.y)
 		add_child(post)
 
 

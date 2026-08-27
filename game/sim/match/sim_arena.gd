@@ -64,9 +64,19 @@ static func description(key: String) -> String:
 ## rooms joined by a corridor. That distinction matters: an impassable ridge
 ## makes pathfinding the game, a slow one makes the DECISION the game.
 static func _skirmish_valley(rng: SimRng) -> SimTerrain:
-	var t := SimTerrain.new(128, 128, 100.0, "Skirmish Valley")   # 12.8 km
-	t.fill(60.0)
-	# THE RIDGE IS 6.8 km LONG ON A 12.8 km MAP, AND THAT RATIO IS THE DESIGN.
+	# HALF-SCALE, AND EXACTLY HALF. Reported from play: "the map is too big and
+	# make encountering hard", and the measurement agreed -- the two bases stood
+	# 9.22 km apart, which is NINE MINUTES of driving at 60 km/h and eighteen
+	# for anything doing 30. A player spent the opening watching an empty map.
+	#
+	# Every metric below is halved along with the cell size, so this is a 1:2
+	# scale model of the map that was here and not a different map. The ratio
+	# the comment below insists on is preserved to the cell; so are the grades,
+	# which is why the heights halve too -- halving the horizontal alone would
+	# have doubled every slope and turned the crossable ridge into a wall.
+	var t := SimTerrain.new(128, 128, 50.0, "Skirmish Valley")    # 6.4 km
+	t.fill(30.0)
+	# THE RIDGE IS 3.4 km LONG ON A 6.4 km MAP, AND THAT RATIO IS THE DESIGN.
 	#
 	# docs/02 makes blocked line of sight ABSOLUTE -- not a range penalty, a
 	# refusal. Any ridge taller than the sensor masts either side of it hides
@@ -80,12 +90,12 @@ static func _skirmish_valley(rng: SimRng) -> SimTerrain:
 	# react to, and the opening was dead. Ending it well short of the map edge
 	# leaves two open flanks, so a force that manoeuvres is seen and a force
 	# that sits behind the hill is not. That is the trade the map is for.
-	t.add_ridge(0.0, -3400.0, 0.0, 3400.0, 250.0, 1100.0)
+	t.add_ridge(0.0, -1700.0, 0.0, 1700.0, 125.0, 550.0)
 	# Isolated high ground near each flank route -- the obvious, contested spot
 	# to put a radar, because mount height is measured from the ground under it.
-	t.add_ridge(-2600.0, 4600.0, -1500.0, 5000.0, 260.0, 700.0)
-	t.add_ridge(2600.0, -4600.0, 1500.0, -5000.0, 260.0, 700.0)
-	t.add_noise(rng, 22.0, 9)
+	t.add_ridge(-1300.0, 2300.0, -750.0, 2500.0, 130.0, 350.0)
+	t.add_ridge(1300.0, -2300.0, 750.0, -2500.0, 130.0, 350.0)
+	t.add_noise(rng, 11.0, 9)
 	return t
 
 
@@ -93,10 +103,10 @@ static func _skirmish_valley(rng: SimRng) -> SimTerrain:
 ## NATO split shows" precisely because low relief means nowhere to hide from a
 ## ground radar; this is that property at skirmish scale.
 static func _open_steppe(rng: SimRng) -> SimTerrain:
-	var t := SimTerrain.new(160, 160, 100.0, "Open Steppe")       # 16 km
-	t.fill(120.0)
-	t.add_ridge(-1500.0, 1000.0, 2000.0, -600.0, 90.0, 2600.0)
-	t.add_noise(rng, 16.0, 14)
+	var t := SimTerrain.new(160, 160, 50.0, "Open Steppe")        # 8 km
+	t.fill(60.0)
+	t.add_ridge(-750.0, 500.0, 1000.0, -300.0, 45.0, 1300.0)
+	t.add_noise(rng, 8.0, 14)
 	return t
 
 
@@ -109,27 +119,31 @@ static func _open_steppe(rng: SimRng) -> SimTerrain:
 ## two-player match ~8 km from the nearest water -- a naval yard on that side
 ## was geometrically impossible, and north_atlantic (both sides naval/air only)
 ## sat at zero shots for 90 simulated minutes. With the arm, every base slot
-## for 2-4 players is 0.6-2.4 km from a shoreline, and the two shores are one
+## for 2-4 players is 0.3-1.2 km from a shoreline, and the two shores are one
 ## body of water so fleets from either side can actually meet.
 ##
 ## Two implementation constraints that are easy to lose:
 ##  * The arm is carved AFTER the ridge. add_ridge() raises any cell under its
 ##    footprint, sea included, and the ridge's southern tail (endpoint
-##    z=-6000, half-width 1400 m) would otherwise dam the arm with a land
+##    z=-3000, half-width 700 m) would otherwise dam the arm with a land
 ##    bridge to the map edge.
 ##  * The arm uses carve_sea(), which draws nothing from the rng -- so the rng
 ##    stream feeding add_noise() is unchanged and the map OUTSIDE the arm is
 ##    bit-identical to the pre-arm terrain the sweep recorded.
-##  * The arm's north shore stops at z=-6400: the 4-player base slot at
-##    (0, -5760) needs its ~170 m base footprint on dry land, and 640 m of
-##    clearance keeps it dry through the bilinear shoreline blend.
+##  * The arm's north shore stops at z=-2400, not the -3200 a straight halving
+##    gave. Halving the map moved the BASES inward as well (0.36 of the map to
+##    0.20), and a sea left at its old proportion put the +X base 2.07 km from
+##    the nearest water with only 1.5 km of shore pull to close it -- p1 could
+##    not build a naval yard at all, which is the exact fault the scenario
+##    sweep found and fixed the first time. The 4-player slot at (0, -1600)
+##    still keeps its ~170 m footprint dry with 800 m to spare.
 static func _coastal_shelf(rng: SimRng) -> SimTerrain:
-	var t := SimTerrain.new(160, 160, 100.0, "Coastal Shelf")     # 16 km
-	t.fill(70.0)
-	t.carve_sea_coast(-8000.0, -8000.0, -4200.0, 8000.0, 90.0, rng, 900.0, 12)
-	t.add_ridge(3000.0, -6000.0, 4200.0, 6000.0, 260.0, 1400.0)
-	t.carve_sea(-8000.0, -8000.0, 8000.0, -6400.0, 90.0)
-	t.add_noise(rng, 20.0, 11)
+	var t := SimTerrain.new(160, 160, 50.0, "Coastal Shelf")      # 8 km
+	t.fill(35.0)
+	t.carve_sea_coast(-4000.0, -4000.0, -2100.0, 4000.0, 45.0, rng, 450.0, 12)
+	t.add_ridge(1500.0, -3000.0, 2100.0, 3000.0, 130.0, 700.0)
+	t.carve_sea(-4000.0, -4000.0, 4000.0, -2400.0, 45.0)
+	t.add_noise(rng, 10.0, 11)
 	return t
 
 
@@ -150,19 +164,29 @@ static func oil_fields(terrain: SimTerrain, bases: Array) -> Array:
 	var out: Array = []
 	var hx := terrain.extent_x_m() * 0.5
 	var hz := terrain.extent_z_m() * 0.5
+	# Everything here is a fraction of the BASE RING, not of the map. The two
+	# are no longer the same thing -- bases sit at 0.20 of the map now -- and a
+	# contested ring measured off the map would have sat on top of the bases
+	# instead of between them.
+	var ring := 0.0
+	for b in bases:
+		ring += (b as Vector2).length()
+	ring = ring / maxf(float(bases.size()), 1.0)
+	if ring < 1.0:
+		ring = minf(hx, hz) * 0.20
 	for b in bases:
 		var home: Vector2 = b
 		var away := -home.normalized() if home.length() > 1.0 else Vector2(1, 0)
 		var side := Vector2(-away.y, away.x)
 		for s in [-1.0, 1.0]:
-			var pt: Vector2 = home + away * 520.0 + side * (s * 620.0)
+			var pt: Vector2 = home + away * (ring * 0.25) + side * (s * ring * 0.30)
 			if _dry(terrain, pt, hx, hz):
 				out.append(pt)
 	# The contested ring: as many fields as there are players, on the same
 	# circle, rotated half a step so they sit BETWEEN the bases rather than in
 	# front of them.
 	var n: int = maxi(bases.size(), 2)
-	var radius: float = minf(hx, hz) * 0.30
+	var radius: float = ring * 0.45
 	for k in range(n):
 		var a: float = TAU * (float(k) + 0.5) / float(n)
 		var pt := Vector2(cos(a), sin(a)) * radius
@@ -185,7 +209,11 @@ static func base_positions(terrain: SimTerrain, count: int) -> Array:
 	# author put between the bases would sit somewhere else entirely.
 	if SimMapFile.map_of(terrain) != null:
 		return SimMapFile.base_positions(terrain, count)
-	var radius: float = minf(terrain.extent_x_m(), terrain.extent_z_m()) * 0.36
+	# 0.36 of the map put the two bases on opposite rims with the whole thing
+	# between them. Halving the map got the crossing from 9.2 min to 4.6; this
+	# gets it to 2.6, which is a march rather than a commute, and still leaves
+	# the outer third of the map as ground to flank through and expand into.
+	var radius: float = minf(terrain.extent_x_m(), terrain.extent_z_m()) * 0.20
 	# A two-player match sits on the diagonal rather than on an axis: on the
 	# valley map that puts the ridge squarely between the two bases, which is
 	# the whole point of the map.
@@ -203,8 +231,11 @@ static func base_positions(terrain: SimTerrain, count: int) -> Array:
 ## Theatre DEMs are 900+ m per cell, and dragging a theatre base slot toward a
 ## coast that may be a hundred kilometres away is a different design decision
 ## -- their recorded probe results stay valid because they are exempt here.
-const SHORE_PULL_RANGE_M := 3000.0
-const SHORE_PULL_STEP_M := 50.0
+## Halved with the maps. At 3 km on an 8 km map the pull dragged the two base
+## slots onto opposite shores and put 4.95 km between them -- it was undoing
+## the very thing the smaller map was for.
+const SHORE_PULL_RANGE_M := 1500.0
+const SHORE_PULL_STEP_M := 25.0
 const SKIRMISH_CELL_MAX_M := 200.0
 
 
