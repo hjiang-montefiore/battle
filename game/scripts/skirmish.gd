@@ -40,6 +40,17 @@ var _audio: Node3D
 var _seen_impacts := 0
 var _seen_kills := 0
 var _seen_shots := 0
+## Control groups. Ctrl+N assigns the selection, N recalls it, N twice in
+## quick succession centres the camera on it -- the Red Alert convention, and
+## the reason a player can fight on two fronts without a minimap click.
+var _groups: Dictionary = {}
+var _flash_msg := ""
+var _flash_until := 0.0
+## Which tab of the production panel is showing.
+var _tab := "BUILDING"
+var _tab_bar: HBoxContainer
+var _last_group := -1
+var _last_group_t := -9.0
 var _me: int = 0
 var _my_team: int = 0
 
@@ -556,6 +567,19 @@ func _unhandled_input(ev: InputEvent) -> void:
 			_placing_role = ""
 			_refresh_panels()
 			return
+		# Right-click with a FACTORY selected sets its rally point -- the Red
+		# Alert gesture. Units already in the selection still get move orders.
+		var e := _match.world.entities
+		var set_rally := false
+		var pt := _ground_point(mb.position)
+		for i in _selected:
+			if e.is_alive(i) and e.is_structure[i] == 1:
+				_match.world.economy.set_rally(i, pt.x, pt.z)
+				set_rally = true
+		if set_rally:
+			_flash("rally point set")
+			if _audio != null:
+				_audio.flat("ui_order", -6.0)
 		_order(mb.position)
 
 
@@ -570,9 +594,45 @@ func _key(k: InputEventKey) -> void:
 		KEY_S:
 			for i in _selected:
 				_match.world.commands.stop(_me, i)
+		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
+			var n := k.keycode - KEY_0
+			if k.ctrl_pressed or k.meta_pressed:
+				# ASSIGN. Command works as well as Control because this is a
+				# Mac and muscle memory there is Command.
+				var g := PackedInt32Array()
+				for i in _selected:
+					g.append(i)
+				_groups[n] = g
+				_flash("group %d -- %d units" % [n, g.size()])
+			elif _groups.has(n):
+				# RECALL, and CENTRE if the same group is pressed twice inside
+				# half a second. Two meanings on one key is what makes this
+				# fast; separating them onto two keys is what makes it slow.
+				_selected.clear()
+				for i in (_groups[n] as PackedInt32Array):
+					if _match.world.entities.is_alive(i):
+						_selected.append(i)
+				var now := Time.get_ticks_msec() / 1000.0
+				if _last_group == n and now - _last_group_t < 0.5:
+					_centre_on_selection()
+				_last_group = n
+				_last_group_t = now
+				_refresh_panels()
 		KEY_H:
+			# HOME. The single most-pressed key in an RTS.
+			_frame_on_base()
+		KEY_P:
+			# Primary factory: bare production orders route here, and the
+			# panel queues to it. One factory selected = mark it.
+			var ep := _match.world.entities
+			for i in _selected:
+				if ep.is_alive(i) and ep.is_structure[i] == 1:
+					_match.world.economy.set_primary(_me, i)
+					_flash("primary structure set")
+					break
+		KEY_X:
 			# Weapons tight / weapons free. The other half of EMCON: a unit
-			# that shoots announces itself.
+			# that shoots announces itself. Moved off H, which is Home.
 			var fc := _match.world.fire_control
 			for i in _selected:
 				fc.set_hold_fire(i, not fc.is_holding_fire(i))
@@ -591,6 +651,35 @@ func _key(k: InputEventKey) -> void:
 			_speed = 1.0 if _speed > 1.5 else 3.0
 		KEY_F1:
 			_frame_on_base()
+
+
+## Put the camera over whatever is selected. Used by the double-tap on a
+## control group, and by nothing else -- Home goes to the base instead.
+## A short-lived line of text. Assigning a control group with no feedback is
+## indistinguishable from the key not working.
+func _flash(msg: String) -> void:
+	_flash_msg = msg
+	_flash_until = Time.get_ticks_msec() / 1000.0 + 2.0
+
+
+func _centre_on_selection() -> void:
+	if _selected.is_empty() or _rig == null:
+		return
+	var e := _match.world.entities
+	var cx := 0.0
+	var cz := 0.0
+	var n := 0
+	for i in _selected:
+		if e.is_alive(i):
+			cx += e.pos_x[i]
+			cz += e.pos_z[i]
+			n += 1
+	if n == 0:
+		return
+	cx /= float(n)
+	cz /= float(n)
+	_rig.position = Vector3(cx, _match.terrain.ground_under(cx, cz), cz)
+	_rig.call("_apply")
 
 
 func _ground_point(screen: Vector2) -> Vector3:
@@ -753,10 +842,24 @@ func _build_hud() -> void:
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(col)
-	col.add_child(_heading("BUILD  (place on the map)"))
+	# TABS, Red Alert style. One panel with categories beats two lists,
+	# because a player looking for a tank should not have to know whether a
+	# tank is "built" or "produced" -- that is an implementation detail of the
+	# economy, not a thing anyone thinks about while playing.
+	_tab_bar = HBoxContainer.new()
+	_tab_bar.add_theme_constant_override("separation", 2)
+	col.add_child(_tab_bar)
+	for name in TABS:
+		var b := Button.new()
+		b.text = TAB_LABEL[name]
+		b.custom_minimum_size = Vector2(0, 24)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 11)
+		b.pressed.connect(_on_tab.bind(name))
+		_tab_bar.add_child(b)
+
 	_build_box = VBoxContainer.new()
 	col.add_child(_build_box)
-	col.add_child(_heading("PRODUCE  (queued at a factory)"))
 	_produce_box = VBoxContainer.new()
 	col.add_child(_produce_box)
 
@@ -812,24 +915,77 @@ func _heading(text: String) -> Label:
 var _panel_signature := ""
 
 
+## The six tabs, in the order Red Alert puts them: what you build first, what
+## defends it, then the three arms, then the sea.
+const TABS := ["BUILDING", "DEFENSE", "INFANTRY", "VEHICLE", "AIR", "NAVY"]
+const TAB_LABEL := {
+	"BUILDING": "BLD", "DEFENSE": "DEF", "INFANTRY": "INF",
+	"VEHICLE": "VEH", "AIR": "AIR", "NAVY": "SEA",
+}
+
+## Which tab a role belongs in. Structures split by PURPOSE rather than by
+## being structures: a player thinks "I need defence", not "I need a building".
+const DEFENSIVE := ["fixed_sam", "coastal_battery", "bunker", "fixed_radar",
+	"ew_station"]
+
+
+func _tab_of(role: String, is_structure: bool) -> String:
+	if is_structure:
+		return "DEFENSE" if role in DEFENSIVE else "BUILDING"
+	var d := _match.world.economy.def_for(_me, role)
+	if d == null:
+		return "VEHICLE"
+	# domain is a SimPlayerSetup.Domain BIT, not an enum value, so test the bit.
+	if d.domain & SimPlayerSetup.Domain.AIR:
+		return "AIR"
+	if d.domain & SimPlayerSetup.Domain.NAVAL:
+		return "NAVY"
+	if d.domain & SimPlayerSetup.Domain.INFANTRY:
+		return "INFANTRY"
+	return "VEHICLE"
+
+
+func _on_tab(name: String) -> void:
+	_tab = name
+	_refresh_panels(true)
+
+
 func _refresh_panels(force := false) -> void:
 	if _build_box == null:
 		return
 	var structures := _match.buildable_structures(_me)
 	var units := _production_menu()
-	var sig := "%s|%s|%s" % [",".join(structures), ",".join(units), _placing_role]
+	var sig := "%s|%s|%s|%s" % [",".join(structures), ",".join(units),
+		_placing_role, _tab]
 	if sig == _panel_signature and not force:
 		return
 	_panel_signature = sig
 
+	if _tab_bar != null:
+		for i in range(_tab_bar.get_child_count()):
+			var b := _tab_bar.get_child(i) as Button
+			b.modulate = Color(1, 1, 1) if TABS[i] == _tab else Color(0.55, 0.58, 0.55)
+
 	for c in _build_box.get_children():
 		c.queue_free()
-	for role in structures:
-		_build_box.add_child(_role_button(role, true))
 	for c in _produce_box.get_children():
 		c.queue_free()
+
+	var shown := 0
+	for role in structures:
+		if _tab_of(role, true) == _tab:
+			_build_box.add_child(_role_button(role, true))
+			shown += 1
 	for role in units:
-		_produce_box.add_child(_role_button(role, false))
+		if _tab_of(role, false) == _tab:
+			_produce_box.add_child(_role_button(role, false))
+			shown += 1
+	if shown == 0:
+		var l := Label.new()
+		l.text = "nothing available\n(build the right structure first)"
+		l.add_theme_font_size_override("font_size", 11)
+		l.add_theme_color_override("font_color", Color(0.6, 0.62, 0.6))
+		_produce_box.add_child(l)
 
 
 ## Everything any factory this player owns could currently turn out, ascending

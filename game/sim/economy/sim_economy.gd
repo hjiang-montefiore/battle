@@ -200,6 +200,12 @@ func set_terrain(t: SimTerrain) -> void:
 
 ## Hand the economy the damage layer so docs/04's "air: destroyed" rule can be
 ## applied through its owner rather than behind its back.
+var movement: SimMovement = null
+
+func set_movement(m: SimMovement) -> void:
+	movement = m
+
+
 func set_damage(d: SimDamage) -> void:
 	damage = d
 
@@ -391,6 +397,33 @@ func sites_of(player_id: int) -> Array:
 ## factory dies. Charging in instalments would mean a queue that silently
 ## stalls when income dips, and "why is nothing coming out?" is the worst
 ## question an RTS economy can provoke.
+## Rally points and the primary factory, Red Alert style. Both are PER
+## STRUCTURE: set_rally() on a factory sends everything it produces to a point;
+## set_primary() marks the factory a bare "produce this" order routes to, and
+## the marker moves when the primary dies.
+var _rally: Dictionary = {}         ## structure unit -> Vector2
+var _primary: Dictionary = {}       ## player id -> structure unit
+
+
+func set_rally(structure_unit: int, x: float, z: float) -> void:
+	_rally[structure_unit] = Vector2(x, z)
+
+
+func rally_of(structure_unit: int) -> Variant:
+	return _rally.get(structure_unit)
+
+
+func set_primary(player_id: int, structure_unit: int) -> void:
+	_primary[player_id] = structure_unit
+
+
+func primary_of(player_id: int) -> int:
+	var s: int = _primary.get(player_id, -1)
+	if s >= 0 and entities.is_alive(s):
+		return s
+	return -1
+
+
 func queue_production(player_id: int, structure_unit: int, def_key: String) -> bool:
 	var p: Purse = _purses.get(player_id)
 	if p == null:
@@ -892,6 +925,11 @@ func _complete(player_id: int, job: Job) -> void:
 		_log("player %d could not place %s, refunded" % [player_id, job.key])
 		return
 	_log("player %d produced %s" % [player_id, d.key])
+	# Rally: a fresh unit walks to its factory's rally point rather than
+	# blocking the door. Issued through the same movement layer as any order.
+	var rally = _rally.get(job.structure_unit)
+	if rally != null and movement != null:
+		movement.order_move(i, rally.x, rally.y)
 
 
 ## Where a finished unit appears. Deterministic spiral outward from the

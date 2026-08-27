@@ -102,6 +102,7 @@ func _init(seed_value: int = 12345) -> void:
 	# them together here is what lets the economy apply it through its owner
 	# rather than behind its back.
 	economy.set_damage(damage)
+	economy.set_movement(movement)
 
 
 ## Load a theatre. Without one the world is a featureless plane, which is what

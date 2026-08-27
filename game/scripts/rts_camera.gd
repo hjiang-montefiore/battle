@@ -4,7 +4,14 @@ extends Node3D
 ## moves the ground point being looked at rather than the camera itself.
 
 @export var pan_speed := 42.0
-@export var edge_margin := 6.0
+## Screen-edge pan band, pixels. Red Alert 2 is played with the POINTER, not
+## with WASD -- the keyboard is for groups and orders. At 6 px this band was
+## effectively unhittable and the camera felt keyboard-only, which is the first
+## thing that made the controls feel wrong.
+@export var edge_margin := 28.0
+## The outer few pixels of that band pan faster, so a deliberate shove at the
+## screen edge crosses the map while a drifting pointer only nudges it.
+@export var edge_boost := 2.6
 @export var zoom_min := 18.0
 @export var zoom_max := 140.0
 @export var pitch_near := 38.0   ## shallower when zoomed in
@@ -46,17 +53,28 @@ func _process(dt: float) -> void:
 	# screen-edge pan, the RTS convention
 	var vp := get_viewport().get_visible_rect().size
 	var m := get_viewport().get_mouse_position()
+	var boost := 1.0
 	if m.x >= 0.0 and m.y >= 0.0 and m.x <= vp.x and m.y <= vp.y:
-		if m.x < edge_margin: move.x -= 1.0
-		elif m.x > vp.x - edge_margin: move.x += 1.0
-		if m.y < edge_margin: move.y -= 1.0
-		elif m.y > vp.y - edge_margin: move.y += 1.0
+		# Depth INTO the band scales speed: brushing the edge drifts, pinning
+		# the pointer against it moves properly.
+		if m.x < edge_margin:
+			move.x -= 1.0
+			boost = maxf(boost, lerpf(1.0, edge_boost, 1.0 - m.x / edge_margin))
+		elif m.x > vp.x - edge_margin:
+			move.x += 1.0
+			boost = maxf(boost, lerpf(1.0, edge_boost, 1.0 - (vp.x - m.x) / edge_margin))
+		if m.y < edge_margin:
+			move.y -= 1.0
+			boost = maxf(boost, lerpf(1.0, edge_boost, 1.0 - m.y / edge_margin))
+		elif m.y > vp.y - edge_margin:
+			move.y += 1.0
+			boost = maxf(boost, lerpf(1.0, edge_boost, 1.0 - (vp.y - m.y) / edge_margin))
 
 	if Input.is_action_pressed(&"cam_rot_l"): _yaw += dt * 1.1; _apply()
 	if Input.is_action_pressed(&"cam_rot_r"): _yaw -= dt * 1.1; _apply()
 
 	if move != Vector2.ZERO:
-		move = move.normalized()
+		move = move.normalized() * boost
 		# pan in the camera's own ground plane, scaled by zoom so it feels
 		# constant on screen at any altitude
 		# camera forward is (sin, cos); move.y is screen convention (W = -1), so
