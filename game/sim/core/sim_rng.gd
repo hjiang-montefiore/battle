@@ -61,3 +61,12 @@ func fork(salt: int) -> SimRng:
 
 func state() -> int:
 	return _state
+
+
+## Restore a previously saved state verbatim. This is NOT set_seed(): a seed is
+## scrambled defensively, a saved state must come back bit for bit so the
+## stream continues exactly where it left off. The zero guard still applies
+## because a zero state would latch the generator forever, and a legitimately
+## saved state can never be zero.
+func restore_state(saved: int) -> void:
+	_state = saved if saved != 0 else MULT

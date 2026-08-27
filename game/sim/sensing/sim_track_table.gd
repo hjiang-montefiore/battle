@@ -151,6 +151,36 @@ func emitters() -> Array:
 	return out
 
 
+# ── SAVE / LOAD (SimSave) ────────────────────────────────────────────────────
+# Every SimTrack field rides the generic capture, _truth_index included -- it
+# is sim-internal bookkeeping, and a save file is sim-internal. _by_truth is
+# derived and rebuilt rather than stored twice.
+
+func to_dict() -> Dictionary:
+	var tracks: Array = []
+	for id in track_ids():
+		tracks.append(SimSave.enc_props(_tracks[id]))
+	return {
+		"faction": faction,
+		"next_id": _next_id,
+		"controlled_engagement_cap": controlled_engagement_cap,
+		"tracks": tracks,
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	faction = int(d["faction"])
+	_next_id = int(d["next_id"])
+	controlled_engagement_cap = int(d["controlled_engagement_cap"])
+	_tracks.clear()
+	_by_truth.clear()
+	for td in (d["tracks"] as Array):
+		var t := SimTrack.new()
+		SimSave.dec_props(t, td)
+		_tracks[t.track_id] = t
+		_by_truth[t._truth_index] = t.track_id
+
+
 func describe() -> String:
 	var lines := PackedStringArray()
 	lines.append("faction %d -- %d track(s)" % [faction, _tracks.size()])

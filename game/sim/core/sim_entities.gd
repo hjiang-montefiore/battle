@@ -822,3 +822,37 @@ func range_remaining_m(i: int) -> float:
 func combat_radius_m(i: int) -> float:
 	var r := range_remaining_m(i)
 	return r if is_inf(r) else r * 0.35
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SAVE / LOAD (SimSave). Every parallel array, bit-exact, plus the per-unit
+# sensor lists. The generic property capture in SimSave picks up every packed
+# array declared above -- a new column added to this store is saved the moment
+# it exists, with no field list here to go stale.
+# ═══════════════════════════════════════════════════════════════════════════
+
+func to_dict() -> Dictionary:
+	var d := SimSave.enc_props(self, ["sensors"])
+	d["_count"] = _count
+	var sens := {}
+	for i in sensors:
+		var defs: Array = []
+		for s in sensors[i]:
+			defs.append(SimSave.enc_props(s))
+		sens[str(i)] = defs
+	d["sensors"] = sens
+	return d
+
+
+func from_dict(d: Dictionary) -> void:
+	SimSave.dec_props(self, d)
+	_count = int(d["_count"])
+	sensors.clear()
+	var sens: Dictionary = d.get("sensors", {})
+	for k in sens:
+		var defs: Array = []
+		for sd in (sens[k] as Array):
+			var def := SimSensorDef.new()
+			SimSave.dec_props(def, sd)
+			defs.append(def)
+		sensors[int(String(k))] = defs

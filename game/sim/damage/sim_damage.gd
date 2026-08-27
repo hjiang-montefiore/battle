@@ -151,5 +151,17 @@ func log_event(line: String) -> void:
 		combat_log.pop_front()
 
 
+# ── SAVE / LOAD (SimSave). The spine surface delegates to the model, exactly
+# as step() and resolve_impact() do. rng here IS the resolver's stream (one
+# instance, handed through _init), so it is saved once, inside the resolver.
+
+func to_dict() -> Dictionary:
+	return resolver.to_dict()
+
+
+func from_dict(d: Dictionary) -> void:
+	resolver.from_dict(d)
+
+
 func describe() -> String:
 	return resolver.describe()

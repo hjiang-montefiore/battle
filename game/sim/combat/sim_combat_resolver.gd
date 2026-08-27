@@ -396,6 +396,45 @@ func has_blowout_panels(unit: int) -> bool:
 		SimArmorScheme.default_blowout(entities.armor_class[unit]))
 
 
+# ── SAVE / LOAD (SimSave) ────────────────────────────────────────────────────
+# Fires, shaken crews, wreck clocks, blowout overrides, counters and the rng
+# stream. combat_log is cosmetic and dropped; _expired lives within one step.
+
+func to_dict() -> Dictionary:
+	var burning := {}
+	var keys: Array = _burning.keys()
+	keys.sort()
+	for u in keys:
+		var s: Array = _burning[u]
+		burning[str(u)] = [SimSave.enc_float(s[0]), SimSave.enc_float(s[1])]
+	return {
+		"burning": burning,
+		"shaken": SimSave.enc_ib(_shaken),
+		"wrecks": SimSave.enc_if(_wrecks),
+		"blowout": SimSave.enc_ib(_blowout),
+		"wreck_linger_s": SimSave.enc_float(wreck_linger_s),
+		"wrecks_expired": wrecks_expired,
+		"counters": [impacts_resolved, penetrations, defeats, impossible, kills],
+		"rng": str(rng.state()),
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	_burning.clear()
+	for k in (d["burning"] as Dictionary):
+		var s: Array = d["burning"][k]
+		_burning[int(String(k))] = [SimSave.dec_float(s[0]), SimSave.dec_float(s[1])]
+	_shaken = SimSave.dec_ib(d["shaken"])
+	_wrecks = SimSave.dec_if(d["wrecks"])
+	_blowout = SimSave.dec_ib(d["blowout"])
+	wreck_linger_s = SimSave.dec_float(d["wreck_linger_s"])
+	wrecks_expired = int(d["wrecks_expired"])
+	var c: Array = d["counters"]
+	impacts_resolved = int(c[0]); penetrations = int(c[1]); defeats = int(c[2])
+	impossible = int(c[3]); kills = int(c[4])
+	rng.restore_state(int(String(d["rng"])))
+
+
 func _log(target: int, line: String) -> void:
 	combat_log.append("%-12s %s" % [entities.names[target], line])
 	if combat_log.size() > max_log:

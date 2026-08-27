@@ -544,6 +544,48 @@ func _log(line: String) -> void:
 		event_log.pop_front()
 
 
+# ── SAVE / LOAD (SimSave) ────────────────────────────────────────────────────
+# Pending boardings (with the approach point they were issued at -- the
+# retarget/cancel logic compares against it), the per-unit overrides, the
+# cargo-loss watch, and the counters. event_log is cosmetic and dropped. The
+# cargo state itself (carried_by / cargo_slots / deploy_state / deploy_timer)
+# lives in SimEntities and rides its arrays.
+
+func to_dict() -> Dictionary:
+	var dest := {}
+	for u in _pending_dest:
+		dest[str(u)] = SimSave.enc_v2(_pending_dest[u])
+	var dep := {}
+	for u in _deploy_override:
+		dep[str(u)] = SimSave.enc_v3(_deploy_override[u])
+	return {
+		"pending_load": SimSave.enc_ii(_pending_load),
+		"pending_dest": dest,
+		"slot_cost_override": SimSave.enc_ii(_slot_cost_override),
+		"vehicle_deck_override": SimSave.enc_ib(_vehicle_deck_override),
+		"deploy_override": dep,
+		"manifest_watch": SimSave.enc_ii(_manifest_watch),
+		"counters": [loads_completed, loads_cancelled, unloads_completed],
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	_pending_load = SimSave.dec_ii(d["pending_load"])
+	_pending_dest.clear()
+	for k in (d["pending_dest"] as Dictionary):
+		_pending_dest[int(String(k))] = SimSave.dec_v2(d["pending_dest"][k])
+	_slot_cost_override = SimSave.dec_ii(d["slot_cost_override"])
+	_vehicle_deck_override = SimSave.dec_ib(d["vehicle_deck_override"])
+	_deploy_override.clear()
+	for k in (d["deploy_override"] as Dictionary):
+		_deploy_override[int(String(k))] = SimSave.dec_v3(d["deploy_override"][k])
+	_manifest_watch = SimSave.dec_ii(d["manifest_watch"])
+	var c: Array = d["counters"]
+	loads_completed = int(c[0])
+	loads_cancelled = int(c[1])
+	unloads_completed = int(c[2])
+
+
 func describe() -> String:
 	return "transport: %d loaded, %d unloaded, %d cancelled, %d pending" % [
 		loads_completed, unloads_completed, loads_cancelled,

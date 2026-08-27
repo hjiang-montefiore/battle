@@ -387,6 +387,48 @@ func _contribute(observer: int, sensor: SimSensorDef, target: int,
 		entities.is_emitting(target))
 
 
+# ── SAVE / LOAD (SimSave) ────────────────────────────────────────────────────
+# The track tables are the factions' entire pictures and are saved whole. The
+# LOS cache is saved too, deliberately: it is NOT a pure memo -- each entry
+# carries the historical endpoints it was marched from, stale by up to
+# LOS_CACHE_M, so an emptied cache can answer a ridge-crest case differently
+# from a warm one and diverge the replay. The per-solve scratch (_jammers,
+# _jnr_cache, _alt_cache) IS dropped: it is cleared at the top of every solve
+# before any read.
+
+func to_dict() -> Dictionary:
+	var tabs := {}
+	for f in faction_ids():
+		tabs[str(f)] = (tables[f] as SimTrackTable).to_dict()
+	var los := {}
+	for k in _los_cache:
+		var e: Array = _los_cache[k]
+		los[str(k)] = [bool(e[0]), SimSave.enc_float(e[1]), SimSave.enc_float(e[2]),
+			SimSave.enc_float(e[3]), SimSave.enc_float(e[4])]
+	return {"tables": tabs, "los_cache": los}
+
+
+func from_dict(d: Dictionary) -> void:
+	# IN PLACE, never `tables.clear()` + recreate: an AI's SimAiWorldView (and
+	# anything else wired before apply_dict) holds a REFERENCE to its faction's
+	# table object. Replacing the object would leave every such holder reading
+	# an orphaned, forever-empty table -- a restored AI would go blind while the
+	# sim's own picture stayed correct, which is exactly the divergence the
+	# golden test caught at the first tactical tick after a mid-battle load.
+	var saved := d["tables"] as Dictionary
+	for f in tables.keys().duplicate():
+		if not saved.has(str(f)):
+			tables.erase(f)
+	for k in saved:
+		var t := table_for(int(String(k)))
+		t.from_dict(saved[k])
+	_los_cache.clear()
+	for k in (d["los_cache"] as Dictionary):
+		var e: Array = d["los_cache"][k]
+		_los_cache[int(String(k))] = [bool(e[0]), SimSave.dec_float(e[1]),
+			SimSave.dec_float(e[2]), SimSave.dec_float(e[3]), SimSave.dec_float(e[4])]
+
+
 ## Classification comes from different sources than position (docs/02 §5.1).
 ## The inversion worth building the system for: a PASSIVE sensor with a poor
 ## position solution delivers BETTER classification than an active one with a

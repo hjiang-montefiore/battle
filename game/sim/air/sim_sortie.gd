@@ -738,3 +738,49 @@ func _note(line: String) -> void:
 func describe() -> String:
 	return "sorties %d  recoveries %d  diverts %d  standing %d" % [
 		sorties_flown, recoveries, diverts, _tasks.size()]
+
+
+# ── SAVE / LOAD (SimSave) ────────────────────────────────────────────────────
+# The standing orders (with their orbit legs, station clocks, turnaround
+# timers and loadout snapshots), last_rtb (the docs/04 margin evidence the
+# tests read), and the counters. The aircraft's own sortie_state and home_base
+# ride SimEntities. The text log is cosmetic and dropped.
+
+func to_dict() -> Dictionary:
+	var tasks := {}
+	var units: Array = _tasks.keys()
+	units.sort()
+	for u in units:
+		tasks[str(u)] = SimSave.enc_props(_tasks[u])
+	var rtb := {}
+	for u in last_rtb:
+		var e: Dictionary = last_rtb[u]
+		var row := {}
+		for k in e:
+			row[String(k)] = SimSave.enc_float(e[k]) if e[k] is float else e[k]
+		rtb[str(u)] = row
+	return {
+		"tasks": tasks,
+		"last_rtb": rtb,
+		"counters": [sorties_flown, recoveries, diverts],
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	_tasks.clear()
+	for k in (d["tasks"] as Dictionary):
+		var t := Task.new()
+		SimSave.dec_props(t, d["tasks"][k])
+		_tasks[int(String(k))] = t
+	last_rtb.clear()
+	for k in (d["last_rtb"] as Dictionary):
+		var row := {}
+		var e: Dictionary = d["last_rtb"][k]
+		for rk in e:
+			row[String(rk)] = SimSave.dec_float(e[rk]) if not (e[rk] is String) \
+				else String(e[rk])
+		last_rtb[int(String(k))] = row
+	var c: Array = d["counters"]
+	sorties_flown = int(c[0])
+	recoveries = int(c[1])
+	diverts = int(c[2])

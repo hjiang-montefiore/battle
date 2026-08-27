@@ -483,6 +483,64 @@ func arrivals() -> Array:
 	return out
 
 
+# ── SAVE / LOAD (SimSave) ────────────────────────────────────────────────────
+# Every in-flight round is saved whole -- its full kinematic state plus its own
+# munition def, because a projectile mid-flight must fly on with exactly the
+# properties it launched with, whatever the arsenal tables say today. The pool
+# is rebuilt holding exactly the live rounds; free-slot bookkeeping is an
+# allocator detail with no behavioural weight. last_impacts is dropped: it is
+# cleared at the top of every step and its consumer (the combat slot) ran in
+# the same tick that filled it. combat_log is cosmetic and dropped.
+
+func to_dict() -> Dictionary:
+	var rounds: Array = []
+	for idx in _active:
+		var p: SimProjectile = _pool[idx]
+		if not p.alive:
+			continue
+		rounds.append({
+			"p": SimSave.enc_props(p, ["def"]),
+			"def": SimSave.enc_props(p.def),
+		})
+	return {
+		"launched": launched,
+		"terminated": terminated,
+		"flares": SimSave.enc_if(_flares),
+		"chaff": SimSave.enc_if(_chaff),
+		"noise": SimSave.enc_if(_noise),
+		"flare_seq": SimSave.enc_ii(_flare_seq),
+		"chaff_seq": SimSave.enc_ii(_chaff_seq),
+		"noise_seq": SimSave.enc_ii(_noise_seq),
+		"aps": SimSave.enc_ii(_aps),
+		"rng": str(rng.state()),
+		"active": rounds,
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	launched = int(d["launched"])
+	terminated = int(d["terminated"])
+	_flares = SimSave.dec_if(d["flares"])
+	_chaff = SimSave.dec_if(d["chaff"])
+	_noise = SimSave.dec_if(d["noise"])
+	_flare_seq = SimSave.dec_ii(d["flare_seq"])
+	_chaff_seq = SimSave.dec_ii(d["chaff_seq"])
+	_noise_seq = SimSave.dec_ii(d["noise_seq"])
+	_aps = SimSave.dec_ii(d["aps"])
+	rng.restore_state(int(String(d["rng"])))
+	_pool = []
+	_active = []
+	_free = []
+	last_impacts = []
+	for rd in (d["active"] as Array):
+		var p := SimProjectile.new()
+		SimSave.dec_props(p, rd["p"])
+		p.def = SimMunitionDef.new()
+		SimSave.dec_props(p.def, rd["def"])
+		_pool.append(p)
+		_active.append(_pool.size() - 1)
+
+
 ## Where to aim a ballistic round so it ARRIVES at (tx, ty, tz).
 ##
 ## The low-arc solution to the vacuum trajectory, then a drag correction. The

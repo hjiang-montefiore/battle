@@ -185,3 +185,30 @@ func forget_expired(now: float) -> void:
 func clear_claims() -> void:
 	for id in ids():
 		(_beliefs[id] as Belief).claimed_by = -1
+
+
+# ── SAVE / LOAD (SimSave). Beliefs are the AI's memory BETWEEN ticks -- the
+# reaction clock, the last known positions, the blackout search objectives --
+# so they are state in the fullest sense and every field rides the capture.
+
+func to_dict() -> Dictionary:
+	var beliefs: Array = []
+	for id in ids():
+		beliefs.append(SimSave.enc_props(_beliefs[id]))
+	return {
+		"horizon_s": SimSave.enc_float(horizon_s),
+		"max_beliefs": max_beliefs,
+		"forgotten": forgotten,
+		"beliefs": beliefs,
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	horizon_s = SimSave.dec_float(d["horizon_s"])
+	max_beliefs = int(d["max_beliefs"])
+	forgotten = int(d["forgotten"])
+	_beliefs.clear()
+	for bd in (d["beliefs"] as Array):
+		var b := Belief.new()
+		SimSave.dec_props(b, bd)
+		_beliefs[b.track_id] = b

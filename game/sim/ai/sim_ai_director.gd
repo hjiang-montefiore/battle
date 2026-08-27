@@ -1242,6 +1242,107 @@ func _enabler_likelihood(track: SimTrack) -> float:
 	return e
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# SAVE / LOAD (SimSave)
+#
+# Everything the director accumulates between ticks: the layer accumulators,
+# the posture, home, the group roster, the belief memory, the adaptation
+# counters, the per-unit order/assignment memories, the seeded search route
+# and the rng stream. The doctrine's dials are saved too -- adapt() moves them
+# during play, and the doctrine OBJECT is shared with the player's setup, so
+# restoring writes the saved dials back into that same instance.
+#
+# NOT saved, and why it is safe: `loadouts` is rebuilt in _init as a pure
+# function of SimAiRoles (set_loadout is a test-only hook no match calls);
+# _role_cache memoises unit name/category, both immutable after spawn;
+# decision_log is cosmetic.
+# ═══════════════════════════════════════════════════════════════════════════
+
+func to_dict() -> Dictionary:
+	var groups_out: Array = []
+	for g in groups:
+		groups_out.append(SimSave.enc_props(g))
+	var last_move := {}
+	for u in _last_move:
+		var e: Array = _last_move[u]
+		last_move[str(u)] = [SimSave.enc_float(e[0]), SimSave.enc_float(e[1]),
+			SimSave.enc_float(e[2])]
+	var assigned := {}
+	for u in _assigned:
+		var e: Array = _assigned[u]
+		assigned[str(u)] = [int(e[0]), SimSave.enc_float(e[1])]
+	return {
+		"player_id": view.player_id if view != null else -1,
+		"faction": view.tracks.faction if view != null and view.tracks != null else 0,
+		"rng": str(rng.state()),
+		"skill": skill,
+		"doctrine": SimSave.enc_props(doctrine),
+		"accums": [SimSave.enc_float(_strategic_accum),
+			SimSave.enc_float(_operational_accum), SimSave.enc_float(_tactical_accum)],
+		"elapsed_s": SimSave.enc_float(elapsed_s),
+		"memory": memory.to_dict(),
+		"groups": groups_out,
+		"posture": posture,
+		"home": [SimSave.enc_float(home_x), SimSave.enc_float(home_z), has_home],
+		"orders": [orders_moved, orders_attacked, orders_emcon,
+			orders_production, epoch_advances_requested],
+		"next_group_id": _next_group_id,
+		"last_move": last_move,
+		"assigned": assigned,
+		"search_points": SimSave.b64_f32(_search_points),
+		"search_cursor": _search_cursor,
+		"adapt": [_peak_live_tracks, _prev_own_total, _prev_sensor_count,
+			_losses_since_strategic, _sensor_losses_since_strategic],
+		"datalink_up": _datalink_up,
+		"last_build_s": SimSave.enc_float(_last_build_s),
+		"withdrawn": SimSave.enc_ib(_withdrawn),
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	rng.restore_state(int(String(d["rng"])))
+	skill = int(d["skill"])
+	SimSave.dec_props(doctrine, d["doctrine"])
+	var a: Array = d["accums"]
+	_strategic_accum = SimSave.dec_float(a[0])
+	_operational_accum = SimSave.dec_float(a[1])
+	_tactical_accum = SimSave.dec_float(a[2])
+	elapsed_s = SimSave.dec_float(d["elapsed_s"])
+	memory.from_dict(d["memory"])
+	groups.clear()
+	for gd in (d["groups"] as Array):
+		var g := SimAiGroup.new()
+		SimSave.dec_props(g, gd)
+		groups.append(g)
+	posture = int(d["posture"])
+	var h: Array = d["home"]
+	home_x = SimSave.dec_float(h[0]); home_z = SimSave.dec_float(h[1])
+	has_home = bool(h[2])
+	var o: Array = d["orders"]
+	orders_moved = int(o[0]); orders_attacked = int(o[1])
+	orders_emcon = int(o[2]); orders_production = int(o[3])
+	epoch_advances_requested = int(o[4])
+	_next_group_id = int(d["next_group_id"])
+	_last_move.clear()
+	for k in (d["last_move"] as Dictionary):
+		var e: Array = d["last_move"][k]
+		_last_move[int(String(k))] = [SimSave.dec_float(e[0]),
+			SimSave.dec_float(e[1]), SimSave.dec_float(e[2])]
+	_assigned.clear()
+	for k in (d["assigned"] as Dictionary):
+		var e: Array = d["assigned"][k]
+		_assigned[int(String(k))] = [int(e[0]), SimSave.dec_float(e[1])]
+	_search_points = SimSave.un_f32(String(d["search_points"]))
+	_search_cursor = int(d["search_cursor"])
+	var ad: Array = d["adapt"]
+	_peak_live_tracks = int(ad[0]); _prev_own_total = int(ad[1])
+	_prev_sensor_count = int(ad[2]); _losses_since_strategic = int(ad[3])
+	_sensor_losses_since_strategic = int(ad[4])
+	_datalink_up = bool(d["datalink_up"])
+	_last_build_s = SimSave.dec_float(d["last_build_s"])
+	_withdrawn = SimSave.dec_ib(d["withdrawn"])
+
+
 ## The debug view docs/09 §1.6 asks for: what this AI believes, beside what it
 ## has decided. Print it next to ground truth and a leak is visible by eye.
 func describe() -> String:

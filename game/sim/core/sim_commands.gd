@@ -208,3 +208,30 @@ func note_rejected() -> void:
 
 func clear() -> void:
 	_pending.clear()
+
+
+# ── SAVE / LOAD (SimSave). The queue is drained every tick, so a between-tick
+# save normally finds it empty -- but a save taken after the UI submitted and
+# before the tick executed must not eat those orders.
+
+func to_dict() -> Dictionary:
+	var pending: Array = []
+	for c in _pending:
+		pending.append(SimSave.enc_props(c))
+	return {
+		"pending": pending,
+		"submitted": submitted,
+		"executed": executed,
+		"rejected": rejected,
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	_pending.clear()
+	for cd in (d["pending"] as Array):
+		var c := Command.new()
+		SimSave.dec_props(c, cd)
+		_pending.append(c)
+	submitted = int(d["submitted"])
+	executed = int(d["executed"])
+	rejected = int(d["rejected"])

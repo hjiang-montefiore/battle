@@ -85,6 +85,40 @@ const BASE_STEMS := {
 	"at_team": "inf_e6_us_at", "manpads_team": "inf_e6_us_manpads",
 	"mortar_team": "inf_e6_us_mortar", "recon_team": "inf_e6_us_recon",
 	"special_forces": "inf_e6_us_sf", "engineer_squad": "inf_e6_us_engineer",
+
+	# AIR. These were absent, so every aircraft the economy spawned rendered as
+	# a grey placeholder block -- including the AEW&C aircraft the whole
+	# datalink pillar is built around. The art has existed for all of them.
+	#
+	# Two rows in docs/12 and the art pipeline do not line up, and both are
+	# left alone here rather than papered over:
+	#   - "transport_aircraft" is a docs/12 role with NO model. It falls
+	#     through to "" and keeps rendering as a block, which is honest.
+	#   - the B-2 (air_e4_us_stealthbomber) is a MODEL WITH NO ROLE. docs/12
+	#     has no stealth bomber. It would slot naturally into the epoch ladder
+	#     as the epoch-4 "bomber" -- by epoch 4 a non-stealthy heavy cannot
+	#     penetrate, which is the design's own argument -- but that is a roster
+	#     decision, not an asset-wiring one, so "bomber" stays on the B-52.
+	"interceptor": "air_e1_us_interceptor",
+	"air_superiority": "air_e4_us_superiority",
+	"multirole": "air_e4_us_multirole",
+	"strike_aircraft": "air_e4_us_strike",
+	"cas": "air_e1_us_cas",
+	"bomber": "air_e1_us_bomber",
+	"sead": "air_e2_us_sead",
+	"stealth_strike": "air_e4_us_stealth",
+	"aewc": "aew_e3_us_aewc",
+	"aew_helicopter": "aew_e3_uk_aewhelo",
+	"electronic_attack": "ewa_e2_us_electronic",
+	"tanker": "tkr_e2_us_tanker",
+	"isr_aircraft": "isr_e1_us_recon",
+	"maritime_patrol": "mpa_e1_us_maritime",
+	"attack_helicopter": "hel_e3_us_attack",
+	"transport_helicopter": "hel_e2_us_transport",
+	"asw_helicopter": "hel_e2_us_asw",
+	"recon_uav": "uav_e5_us_recon",
+	"armed_uav": "uav_e6_us_armed",
+	"loitering_munition": "uav_e7_us_loiter",
 }
 
 const UNITS_DIR := "res://assets/units"

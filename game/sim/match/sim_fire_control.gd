@@ -194,6 +194,26 @@ func _range_km(unit: int, track: SimTrack) -> float:
 	return sqrt(dx * dx + dy * dy + dz * dz) / 1000.0
 
 
+# ── SAVE / LOAD (SimSave) ────────────────────────────────────────────────────
+
+func to_dict() -> Dictionary:
+	return {
+		"hold": SimSave.enc_ib(_hold),
+		"manual": SimSave.enc_ib(_manual),
+		"assignments": assignments,
+		"reassignments": reassignments,
+		"accum": SimSave.enc_float(_accum),
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	_hold = SimSave.dec_ib(d["hold"])
+	_manual = SimSave.dec_ib(d["manual"])
+	assignments = int(d["assignments"])
+	reassignments = int(d["reassignments"])
+	_accum = SimSave.dec_float(d["accum"])
+
+
 func describe() -> String:
 	return "fire control: %d assignments, %d reassignments, %d holding fire" % [
 		assignments, reassignments, _hold.size()]

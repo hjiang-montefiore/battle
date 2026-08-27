@@ -269,5 +269,59 @@ func recent_log(n := 12) -> String:
 	return "\n".join(gate_log.slice(start))
 
 
+# ── SAVE / LOAD (SimSave) ────────────────────────────────────────────────────
+# Mounts are saved with their whole weapon and munition defs rather than
+# re-armed from SimArsenal, because docs/11 makes ammunition retroactively
+# upgradeable: what a unit is holding NOW is state, not a function of its
+# role. gate_log/last_refusal are cosmetic and dropped.
+
+func to_dict() -> Dictionary:
+	var mounts := {}
+	var units: Array = _mounts.keys()
+	units.sort()
+	for u in units:
+		var rows: Array = []
+		for m in _mounts[u]:
+			var mount := m as Mount
+			rows.append({
+				"w": SimSave.enc_props(mount.weapon),
+				"m": SimSave.enc_props(mount.munition),
+				"reload_s": SimSave.enc_float(mount.reload_s),
+				"timer": SimSave.enc_float(mount.timer),
+				"rounds": mount.rounds,
+				"fired": mount.fired,
+			})
+		mounts[str(u)] = rows
+	return {
+		"mounts": mounts,
+		"engaging": SimSave.enc_ii(_engaging),
+		"shots_fired": shots_fired,
+		"refusals": refusals,
+		"rng": str(rng.state()),
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	_mounts.clear()
+	for uk in (d["mounts"] as Dictionary):
+		var rows: Array = []
+		for md in (d["mounts"][uk] as Array):
+			var mount := Mount.new()
+			mount.weapon = SimWeaponDef.new()
+			SimSave.dec_props(mount.weapon, md["w"])
+			mount.munition = SimMunitionDef.new()
+			SimSave.dec_props(mount.munition, md["m"])
+			mount.reload_s = SimSave.dec_float(md["reload_s"])
+			mount.timer = SimSave.dec_float(md["timer"])
+			mount.rounds = int(md["rounds"])
+			mount.fired = int(md["fired"])
+			rows.append(mount)
+		_mounts[int(String(uk))] = rows
+	_engaging = SimSave.dec_ii(d["engaging"])
+	shots_fired = int(d["shots_fired"])
+	refusals = int(d["refusals"])
+	rng.restore_state(int(String(d["rng"])))
+
+
 func is_implemented() -> bool:
 	return true

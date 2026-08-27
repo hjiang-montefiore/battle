@@ -386,6 +386,119 @@ func buildable_structures(player_id: int) -> PackedStringArray:
 	return out
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# SAVE / LOAD (SimSave)
+#
+# The match dict carries what _begin() cannot rebuild from the world snapshot:
+# the setup (players, doctrines, tech limits), the arena key, the seats, the
+# bases and the victory standings. from_save() rebuilds the SHELL exactly the
+# way _begin() does -- same wiring, same registration order -- except that it
+# deploys nobody and builds no arena: the units come back through the entity
+# snapshot and the terrain comes back bit-exact from the save, so the restored
+# match cannot drift from the saved one even if SimArena's generators change.
+# ═══════════════════════════════════════════════════════════════════════════
+
+func to_dict() -> Dictionary:
+	var players: Array = []
+	for p in setup.players:
+		var ps := p as SimPlayerSetup
+		players.append({
+			"p": SimSave.enc_props(ps, ["doctrine"]),
+			"doctrine": SimSave.enc_props(ps.doctrine),
+			"tech_floor": _tech_dict_out(ps.tech_floor),
+			"tech_ceiling": _tech_dict_out(ps.tech_ceiling),
+		})
+	var bases := {}
+	for pid in _base_of:
+		bases[str(pid)] = SimSave.enc_v2(_base_of[pid])
+	return {
+		"setup": {
+			"name": setup.name,
+			"seed": str(setup.seed_value),
+			"players": players,
+		},
+		"arena_key": arena_key,
+		"autopilot_human": autopilot_human,
+		"phase": phase,
+		"bases": bases,
+		"victory": victory.to_dict(),
+	}
+
+
+## Rebuild a match from a SimSave dictionary. SimSave.restore() is the caller;
+## it has already checked the format version.
+static func from_save(d: Dictionary) -> SimMatch:
+	var md: Dictionary = d["match"]
+	var wd: Dictionary = d["world"]
+	var sd: Dictionary = md["setup"]
+
+	var s := SimMatchSetup.new()
+	s.name = String(sd["name"])
+	s.seed_value = int(String(sd["seed"]))
+	for pd in (sd["players"] as Array):
+		var p := SimPlayerSetup.new({})
+		SimSave.dec_props(p, pd["p"])
+		SimSave.dec_props(p.doctrine, pd["doctrine"])
+		p.tech_floor = _tech_dict_in(pd["tech_floor"])
+		p.tech_ceiling = _tech_dict_in(pd["tech_ceiling"])
+		s.add(p)
+
+	var m := SimMatch.new()
+	m.setup = s
+	m.arena_key = String(md["arena_key"])
+	m.autopilot_human = bool(md["autopilot_human"])
+
+	# The shell, mirroring _begin() line for line -- minus arena generation and
+	# minus deployment, both of which the snapshot supersedes.
+	m.world = SimWorld.new(s.seed_value)
+	m.terrain = SimSave.terrain_from_dict(wd["terrain"])
+	m.world.use_terrain(m.terrain)
+	m.world.movement.prime_terrain(SimTypes.Category.GROUND)
+	m.world.arm_on_spawn = true
+	m.world.fire_control = SimFireControl.new(
+		m.world.entities, m.world.weapons, m.world.solver, m.world.economy)
+	SimSortie.install(m.world)
+	SimPatrol.install(m.world)
+	SimTransport.install(m.world)
+	m.victory = SimVictory.new(m.world.entities, m.world.economy, m.world.damage)
+	for pid in range(s.players.size()):
+		var p := s.players[pid] as SimPlayerSetup
+		var purse := m.world.economy.add_player_from_setup(
+			pid, p, DEFAULT_START_CREDITS)
+		purse.faction = p.team
+		m.victory.add_player(pid, p.team, p.name, p.is_human)
+		if p.is_human:
+			m.human_player_id = pid
+			if m.autopilot_human:
+				m.world.add_ai(pid, p.team, p)
+		else:
+			m.world.add_ai(pid, p.team, p)
+
+	for k in (md["bases"] as Dictionary):
+		m._base_of[int(String(k))] = SimSave.dec_v2(md["bases"][k])
+	m.world.apply_dict(wd)
+	m.victory.from_dict(md["victory"])
+	m.phase = int(md["phase"])
+	return m
+
+
+## The per-ladder tech limits are String -> int dictionaries; the generic
+## capture skips dictionaries by policy, so they ride explicitly. Values are
+## coerced back to int because max_generation() has a typed int return.
+static func _tech_dict_out(d: Dictionary) -> Dictionary:
+	var out := {}
+	for k in d:
+		out[String(k)] = int(d[k])
+	return out
+
+
+static func _tech_dict_in(d: Dictionary) -> Dictionary:
+	var out := {}
+	for k in d:
+		out[String(k)] = int(d[k])
+	return out
+
+
 func _note(line: String) -> void:
 	if line == "":
 		return

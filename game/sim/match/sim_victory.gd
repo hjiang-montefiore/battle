@@ -327,6 +327,40 @@ func _note(line: String) -> void:
 		events.remove_at(0)
 
 
+# ── SAVE / LOAD (SimSave) ────────────────────────────────────────────────────
+# The standings ARE the match's fates: capitulation clocks included, because a
+# player saved sixty seconds into a collapse must still have sixty to go.
+# newly_eliminated and events are drained by the match layer in the same tick
+# they are filled, and are dropped.
+
+func to_dict() -> Dictionary:
+	var standings := {}
+	for pid in _order:
+		standings[str(pid)] = SimSave.enc_props(_standings[pid])
+	return {
+		"standings": standings,
+		"outcome": outcome,
+		"winning_team": winning_team,
+		"elapsed_s": SimSave.enc_float(elapsed_s),
+		"time_limit_s": SimSave.enc_float(time_limit_s),
+		"accum": SimSave.enc_float(_accum),
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	for pk in (d["standings"] as Dictionary):
+		var pid := int(String(pk))
+		var s: Standing = _standings.get(pid)
+		if s == null:
+			s = add_player(pid, 0, "Player", false)
+		SimSave.dec_props(s, d["standings"][pk])
+	outcome = int(d["outcome"])
+	winning_team = int(d["winning_team"])
+	elapsed_s = SimSave.dec_float(d["elapsed_s"])
+	time_limit_s = SimSave.dec_float(d["time_limit_s"])
+	_accum = SimSave.dec_float(d["accum"])
+
+
 func outcome_name() -> String:
 	match outcome:
 		Outcome.VICTORY: return "VICTORY"
