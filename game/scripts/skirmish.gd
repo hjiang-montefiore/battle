@@ -482,12 +482,12 @@ func _make_proxy(i: int) -> Node3D:
 	var e := _match.world.entities
 	var holder := Node3D.new()
 	holder.name = "u%d" % i
-	var role := _match.world.economy.role_of(i)
-	var glb := _model_for(role)
+	var glb := _model_for(_match.world.economy.def_of(i))
 	if glb != "" and ResourceLoader.exists(glb):
 		holder.add_child((load(glb) as PackedScene).instantiate())
 		return holder
-	holder.add_child(_block(role, e.is_structure[i] == 1, e.faction[i]))
+	holder.add_child(_block(_match.world.economy.role_of(i),
+		e.is_structure[i] == 1, e.faction[i]))
 	return holder
 
 
@@ -516,42 +516,15 @@ func _block(role: String, is_structure: bool, faction: int) -> MeshInstance3D:
 	return mi
 
 
-const MODELS := {
-	"apc": "afv_e4_us_apc", "ifv": "afv_e4_us_ifv",
-	"atgm_carrier": "afv_e4_us_atgm", "light_tank": "afv_e4_us_tankdestroyer",
-	"recon_vehicle": "rec_e4_us_recon", "sph": "art_e4_us_sph",
-	"mlrs": "art_e4_us_mlrs", "towed_artillery": "art_e4_us_towed",
-	"mortar_carrier": "art_e4_us_mortar", "spaag": "aad_e4_us_spaag",
-	"shorad_sam": "aad_e4_us_shorad", "long_sam_launcher": "aad_e4_us_longsam",
-	"medium_sam_launcher": "sam_e4_us_launcher",
-	"search_radar": "rad_e4_us_search", "illuminator": "rad_e4_us_illuminator",
-	"counter_battery_radar": "rad_e4_us_counterbty",
-	"ground_ew": "ewj_e4_us_jammer", "fuel_truck": "log_e4_us_fueltruck",
-	"ammo_truck": "log_e4_us_ammotruck", "command_vehicle": "cmd_e4_us_command",
-	"engineer_vehicle": "eng_e4_us_engineer", "repair_vehicle": "eng_e4_us_repair",
-	"ballistic_launcher": "msl_e4_us_ballistic",
-	"coastal_asm": "msl_e4_us_coastal", "rifle_squad": "inf_e4_us_rifle",
-	"at_team": "inf_e6_us_at", "manpads_team": "inf_e6_us_manpads",
-	"mortar_team": "inf_e6_us_mortar", "recon_team": "inf_e6_us_recon",
-	"special_forces": "inf_e6_us_sf", "engineer_squad": "inf_e6_us_engineer",
-}
-
-const MBT_BY_FACTION := {
-	SimPlayerSetup.Faction.US: "mbt_e4_us", SimPlayerSetup.Faction.UK: "mbt_e4_uk",
-	SimPlayerSetup.Faction.GERMANY: "mbt_e4_de",
-	SimPlayerSetup.Faction.FRANCE: "mbt_e4_fr",
-	SimPlayerSetup.Faction.RUSSIA: "mbt_e4_ru", SimPlayerSetup.Faction.PLA: "mbt_e4_cn",
-	SimPlayerSetup.Faction.ROC: "mbt_e4_tw_m1a2t",
-}
-
-
-func _model_for(role: String) -> String:
-	if role == "mbt":
-		var nation: int = (_match.setup.players[_me] as SimPlayerSetup).faction
-		var stem: String = MBT_BY_FACTION.get(nation, "mbt_e4_us")
-		return ASSETS + stem + "_LOD0.glb"
-	var m: String = MODELS.get(role, "")
-	return "" if m == "" else ASSETS + m + "_LOD0.glb"
+## The def carries its own model now: SimFactionData resolves faction, lineage
+## and epoch against what is on disk, so a Russian player's tanks come out of
+## the factory as T-series hulls without the UI knowing anything about
+## factions. The one hardcoded thing left here is the final fallback -- a def
+## with no stem (or a stem whose GLB is missing) renders as _block().
+func _model_for(def: SimUnitDef) -> String:
+	if def == null or def.model_stem == "":
+		return ""
+	return ASSETS + def.model_stem + "_LOD0.glb"
 
 
 func _prune_selection() -> void:
@@ -870,6 +843,60 @@ func _key(k: InputEventKey) -> void:
 			_speed = 1.0 if _speed > 1.5 else 3.0
 		KEY_F1:
 			_frame_on_base()
+		KEY_F5:
+			_quicksave()
+		KEY_F9:
+			_quickload()
+
+
+# ── quicksave / quickload (SimSave) ─────────────────────────────────────────
+# F5 writes the whole match -- every subsystem, every RNG stream -- to one
+# JSON file; F9 rebuilds a match from it and swaps it in. The restored match
+# is behaviourally identical to the saved one (test_saveload.gd holds that
+# property), so loading mid-battle resumes the battle, not an approximation.
+
+const QUICKSAVE_PATH := "user://quicksave.json"
+
+
+func _quicksave() -> void:
+	if _match == null:
+		return
+	var f := FileAccess.open(QUICKSAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		_flash("quicksave FAILED -- cannot write %s" % QUICKSAVE_PATH)
+		return
+	f.store_string(SimSave.to_json(_match))
+	f.close()
+	_flash("quicksaved (t+%.0f s)" % _match.elapsed_s())
+
+
+func _quickload() -> void:
+	if not FileAccess.file_exists(QUICKSAVE_PATH):
+		_flash("no quicksave to load")
+		return
+	var restored = SimSave.from_json(FileAccess.get_file_as_string(QUICKSAVE_PATH))
+	if not (restored is SimMatch):
+		_flash("quickload FAILED -- see the log")
+		return
+	_match = restored
+	# The world behind every cached index just changed: drop the visual
+	# proxies (sync rebuilds them from the restored entities -- indices are
+	# stable, but a save older than now can hold FEWER of them), drop the
+	# selection, and fast-forward the audio counters so the mixer does not
+	# replay every shot since the save as one glorious chord.
+	for i in _proxies:
+		(_proxies[i] as Node3D).queue_free()
+	_proxies.clear()
+	_selected.clear()
+	_attack_move_armed = false
+	_patrol_armed = false
+	_placing_role = ""
+	_seen_shots = _match.world.munitions.launched
+	_seen_kills = _match.world.damage.kills
+	_seen_impacts = 0
+	_music_kills = _match.world.damage.kills
+	_refresh_panels()
+	_flash("quickloaded (t+%.0f s)" % _match.elapsed_s())
 
 
 ## Put the camera over whatever is selected. Used by the double-tap on a

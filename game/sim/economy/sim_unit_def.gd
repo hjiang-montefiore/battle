@@ -16,6 +16,13 @@ extends RefCounted
 var role: String = "unit"           ## docs/12 role key, epoch-free
 var key: String = "unit_e1"         ## role + epoch, the def key the queue uses
 var name: String = "Unit"
+## data/factions designation for this faction at this epoch ("Leopard 2A4"),
+## or "" for a def the researched data does not cover. `name` usually equals
+## this; see SimFactionData._apply_name for the one exception.
+var designation: String = ""
+## The baseline roster's generic role name ("Main Battle Tank"), kept when a
+## designation takes over `name` -- the HUD's second line and the AI's anchor.
+var base_name: String = ""
 var epoch: int = 1                  ## the epoch this instance was stamped at
 var first_epoch: int = 1            ## docs/12 "Epoch" column
 var last_epoch: int = 7             ## roles that fall out of use
@@ -37,6 +44,19 @@ var requires: PackedStringArray = PackedStringArray()
 var speed_kmh: float = 0.0
 var accel_ms2: float = 1.5
 var turn_rate_rads: float = 0.6
+
+# ── researched physique (data/factions; 0 = the data does not attest it) ─────
+var mass_t: float = 0.0
+var crew: int = 0
+var length_m: float = 0.0
+var width_m: float = 0.0
+var height_m: float = 0.0
+var road_range_km: float = 0.0
+
+# ── art ──────────────────────────────────────────────────────────────────────
+## Model stem in res://assets/units (resolved per faction and epoch against
+## what is on disk -- SimFactionData.model_stem_for), or "" for the blockout.
+var model_stem: String = ""
 
 # ── fuel (docs/04) ───────────────────────────────────────────────────────────
 var fuel_capacity: float = 0.0      ## litres

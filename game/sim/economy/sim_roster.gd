@@ -104,6 +104,11 @@ static func make(role: String, epoch: int, faction := -1) -> SimUnitDef:
 	var r: Dictionary = _roles[role]
 	if e < int(r.get("first_epoch", 1)) or e > int(r.get("last_epoch", EPOCH_MAX)):
 		return null
+	# The faction axis (docs/08). A researched ABSENCE -- the data covering
+	# this faction/role/epoch and saying "fielded nothing" -- gates the def
+	# exactly like the epoch column does: Taiwan queues no bombers.
+	if faction >= 0 and SimFactionData.denied(faction, role, e):
+		return null
 	var ck := "%s|%d|%d" % [role, e, faction]
 	if _cache.has(ck):
 		return _cache[ck]
@@ -231,6 +236,15 @@ static func _stamp(role: String, r: Dictionary, e: int, faction: int) -> SimUnit
 	d.enables_advance = bool(r.get("enables_advance", false))
 	d.build_radius_m = float(r.get("build_radius", 0.0))
 	d.footprint_m = float(r.get("footprint", 12.0))
+
+	# The faction axis, last: the researched national roster overlays the
+	# fully-stamped baseline (designation, speed, dims, mass, crew, range),
+	# and the model stem is resolved against what is actually on disk. The
+	# baseline remains the fallback for every field the data does not attest.
+	d.base_name = d.name
+	d.model_stem = SimFactionData.model_stem_for(role, faction, e)
+	if faction >= 0:
+		SimFactionData.overlay(d, faction)
 	return d
 
 

@@ -55,6 +55,12 @@ class Purse extends RefCounted:
 	## the per-ladder ceilings are enforced on every queue and every build.
 	var setup: SimPlayerSetup = null
 	var faction: int = -1
+	## The NATION whose researched roster (data/factions) this player fields:
+	## a SimPlayerSetup.Faction value, or -1 for the baseline. DISTINCT from
+	## `faction` above, which the match layer overwrites with the COALITION id
+	## for track-table sharing -- two allies on one team keep their own
+	## national hardware while sharing one picture.
+	var nation: int = -1
 	## Seconds of research left in the epoch currently being advanced to, and
 	## how many it started with. 0 total means "not advancing".
 	var advance_total_s: float = 0.0
@@ -237,6 +243,7 @@ func add_player_from_setup(player_id: int, s: SimPlayerSetup,
 		s.ceiling_epoch, s.advance_cost_mult)
 	p.setup = s
 	p.faction = s.faction
+	p.nation = s.faction
 	p.income_mult = s.resource_mult
 	return p
 
@@ -299,7 +306,7 @@ func def_for(player_id: int, def_key: String) -> SimUnitDef:
 	var p: Purse = _purses.get(player_id)
 	if p == null:
 		return null
-	var d := SimRoster.resolve(def_key, p.epoch, p.faction)
+	var d := SimRoster.resolve(def_key, p.epoch, p.nation)
 	if d == null:
 		return null
 	if p.setup != null and not p.setup.allows(d.domain):
@@ -320,7 +327,7 @@ func buildable(player_id: int) -> PackedStringArray:
 		else SimPlayerSetup.ALL_DOMAINS
 	var out := PackedStringArray()
 	for role in SimRoster.available(p.epoch, domains):
-		if _prerequisites_met(player_id, SimRoster.make(role, p.epoch, p.faction)):
+		if _prerequisites_met(player_id, SimRoster.make(role, p.epoch, p.nation)):
 			out.append(role)
 	return out
 
@@ -338,7 +345,7 @@ func production_options(player_id: int, structure_unit: int) -> PackedStringArra
 		else SimPlayerSetup.ALL_DOMAINS
 	var out := PackedStringArray()
 	for r in SimRoster.produced_by(role, p.epoch, domains):
-		if _prerequisites_met(player_id, SimRoster.make(r, p.epoch, p.faction)):
+		if _prerequisites_met(player_id, SimRoster.make(r, p.epoch, p.nation)):
 			out.append(r)
 	return out
 
@@ -357,7 +364,11 @@ func def_of(unit: int) -> SimUnitDef:
 	if k == "":
 		return null
 	var pk := SimRoster.parse_key(k)
-	return SimRoster.make(String(pk["role"]), int(pk["epoch"]))
+	# The OWNER's faction def, not the baseline: a Leopard keeps the Leopard's
+	# speed and name when the HUD or the supply sweep looks it up later.
+	var p: Purse = _purses.get(entities.owner[unit])
+	var nation: int = p.nation if p != null else -1
+	return SimRoster.make(String(pk["role"]), int(pk["epoch"]), nation)
 
 
 ## A structure is OPERATIONAL once it is finished. Until then it is an entity
@@ -542,7 +553,7 @@ func place_starting_unit(player_id: int, def_key: String, x_m: float,
 	var p: Purse = _purses.get(player_id)
 	if p == null:
 		return -1
-	var d := SimRoster.resolve(def_key, p.epoch, p.faction)
+	var d := SimRoster.resolve(def_key, p.epoch, p.nation)
 	if d == null:
 		return -1
 	return _place(player_id, d, x_m, z_m, heading_rad, false)
@@ -916,7 +927,7 @@ func _step_production(dt: float) -> void:
 
 func _complete(player_id: int, job: Job) -> void:
 	var d := SimRoster.make(job.role, job.epoch,
-		(_purses[player_id] as Purse).faction)
+		(_purses[player_id] as Purse).nation)
 	if d == null:
 		add_income(player_id, job.cost)
 		return
@@ -1130,6 +1141,97 @@ func _log(line: String) -> void:
 ## True once this class actually earns, spends and produces.
 func is_implemented() -> bool:
 	return true
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SAVE / LOAD (SimSave)
+#
+# Purses, jobs, sites and aggregates are captured GENERICALLY -- every scalar
+# field the object carries at save time, no hardcoded list -- so a field added
+# to Purse by a parallel workflow is serialized the moment it exists.
+# purse.setup is an object reference and is re-wired by whoever rebuilds the
+# players (add_player_from_setup), not stored.
+#
+# _agg is saved even though it is recomputed every economy step: it is READ
+# between economy steps (the AI's begin_epoch_advance consults has_research on
+# the AI slot), so a zeroed aggregate could answer differently than the warm
+# one for up to a second. spawned_this_step and fuel_starvation ARE dropped --
+# both are produced and consumed inside the same economy slot. events is a
+# cosmetic log and is dropped.
+# ═══════════════════════════════════════════════════════════════════════════
+
+func to_dict() -> Dictionary:
+	var purses := {}
+	var queues := {}
+	var aggs := {}
+	for pid in player_ids():
+		purses[str(pid)] = SimSave.enc_props(_purses[pid], ["setup"])
+		var jobs: Array = []
+		for j in _queues[pid]:
+			jobs.append(SimSave.enc_props(j))
+		queues[str(pid)] = jobs
+		aggs[str(pid)] = SimSave.enc_props(_agg[pid])
+	var sites: Array = []
+	for s in _sites:
+		sites.append(SimSave.enc_props(s))
+	var keys := {}
+	for i in _def_key_of:
+		keys[str(i)] = String(_def_key_of[i])
+	var rally := {}
+	for i in _rally:
+		rally[str(i)] = SimSave.enc_v2(_rally[i])
+	return {
+		"purses": purses,
+		"queues": queues,
+		"aggregates": aggs,
+		"sites": sites,
+		"def_key_of": keys,
+		"dry": SimSave.enc_ib(_dry),
+		"rally": rally,
+		"primary": SimSave.enc_ii(_primary),
+		"spawn_serial": _spawn_serial,
+		"rng": str(rng.state()),
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	for pk in (d["purses"] as Dictionary):
+		var pid := int(String(pk))
+		if not _purses.has(pid):
+			# A bare-world save with players nobody re-registered. Defaults are
+			# immediately overwritten by the captured fields.
+			add_player(pid, 0.0, EPOCH_FALLBACK, EPOCH_FALLBACK)
+		SimSave.dec_props(_purses[pid], d["purses"][pk])
+		var q: Array = []
+		for jd in (d["queues"].get(pk, []) as Array):
+			var job := Job.new()
+			SimSave.dec_props(job, jd)
+			q.append(job)
+		_queues[pid] = q
+		if d.has("aggregates") and (d["aggregates"] as Dictionary).has(pk):
+			SimSave.dec_props(_agg[pid], d["aggregates"][pk])
+	_sites.clear()
+	_site_of.clear()
+	for sd in (d["sites"] as Array):
+		var site := Site.new()
+		SimSave.dec_props(site, sd)
+		_sites.append(site)
+		_site_of[site.unit] = site
+	_def_key_of.clear()
+	for k in (d["def_key_of"] as Dictionary):
+		_def_key_of[int(String(k))] = String(d["def_key_of"][k])
+	_dry = SimSave.dec_ib(d["dry"])
+	_rally.clear()
+	for k in (d["rally"] as Dictionary):
+		_rally[int(String(k))] = SimSave.dec_v2(d["rally"][k])
+	_primary = SimSave.dec_ii(d["primary"])
+	_spawn_serial = int(d["spawn_serial"])
+	rng.restore_state(int(String(d["rng"])))
+
+
+## Epoch a purse is created at when a save is restored with no setup to
+## re-register it -- immediately overwritten by the captured purse fields.
+const EPOCH_FALLBACK := 1
 
 
 func describe(player_id: int) -> String:
