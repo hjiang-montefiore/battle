@@ -28,8 +28,9 @@ const DESCRIPTIONS := {
 		+ "by terrain, and whoever takes the high ground sees first.",
 	OPEN_STEPPE: "16 km of almost nothing. Nowhere to hide from a radar, so "
 		+ "the fight is about emissions and reach rather than cover.",
-	COASTAL_SHELF: "16 km with a bay along one edge. Land war with a naval "
-		+ "flank and somewhere a naval yard can actually stand.",
+	COASTAL_SHELF: "16 km with one connected sea round the west and south "
+		+ "edges. Land war with a naval flank, and a shoreline in reach of "
+		+ "every base.",
 }
 
 
@@ -93,14 +94,35 @@ static func _open_steppe(rng: SimRng) -> SimTerrain:
 	return t
 
 
-## Land with a flank on the water. The bay is on the negative-X edge and is
-## carved rather than filled, so it shelves properly and a naval yard has legal
-## ground to stand on at the shoreline.
+## Land with a flank on the water. The sea is carved rather than filled, so it
+## shelves properly and a naval yard has legal ground to stand on at the
+## shoreline. It has two CONNECTED arms: the wobbled bay down the negative-X
+## edge, and a straight southern shore that joins it around the corner.
+##
+## The southern arm exists because the scenario sweep found the +X base of a
+## two-player match ~8 km from the nearest water -- a naval yard on that side
+## was geometrically impossible, and north_atlantic (both sides naval/air only)
+## sat at zero shots for 90 simulated minutes. With the arm, every base slot
+## for 2-4 players is 0.6-2.4 km from a shoreline, and the two shores are one
+## body of water so fleets from either side can actually meet.
+##
+## Two implementation constraints that are easy to lose:
+##  * The arm is carved AFTER the ridge. add_ridge() raises any cell under its
+##    footprint, sea included, and the ridge's southern tail (endpoint
+##    z=-6000, half-width 1400 m) would otherwise dam the arm with a land
+##    bridge to the map edge.
+##  * The arm uses carve_sea(), which draws nothing from the rng -- so the rng
+##    stream feeding add_noise() is unchanged and the map OUTSIDE the arm is
+##    bit-identical to the pre-arm terrain the sweep recorded.
+##  * The arm's north shore stops at z=-6400: the 4-player base slot at
+##    (0, -5760) needs its ~170 m base footprint on dry land, and 640 m of
+##    clearance keeps it dry through the bilinear shoreline blend.
 static func _coastal_shelf(rng: SimRng) -> SimTerrain:
 	var t := SimTerrain.new(160, 160, 100.0, "Coastal Shelf")     # 16 km
 	t.fill(70.0)
 	t.carve_sea_coast(-8000.0, -8000.0, -4200.0, 8000.0, 90.0, rng, 900.0, 12)
 	t.add_ridge(3000.0, -6000.0, 4200.0, 6000.0, 260.0, 1400.0)
+	t.carve_sea(-8000.0, -8000.0, 8000.0, -6400.0, 90.0)
 	t.add_noise(rng, 20.0, 11)
 	return t
 
@@ -123,15 +145,102 @@ static func base_positions(terrain: SimTerrain, count: int) -> Array:
 		var a: float = start + TAU * float(i) / float(count)
 		var x := cos(a) * radius
 		var z := sin(a) * radius
-		out.append(_nearest_dry(terrain, x, z))
+		out.append(_pull_to_shore(terrain, _nearest_dry(terrain, x, z)))
 	return out
+
+
+## How far _pull_to_shore() will drag a slot toward the nearest shoreline, its
+## walking step, and the cell-size proxy that scopes the pull to SKIRMISH maps.
+## Theatre DEMs are 900+ m per cell, and dragging a theatre base slot toward a
+## coast that may be a hundred kilometres away is a different design decision
+## -- their recorded probe results stay valid because they are exempt here.
+const SHORE_PULL_RANGE_M := 3000.0
+const SHORE_PULL_STEP_M := 50.0
+const SKIRMISH_CELL_MAX_M := 200.0
+
+
+## On a coastal skirmish map, walk a base slot toward the nearest water and
+## stop with the base footprint one step short of the shoreline.
+##
+## WHY: the build-radius rule (SimEconomy.placement_problem) makes a structure
+## legal only inside the build radius of one the player already owns, and the
+## largest radius in the roster is the HQ's 340 m. A naval yard must stand ON
+## water, so naval play is only possible when water lies inside the base's own
+## build radius -- a bay two kilometres away might as well not exist. The
+## scenario sweep found exactly that: north_atlantic on coastal_shelf sat at
+## zero shots partly because neither base had water anywhere near its build
+## radius. The walk keeps the footprint dry, so the pulled slot is as close to
+## the water as a base can legally be (~230-280 m, inside the HQ's 340).
+##
+## Deterministic: fixed ring search, fixed step, no rng. A slot with no water
+## within SHORE_PULL_RANGE_M (or any slot on a dry map) is returned unchanged.
+static func _pull_to_shore(terrain: SimTerrain, p: Vector2) -> Vector2:
+	if terrain.cell_size_m > SKIRMISH_CELL_MAX_M:
+		return p
+	var w := _nearest_water(terrain, p, SHORE_PULL_RANGE_M)
+	if not is_finite(w.x):
+		return p
+	var dist := p.distance_to(w)
+	if dist <= SHORE_PULL_STEP_M:
+		return p
+	var dir := (w - p) / dist
+	var best := p
+	var s := SHORE_PULL_STEP_M
+	while s <= dist:
+		var q := p + dir * s
+		if absf(q.x) > terrain.extent_x_m() * 0.48:
+			break
+		if absf(q.y) > terrain.extent_z_m() * 0.48:
+			break
+		if not _footprint_dry(terrain, q.x, q.y):
+			break
+		best = q
+		s += SHORE_PULL_STEP_M
+	return best
+
+
+## The nearest wet point by a deterministic outward ring search, or
+## (INF, INF) when there is none within max_r. Fixed 100 m rings and a fixed
+## 16-point compass, same shape as _nearest_dry()'s search.
+static func _nearest_water(terrain: SimTerrain, p: Vector2,
+		max_r: float) -> Vector2:
+	var step := 100.0
+	var r := step
+	while r <= max_r:
+		for k in range(16):
+			var a: float = TAU * float(k) / 16.0
+			var x := p.x + cos(a) * r
+			var z := p.y + sin(a) * r
+			if terrain.is_water(x, z):
+				return Vector2(x, z)
+		r += step
+	return Vector2(INF, INF)
+
+
+## BASE_LAYOUT spans about +/-170 m around the base position; the extra 10 m
+## covers the bilinear shoreline blend between terrain cells.
+const BASE_FOOTPRINT_M := 180.0
+
+
+## Dry at the position AND at the corners/edges of the base footprint. A dry
+## CENTRE is not enough: on coastal_shelf the 4-player slot at (-5760, 0) used
+## to be nudged to the first dry centre, right on the waterline, which left a
+## third of the base structures standing in the bay.
+static func _footprint_dry(terrain: SimTerrain, x: float, z: float) -> bool:
+	var m := BASE_FOOTPRINT_M
+	for off in [Vector2(0, 0), Vector2(m, 0), Vector2(-m, 0), Vector2(0, m),
+			Vector2(0, -m), Vector2(m, m), Vector2(-m, -m), Vector2(m, -m),
+			Vector2(-m, m)]:
+		if terrain.is_water(x + off.x, z + off.y):
+			return false
+	return true
 
 
 ## Nudge a base position off water by a deterministic outward ring search. A
 ## base that spawns in the bay would put every structure in an illegal place
 ## and the player would start the match unable to build anything.
 static func _nearest_dry(terrain: SimTerrain, x: float, z: float) -> Vector2:
-	if not terrain.is_water(x, z):
+	if _footprint_dry(terrain, x, z):
 		return Vector2(x, z)
 	var step := terrain.cell_size_m * 2.0
 	# Ring count scales with the map: a fixed 40 rings was 120 km on the North
@@ -152,6 +261,6 @@ static func _nearest_dry(terrain: SimTerrain, x: float, z: float) -> Vector2:
 				continue
 			if absf(pz) > terrain.extent_z_m() * 0.48:
 				continue
-			if not terrain.is_water(px, pz):
+			if _footprint_dry(terrain, px, pz):
 				return Vector2(px, pz)
 	return Vector2(x, z)

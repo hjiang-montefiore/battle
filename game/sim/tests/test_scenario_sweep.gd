@@ -49,6 +49,7 @@ var _exit := 1
 var _rows: Array = []              ## for the final table
 var _out: FileAccess = null
 var _resume_after := ""            ## "<scenario>:<arena>", see _initialize()
+var _only: PackedStringArray = []  ## "<scenario>:<arena>" cells, see below
 
 
 func _initialize() -> void:
@@ -61,13 +62,21 @@ func _initialize() -> void:
 	# whoever reads them. Determinism makes this sound: a cell's result does
 	# not depend on which cells ran before it in the same process (each match
 	# is a fresh SimMatchSetup and a fresh SimWorld from fixed seeds).
+	# `-- only=<scenario>:<arena>[,<scenario>:<arena>...]` reruns exactly the
+	# named cells and nothing else (no theatre probes): the way to refresh
+	# the rows a terrain change invalidated without paying for the full
+	# ~2.5 h sweep. Rows go to their own file for the same reason as above.
 	var theatres_only := "theatres_only" in OS.get_cmdline_user_args()
 	for a in OS.get_cmdline_user_args():
 		if String(a).begins_with("resume_after="):
 			_resume_after = String(a).substr("resume_after=".length())
+		elif String(a).begins_with("only="):
+			_only = String(a).substr("only=".length()).split(",", false)
 	var out_name := "user://scenario_sweep.txt"
 	if theatres_only:
 		out_name = "user://scenario_sweep_theatres.txt"
+	elif not _only.is_empty():
+		out_name = "user://scenario_sweep_only.txt"
 	elif _resume_after != "":
 		out_name = "user://scenario_sweep_resume.txt"
 	_out = FileAccess.open(out_name, FileAccess.WRITE)
@@ -76,7 +85,7 @@ func _initialize() -> void:
 	_say("results file: " + ProjectSettings.globalize_path(out_name))
 	_say("")
 
-	if _resume_after == "":
+	if _resume_after == "" and _only.is_empty():
 		_probe_theatres()
 	if not theatres_only:
 		_sweep()
@@ -139,6 +148,8 @@ func _sweep() -> void:
 			if skipping:
 				if "%s:%s" % [key, arena] == _resume_after:
 					skipping = false
+				continue
+			if not _only.is_empty() and not ("%s:%s" % [key, arena]) in _only:
 				continue
 			if needs_water and not water_of[arena]:
 				_row(key, arena, "SKIPPED", "needs water, arena has none",
