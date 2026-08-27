@@ -637,6 +637,253 @@ def fuel_truck():
                    gun_z=DECK + TR, gun_y=TY)
 
 
+# ── soviet-lineage ground family (2026-08) ─────────────────────────
+# The ru/kp (and pre-2000 cn) variants whose silhouettes genuinely differ
+# from the US baseline above. Dimensions come from data/factions/ru.json /
+# cn.json (the entry and epoch are named in each docstring); a figure the
+# data lacks is a published spec, called out where it is used. Each builder
+# is shaped around the ONE outline feature that separates it from its
+# US-lineage counterpart at RTS zoom, per the method notes.
+
+def bmp1():
+    """afv_e3_ru_bmp1 — BMP-1 (ru.json ifv e2/e3: 6.74 x 2.94 x 2.07 m,
+    13.2 t, 6 road wheels, 73 mm 2A28 Grom + Malyutka rail).
+
+    The read against the Bradley: a LOW FLAT WEDGE. Hull roof at 1.62 m where
+    the Bradley's is 1.84, a long pointed prow with the nose TIP AT MID
+    HEIGHT, and a TINY one-man cone turret (0.9 m radius, 0.45 m tall)
+    instead of the Bradley's 1.9 m offset box with its TOW cheek. The stubby
+    73 mm barely reaches the nose and the Malyutka missile rides ON the tube.
+    Height 2.07 m is to the turret roof and is matched exactly; nothing on
+    this vehicle stands taller except the whip antennas every roster vehicle
+    carries.
+    """
+    HL, HW, CL = 6.74, 2.94, 0.39
+    top, ROOF = 1.62, 2.07
+    p = []
+    p.append(profile([(-HL / 2, 1.02), (-HL / 2 + 1.62, top),
+                      (HL / 2, top), (HL / 2, CL),
+                      (-HL / 2 + 1.10, CL)], HW, "bmp_hull"))
+    # trim vane folded flat on the long glacis — it swims
+    p.append(cube((0, -HL / 2 + 0.80, 1.34), (HW * 0.70, 0.10, 0.92),
+                  rot=(R(-69), 0, 0)))
+    # tiny cone turret, set slightly forward of centre
+    p.append(cyl((0, -0.30, top + 0.21), 0.92, 0.42, v=18, taper=0.55))
+    p.append(cyl((0, -0.30, top + 0.43), 0.48, 0.06, v=14))
+    # 73 mm Grom: a short fat stub, muzzle short of the nose tip
+    p.append(cyl((0, -1.28, 1.79), 0.085, 0.55, rot=(R(90), 0, 0), v=12))
+    p.append(cyl((0, -2.02, 1.80), 0.052, 1.75, rot=(R(88), 0, 0), v=12))
+    use("gun")
+    p.append(cyl((0, -2.80, 1.83), 0.050, 0.30, rot=(R(88), 0, 0), v=12))
+    use("gunbore")
+    p.append(cyl((0, -2.94, 1.835), 0.032, 0.02, rot=(R(88), 0, 0), v=10))
+    use("deck")
+    # Malyutka on its rail above the tube — the BMP-1 tell at close zoom
+    p.append(cyl((0, -2.28, 2.02), 0.058, 0.82, rot=(R(90), 0, 0), v=10))
+    p.append(cube((0, -1.90, 1.94), (0.05, 0.24, 0.16)))            # rail post
+    # four troop roof hatches in a row behind the turret
+    for k in range(4):
+        p.append(cube((0.0, 0.55 + k * 0.62, top + 0.02), (1.30, 0.52, 0.06)))
+    for k in range(3):                          # engine louvres, front right
+        p.append(cube((0.80, -2.05 + k * 0.30, 1.505 - k * 0.093),
+                      (0.95, 0.22, 0.07), rot=(R(-21), 0, 0)))
+    use("body")
+    for s in (-1, 1):                           # bulged rear doors / fuel cells
+        p.append(cube((s * 0.62, HL / 2 + 0.05, 1.02), (0.74, 0.14, 0.94)))
+    p += detail_kit(HL, HW, top, ROOF, -1.10, 0.50, era=0, mg=False)
+    p += running_gear(HL, HW, CL, 6, 0.325, 0.24)
+    return p, dict(top=top, hull_l=HL, hull_w=HW, turret_top=ROOF,
+                   gun_z=1.80, gun_y=-1.30)
+
+
+def brdm2():
+    """rec_e2_ru_brdm2 — BRDM-2 (ru.json recon e2: 5.75 x 2.35 x 2.31 m,
+    7.0 t, 4x4, 14.5 mm KPVT).
+
+    A SMALL 4-WHEEL DOME, per the method notes: boat bow, high flat crew
+    deck, the same little cone turret the BTR-60 wears, and the engine at
+    the REAR (flat high tail, no rear ramp — the exact mirror of every
+    Western wheeled scout). Four large wheels and nothing else touching the
+    ground is what separates it from the 8x8 Stryker recce at a glance;
+    the Stryker's deployed mast is the other half of that separation.
+    """
+    HL, HW, CL = 5.75, 2.35, 0.43
+    DECK = 1.76
+    p = []
+    p.append(profile([(-HL / 2, 0.92), (-HL / 2 + 1.45, DECK),
+                      (1.30, DECK), (HL / 2, 1.52), (HL / 2, 0.55),
+                      (2.10, CL), (-1.95, CL)], HW, "brd_hull"))
+    # trim vane on the bow
+    p.append(cube((0, -HL / 2 + 0.70, 1.42), (HW * 0.72, 0.10, 0.80),
+                  rot=(R(-62), 0, 0)))
+    # cone turret just aft of centre — the "dome"
+    p.append(cyl((0, 0.30, DECK + 0.20), 0.60, 0.40, v=16, taper=0.52))
+    p.append(dome((0, 0.30, DECK + 0.40), 0.32, 0.32, 0.14, v=14))
+    use("gun")
+    p.append(cyl((0, -0.42, DECK + 0.26), 0.034, 1.30, rot=(R(89), 0, 0), v=8))
+    p.append(cyl((0, -0.20, DECK + 0.18), 0.024, 0.80, rot=(R(89), 0, 0), v=6))
+    use("deck")
+    for s in (-1, 1):                            # crew hatches ahead of turret
+        p.append(cube((s * 0.52, -0.85, DECK + 0.02), (0.62, 0.72, 0.06)))
+    p.append(cube((0, 2.20, 1.545), (1.60, 0.90, 0.06)))     # engine grille aft
+    use("body")
+    p.append(cube((0, -1.42, DECK - 0.29), (HW * 0.86, 0.90, 0.24)))  # bow step
+    p += detail_kit(HL, HW, DECK, DECK + 0.40, -0.30, 0.90, era=0, mg=False)
+    p += wheeled_gear(HL, HW, CL, 2, 0.53, first=0.18, last=0.82)
+    return p, dict(top=DECK, hull_l=HL, hull_w=HW, turret_top=2.31,
+                   gun_z=DECK + 0.26, gun_y=-0.35)
+
+
+def sph_2s3():
+    """art_e3_ru_2s3 — 2S3 Akatsiya (ru.json sph e3: 7.77 x 3.25 x 3.05 m,
+    27.5 t, 6 road wheels, 152 mm 2A33).
+
+    Against the M109 the read is WHERE THE TURRET SITS AND WHAT SHAPE IT IS:
+    a round DRUM planted MID-HULL, where the M109 hangs a slab-sided box
+    over the rear third. The tube is a short L/27 with a fume extractor and
+    NO muzzle brake — the M109 carries a big double-baffle on 3.5 m of
+    overhang; here the muzzle clears the nose by only ~0.65 m (2S3 length
+    gun forward ~8.4 m, published), so the plan is hull-dominated where the
+    M109's is barrel-dominated.
+    """
+    HL, HW, CL, HH = 7.77, 3.25, 0.45, 1.35
+    p = []
+    h, top = boxhull(HL, HW, CL, HH, 1.30, "s2s3_hull")         # top 1.80
+    p.append(h)
+    TC, ROOF = 0.15, 2.72                       # turret centre: mid-hull
+    p.append(cyl((0, TC, (top + ROOF) / 2), 1.52, ROOF - top, v=20,
+                 taper=0.82))                                   # round drum
+    p.append(cyl((0, TC, ROOF + 0.02), 1.18, 0.08, v=20))       # roof cap
+    p.append(cube((0, TC - 1.52, top + 0.52), (0.88, 0.62, 0.72)))  # mantlet
+    p += barrel(-(HL / 2 + 0.65), 2.30, 3.80, 0.096, 0.0, 0.0)  # L/27, no brake
+    p.append(cyl((0.74, TC + 0.62, ROOF + 0.16), 0.34, 0.30, v=14))  # cupola
+    use("deck")
+    p.append(cyl((0.74, TC + 0.62, ROOF + 0.33), 0.38, 0.05, v=14))
+    p.append(cube((-0.62, TC + 0.85, ROOF + 0.04), (0.60, 0.70, 0.09)))
+    for k in range(4):                                          # engine louvres
+        p.append(cube((0, -2.55 + k * 0.28, top + 0.03), (1.90, 0.18, 0.07)))
+    use("gun")
+    p.append(cyl((0.74, TC + 0.10, ROOF + 0.42), 0.042, 0.95,
+                 rot=(R(90), 0, 0), v=8))                       # roof MG
+    use("body")
+    p.append(cube((0.74, TC + 0.55, ROOF + 0.28), (0.20, 0.30, 0.22)))
+    p += detail_kit(HL, HW, top, ROOF, TC - 1.45, TC + 1.45, era=0, mg=False)
+    p += running_gear(HL, HW, CL, 6, 0.34, 0.50)
+    return p, dict(top=top, hull_l=HL, hull_w=HW, turret_top=ROOF,
+                   gun_z=2.30, gun_y=TC - 1.52)
+
+
+def bm21():
+    """art_e2_ru_bm21 — BM-21 Grad (ru.json mlrs e2: 7.35 x 2.4 x 3.09 m,
+    13.7 t, Ural-375D 6x6, 40x 122 mm).
+
+    A TRUCK with a FLAT ROCKET PACK — nothing like the boxy tracked M270.
+    Three cues carry it: a BONNETED soft-skin cab (the M270's is an armoured
+    wedge on tracks), a thin 10-wide-by-4-high tube slab elevated over the
+    TAIL, and open truck frame everywhere else. The slab is `deck` dark with
+    a 10x4 grid of bore mouths on its face, so it reads as a rocket pack and
+    not as cargo from the RTS three-quarter. Deployed at 26 deg because an
+    emplaced fires vehicle is modelled deployed (the mlrs() convention).
+    """
+    HL, HW, CL, DECK = 7.35, 2.40, 0.55, 1.30
+    AXLES = (0.16, 0.60, 0.78)
+    p = []
+    frame, fhw = truck_frame(HL, HW, CL, DECK, deck_y=0.10, deck_len=0.70)
+    p += frame
+    CAB = DECK + 1.30
+    p += truck_cab(-HL / 2 + 0.10, -1.45, DECK, CAB, 2.26, 1.10, 0.45, 0.58,
+                   "bm21_cab")
+    E = R(26)
+    uy, uz = math.cos(E), math.sin(E)           # up the tube bundle (aft+up)
+    vy, vz = -math.sin(E), math.cos(E)          # across it
+    TY, TZ = 0.80, DECK + 0.55                  # breech-end trunnion
+    LP, WP, HP = 3.00, 1.95, 0.60               # pack length, width, thickness
+    p.append(cyl((0, 1.35, DECK + 0.16), 0.85, 0.32, v=16))     # turntable
+    p.append(cube((0, 1.35, DECK + 0.42), (1.30, 1.10, 0.42)))  # cradle base
+    for s in (-1, 1):                                           # elevation arms
+        p.append(cube((s * 0.72, TY + 0.55 * uy, TZ + 0.55 * uz),
+                      (0.14, 1.30, 0.55), rot=(E, 0, 0)))
+    use("deck")
+    p.append(cube((0, TY + (LP / 2) * uy, TZ + (LP / 2) * uz),
+                  (WP, LP, HP), rot=(E, 0, 0)))                 # the flat pack
+    use("body")
+    for a in (0.55, 1.65, 2.75):                                # strap bands
+        p.append(cube((0, TY + a * uy, TZ + a * uz), (WP + 0.06, 0.14,
+                                                      HP + 0.06), rot=(E, 0, 0)))
+    p.append(cube((0, TY - 0.10 * uy, TZ - 0.10 * uz),
+                  (WP + 0.04, 0.30, HP + 0.20), rot=(E, 0, 0)))  # breech plate
+    use("gunbore")
+    fy, fz = TY + (LP + 0.02) * uy, TZ + (LP + 0.02) * uz       # muzzle face
+    for c in range(10):                         # 10 across x 4 high = 40 bores
+        x = (c - 4.5) * 0.195
+        for r_ in (-0.225, -0.075, 0.075, 0.225):
+            p.append(cyl((x, fy + r_ * vy, fz + r_ * vz), 0.055, 0.10,
+                         rot=(E - R(90), 0, 0), v=8))
+    use("body")
+    p.append(cube((0, -1.05, DECK + 0.35), (2.20, 0.55, 0.70)))  # crew/stowage box
+    p += detail_kit(HL, HW, DECK, CAB, -3.15, -1.95, era=0, mg=False)
+    p += truck_axles(HL, HW, AXLES, 0.53)
+    p += wheeled_gear(HL, HW, CL, 3, 0.53, at=AXLES)
+    return p, dict(top=DECK, hull_l=HL, hull_w=HW,
+                   turret_top=fz + 0.35, gun_z=fz, gun_y=fy)
+
+
+def zbd04():
+    """afv_e6_cn_zbd04 — ZBD-04A (cn.json ifv e6: 7.6 x 3.3 x 2.5 m, 24 t;
+    dims flagged estimated there, and they match the published ZBD-04A
+    figures, so they are used as-is).
+
+    BMP-3 pattern, where the PLA diverges from both lineages: hull roof LOW
+    (1.72 m), a big ROUND two-gun turret at CENTRE — 100 mm stub and a thin
+    30 mm side by side in one mantlet, a twin-tube face no Western IFV has —
+    and applique slabs down the flanks. Reads apart from the Bradley (tall
+    hull, offset square turret, single gun + TOW box) and from the BMP-1
+    (tiny cone turret, bare 73 mm stub).
+    """
+    HL, HW, CL = 7.60, 3.30, 0.45
+    top = 1.72
+    p = []
+    p.append(profile([(-HL / 2, 1.05), (-HL / 2 + 1.90, top),
+                      (HL / 2, top), (HL / 2, CL),
+                      (-HL / 2 + 1.20, CL)], HW, "zbd_hull"))
+    p.append(cube((0, -HL / 2 + 0.95, 1.42), (HW * 0.66, 0.10, 0.95),
+                  rot=(R(-66), 0, 0)))                          # trim vane
+    p.append(cyl((0, -0.10, top + 0.31), 1.30, 0.62, v=20, taper=0.72))
+    p.append(cyl((0, -0.10, top + 0.64), 0.96, 0.10, v=18))     # turret roof
+    p.append(cube((0, -1.30, top + 0.36), (0.92, 0.55, 0.55)))  # twin mantlet
+    # 100 mm 2A70-class: muzzle level with the nose
+    p.append(cyl((-0.14, -2.55, top + 0.38), 0.062, 2.55, rot=(R(89), 0, 0),
+                 v=12))
+    p.append(cyl((-0.14, -1.75, top + 0.375), 0.085, 0.75, rot=(R(89), 0, 0),
+                 v=12))                                         # thermal sleeve
+    use("gun")
+    p.append(cyl((-0.14, -3.72, top + 0.40), 0.058, 0.25, rot=(R(89), 0, 0),
+                 v=12))
+    # 30 mm autocannon beside it — longer and much thinner
+    p.append(cyl((0.24, -2.75, top + 0.42), 0.028, 2.70, rot=(R(89), 0, 0),
+                 v=8))
+    use("gunbore")
+    p.append(cyl((-0.14, -3.83, top + 0.402), 0.038, 0.02, rot=(R(89), 0, 0),
+                 v=10))
+    use("body")
+    p.append(cyl((0.55, 0.42, top + 0.72), 0.28, 0.22, v=12))   # cupola
+    p.append(cube((-0.60, 0.30, top + 0.74), (0.40, 0.50, 0.28)))  # gunner sight
+    use("era")
+    for s in (-1, 1):                           # flank applique slabs
+        for k in range(3):
+            p.append(cube((s * (HW / 2 - 0.03), -0.85 + k * 1.15, 1.38),
+                          (0.10, 1.05, 0.50)))
+    use("deck")
+    for k in range(3):                          # rear roof hatches
+        p.append(cube((0, 1.45 + k * 0.62, top + 0.02), (1.35, 0.52, 0.06)))
+    use("body")
+    p.append(cube((0, HL / 2 - 0.08, top - 0.55), (HW * 0.66, 0.16, 1.05)))
+    p += detail_kit(HL, HW, top, top + 0.66, -1.20, 0.85, era=0, mg=False)
+    p += running_gear(HL, HW, CL, 6, 0.335, 0.42)
+    return p, dict(top=top, hull_l=HL, hull_w=HW, turret_top=2.50,
+                   gun_z=top + 0.38, gun_y=-1.30)
+
+
 FLEET = [
     ("afv_e4_us_ifv",        ifv),
     ("rec_e4_us_recon",      recon_wheeled),
@@ -646,6 +893,13 @@ FLEET = [
     ("rad_e4_us_illuminator", illuminator),
     ("sam_e4_us_launcher",   sam_launcher),
     ("log_e4_us_fueltruck",  fuel_truck),
+    # soviet / chinese lineage (camo + team colour per entry; the US entries
+    # above keep their 2-tuple form and default to camo_us / NATO blue)
+    ("afv_e3_ru_bmp1",       bmp1,     "camo_ru", (0.68, 0.10, 0.10)),
+    ("rec_e2_ru_brdm2",      brdm2,    "camo_ru", (0.68, 0.10, 0.10)),
+    ("art_e3_ru_2s3",        sph_2s3,  "camo_ru", (0.68, 0.10, 0.10)),
+    ("art_e2_ru_bm21",       bm21,     "camo_ru", (0.68, 0.10, 0.10)),
+    ("afv_e6_cn_zbd04",      zbd04,    "camo_cn", (0.72, 0.14, 0.10)),
 ]
 
 
@@ -681,13 +935,48 @@ _us_ground("sam_e4_us_launcher",    1.13, -0.30, 1.90, size=0.50)
 _us_ground("log_e4_us_fueltruck",   0.70, 1.55, 1.95, size=0.50, dust=0.60)
 
 
+# soviet/chinese-lineage texture requests: same composed-texture pattern,
+# national star on the hull sides, wetter/darker mud for the ru flora scheme
+# and the paler loess dust the cn scheme runs (matches faction_models' MBTs).
+_RU_MUD = (0.36, 0.32, 0.24)
+_CN_DUST = (0.46, 0.41, 0.30)
+
+
+def _sov_ground(name, kind, x, y, z, size=0.50, dust=0.55, height=1.2,
+                spacing=1.5, tint=_RU_MUD):
+    H.texture_features(
+        name, size_class="vehicle", groups=("body", "deck"),
+        panels=dict(spacing=spacing, strength=0.55, jitter=0.13, seams=0.55),
+        weathering=dict(
+            dust=dict(height=height, strength=dust, tint=tint),
+            edge_wear=dict(strength=0.5)),
+        insignia=[dict(kind=kind, center=( x, y, z), normal=( 1, 0, 0),
+                       size=size, alpha=0.9),
+                  dict(kind=kind, center=(-x, y, z), normal=(-1, 0, 0),
+                       size=size, alpha=0.9)])
+
+
+_sov_ground("afv_e3_ru_bmp1",  "star_ru", 1.46, 0.80, 1.15, size=0.45,
+            dust=0.60, height=1.0)
+_sov_ground("rec_e2_ru_brdm2", "star_ru", 1.17, 0.90, 1.30, size=0.45,
+            height=1.0)
+_sov_ground("art_e3_ru_2s3",   "star_ru", 1.62, 1.60, 1.15, size=0.50,
+            dust=0.60)
+_sov_ground("art_e2_ru_bm21",  "star_ru", 1.19, -0.60, 1.80, size=0.45,
+            dust=0.60)
+_sov_ground("afv_e6_cn_zbd04", "star_cn", 1.64, 0.80, 1.20, size=0.50,
+            tint=_CN_DUST)
+
+
 if __name__ == "__main__":
     H.set_out(os.path.join(ROOT, "art", "blockout", "e4_support"))
-    for name, fn in FLEET:
-        H.CAMO[name] = "camo_us"
-        H.TEAM[name] = (0.06, 0.20, 0.62)
+    for entry in FLEET:
+        name = entry[0]
+        H.CAMO[name] = entry[2] if len(entry) > 2 else "camo_us"
+        H.TEAM[name] = entry[3] if len(entry) > 3 else (0.06, 0.20, 0.62)
     print("building fleet...")
-    for name, fn in FLEET:
+    for entry in FLEET:
+        name, fn = entry[0], entry[1]
         for lod in (0, 1, 2):
             n = H.build(name, fn, lod)
             print(f"  {name:26s} LOD{lod}  {n:6d} tris")

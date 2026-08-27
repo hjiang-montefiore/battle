@@ -1,0 +1,60 @@
+{
+ "_comment": "The art pipeline's contract with the game: which GLB stem a faction fields for a role at an epoch. Keyed by the GAME's role names, because the stems' own shortnames (btr60, 2s3, sovremenny) cannot be derived from a role and the previous heuristic could therefore only ever find MBTs. Written by tools/, read by SimFactionData.",
+ "cn": {
+  "air_defence_destroyer": {
+   "6": "nav_e6_cn_052d"
+  },
+  "ifv": {
+   "6": "afv_e6_cn_zbd04"
+  },
+  "mbt": {
+   "2": "mbt_e2_cn_type59",
+   "6": "mbt_e6_cn_ztz99a"
+  }
+ },
+ "de": {
+  "submarine": {
+   "7": "sub_e7_de_aip"
+  }
+ },
+ "kp": {
+  "mbt": {
+   "2": "mbt_e2_kp_chonma"
+  },
+  "submarine": {
+   "1": "sub_e1_kp_midget"
+  }
+ },
+ "ru": {
+  "air_defence_destroyer": {
+   "3": "nav_e3_ru_sovremenny"
+  },
+  "apc": {
+   "2": "afv_e2_ru_btr60"
+  },
+  "ifv": {
+   "3": "afv_e3_ru_bmp1"
+  },
+  "long_sam_launcher": {
+   "4": "sam_e4_ru_s300tel"
+  },
+  "mbt": {
+   "4": "mbt_e4_ru_t72"
+  },
+  "mlrs": {
+   "2": "art_e2_ru_bm21"
+  },
+  "recon_vehicle": {
+   "2": "rec_e2_ru_brdm2"
+  },
+  "spaag": {
+   "3": "aad_e3_ru_zsu23"
+  },
+  "sph": {
+   "3": "art_e3_ru_2s3"
+  },
+  "submarine": {
+   "2": "sub_e2_ru_kilo"
+  }
+ }
+}

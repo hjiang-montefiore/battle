@@ -2936,6 +2936,233 @@ _sub_tex("sub_e7_de_aip",      57.2,  7.0, 1.30, "212", 10.0, 3.8, 2.1,
 _sub_tex("sub_e1_kp_midget",   34.0,  3.8, 0.80, None,   5.1, 1.9, 1.3)
 
 
+
+# ══ soviet / chinese lineage variants (2026-08 red-fleet pass) ═════
+# Additive: dims from data/factions/ru.json and cn.json where present;
+# the 052D's hull dims are published figures (cn.json e6 carries mass and
+# sensors but no dims_m) and are noted as such in its docstring.
+def twin_gun_mount(y, z, r=2.1, barrel_l=7.0, barrel_r=0.26, x=0.0,
+                   aft=False, name="tgun"):
+    """gun_mount() with TWO tubes side by side — the AK-130 read.
+
+    NATO escorts in this roster all mount single-barrel guns, so a pair of
+    parallel tubes off one gunhouse is by itself a lineage cue, and the
+    Sovremenny carries it twice. Geometry follows gun_mount() exactly; only
+    the tube is doubled, at x = +/- r*0.28.
+    """
+    out = []
+    s = -1.0 if aft else 1.0
+    h = r * 1.30
+    with mat("gun"):
+        out.append(cyl((x, y, z + 0.22), r * 1.05, 0.44, v=18))     # barbette
+        o = profile([(y + s * r * 1.30, z + 0.40), (y - s * r * 1.15, z + 0.40),
+                     (y - s * r * 1.00, z + h), (y + s * r * 0.25, z + h),
+                     (y + s * r * 1.24, z + h * 0.52)], r * 1.55, name)
+        o.location.x = x
+        out.append(o)
+        ymuz = y + s * (r * 1.24 + barrel_l)
+        for sx in (-1, 1):
+            bx = x + sx * r * 0.28
+            out.append(cyl((bx, y + s * (r * 1.24 + barrel_l / 2), z + h * 0.62),
+                           barrel_r, barrel_l, rot=(R(90), 0, 0), v=10))
+            out.append(cyl((bx, y + s * (r * 1.24 + barrel_l * 0.16), z + h * 0.62),
+                           barrel_r * 1.8, barrel_l * 0.30, rot=(R(90), 0, 0), v=10))
+    with mat("gunbore"):
+        for sx in (-1, 1):
+            out.append(cyl((x + sx * r * 0.28, ymuz, z + h * 0.62),
+                           barrel_r * 0.55, 0.14, rot=(R(90), 0, 0), v=8))
+    return out
+
+
+def sovremenny():
+    """Project 956 Sovremenny — 156.0 x 17.3 m, draught 6.5 m, freeboard
+    5.2 m, 7 940 t (ru.json air_defence_destroyer e4-e6; the same hull is
+    cn's imported e5). The gun-and-arm destroyer of the Soviet lineage.
+
+    WHAT SEPARATES IT FROM THE BURKE, deck-plan facts first, because from
+    3/4 view the two are grey escorts of identical length:
+
+      NOT ONE VLS CELL. The Burke's read is two black cell farms; this deck
+      has none, and instead shows TWO TWIN-GUN MOUNTS — the aft one on the
+      quarterdeck, and no other escort in the roster has a main gun aft.
+      FOUR FAT ROUND TUBES A SIDE abeam the bridge: the Moskit quads,
+      Tarantul-pattern tubes at three times the scale, angled outboard and
+      overhanging nothing — a row of four dark mouths in plan each side.
+      ONE massive squat funnel where the Burke has two close-coupled.
+      The HELIPAD IS AMIDSHIPS, between funnel and aft SAM barbette. Every
+      NATO escort pads at the stern; a pad with deck both fore AND aft of
+      it is instantly Soviet.
+      Arm launchers fore and aft (Shtil) — the frigate's Mk13 shape, twice.
+      Tower foremast: a solid truncated pyramid with a big rotating slab
+      (Top Steer) on the crown, plus a Band Stand radome over the bridge.
+    """
+    L, B, FB, SH = 156.0, 17.3, 5.2, 2.0
+    p, fb = ship_hull(L, B, FB, bow=0.32, transom=0.80, sheer=SH)
+    sup, top = superstructure(L * 0.100, fb,
+                              ((34.0, 12.6, 5.0), (24.0, 10.6, 4.2, 1.0),
+                               (13.0, 8.6, 3.6, 4.5)), taper=0.92)
+    p += sup
+    z_01, z_02, z_bridge = fb + 5.0, fb + 9.2, fb + 12.8
+
+    # tower foremast: solid pyramid, Top Steer slab on the crown
+    p += lattice_mast(0, 8.5, z_02, 13.0, foot=5.4, head=2.0, bays=3,
+                      solid=True, yards=((0.55, 9.0),))
+    p += air_search(0, 8.5, z_02 + 13.0, 7.2, 3.0)
+    p += radome(0, 20.0, z_bridge, 1.7)                 # Band Stand
+    p += director(0, 30.5, z_01, 1.45)                  # Front Dome, forward
+
+    # the Moskit quads — the loudest lineage cue on the ship
+    for s in (-1, 1):
+        p += missile_tubes(s * 7.1, 19.0, fb + 0.9, n=4, l=9.8, r=0.98,
+                           elev=9, yaw=s * 15, name=f"mosk{s}")
+
+    # after deckhouse, ONE fat funnel, open lattice mainmast
+    p.append(deckhouse(-L * 0.075, 26.0, 10.4, 4.6, fb))
+    p += funnel(0, -8.0, fb + 4.6, 11.0, 8.4, 6.8, rake=7)
+    p += lattice_mast(0, -20.0, fb + 4.6, 9.5, foot=2.6, head=1.0, bays=3,
+                      yards=((0.60, 6.4),), radome=1.2)
+    p += director(0, -23.5, fb + 4.6, 1.45, aft=True)   # Front Dome, aft
+    for s in (-1, 1):
+        p += ciws(s * 4.2, -14.5, fb + 4.6, 0.90, aft=True)   # AK-630 pair
+        p += esm_array(s * 5.9, 13.5, z_02)
+        p += bridge_wing(s * 6.0, 21.5, z_bridge, gun=False)
+        p += chaff_launcher(s * 5.6, 4.0, z_01, yaw=s * 30)
+        p += torpedo_tubes(s * 6.4, -L * 0.030, fb + 0.4, yaw=s * 60)
+        p += boat_bay(s * B * 0.47, L * 0.010, fb)
+
+    # helipad AMIDSHIPS-AFT — deck fore and aft of it, the Soviet pad
+    p += helipad(-35.0, 12.5, 14.0, fb)
+
+    # the gun-and-arm armament ladder, doubled fore and aft
+    p += twin_gun_mount(L * 0.360, fb + SH, r=2.1, barrel_l=7.0)
+    with mat("deck"):
+        p.append(cyl((0, L * 0.270, fb + SH + 0.35), 2.30, 0.70, v=18))
+    p += arm_launcher(0, L * 0.270, fb + SH + 0.7, arm=5.6)
+    with mat("deck"):
+        p.append(cyl((0, -49.1, fb + 0.35), 2.30, 0.70, v=18))
+    p += arm_launcher(0, -49.1, fb + 0.7, arm=5.6)
+    p += twin_gun_mount(-L * 0.400, fb, r=2.1, barrel_l=7.0, aft=True)
+
+    p += breakwater(L * 0.315, B * 0.70, fb + SH)
+    p += anchor_gear(L * 0.440, fb + SH, B)
+    p += clutter(hull_planform(L, B, bow=0.32, transom=0.80, w=0.90), fb,
+                 spacing=34.0)
+    p.append(team_patch(36.8, fb + SH, 3.6, 4.0))       # bare forecastle
+    return p, ship_meta(L, B, fb, z_02 + 16.0, gun_y=L * 0.36,
+                        gun_z=fb + SH + 2.7)
+
+
+def type052d():
+    """Type 052D Luyang III — hull 157.0 x 17.0 m, draught 6.0 m (published
+    figures; cn.json air_defence_destroyer e6 carries mass 7 500 t, Type 346A
+    AESA and the 64-cell VLS but no dims_m). Freeboard 5.9 m, sheer 2.2 m.
+
+    A Burke-generation AAW ship on purpose — four canted array faces forward
+    — so the separation is carried by everything else, all of it plan-legible:
+
+      ONE funnel. The Burke's twin close-coupled funnels are its midships
+      read; the 052D shows a single block and a single dark cap.
+      EQUAL VLS FARMS, 32 + 32 (4x8 both), one on the forecastle and one
+      between funnel and hangar — the Burke's farms are unequal (32/64) and
+      the cruiser's sit at the extremities.
+      The arrays sit LOW on a single slab-sided block (taper 0.96, near
+      vertical), not on a pyramid: the faces are bigger, closer to the deck,
+      and the block reads as one mass under a SOLID enclosed mainmast.
+      HQ-10 on the hangar roof instead of an aft CIWS drum, and only ONE
+      hangar door where the Burke has two.
+      NO director domes at all — an AESA ship guides its own missiles, and
+      the Burke carries three.
+    """
+    L, B, FB, SH = 157.0, 17.0, 5.9, 2.2
+    p, fb = ship_hull(L, B, FB, bow=0.30, transom=0.84, sheer=SH)
+    sup, top = superstructure(L * 0.095, fb,
+                              ((44.0, 15.2, 6.2), (30.0, 13.4, 5.0, 0.0),
+                               (16.0, 10.6, 4.2, 2.5)), taper=0.96)
+    p += sup
+    z_01, z_02, z_bridge = fb + 6.2, fb + 11.2, fb + 15.4
+
+    for s in (-1, 1):                       # four Type 346A faces, LOW
+        p += planar_array(s * 6.4, 26.5, fb + 8.7, 5.8, 5.2, 20, s * 30)
+        p += planar_array(s * 6.4, 3.5, fb + 8.7, 5.8, 5.2, 20, -s * 150)
+
+    # solid enclosed mainmast on the block, radome on the head
+    p += lattice_mast(0, 6.5, z_02, 15.0, foot=5.0, head=2.4, bays=3,
+                      solid=True, yards=((0.45, 10.0),), radome=1.6)
+    p += ciws(0, 33.5, z_01, 1.10)                      # Type 1130, forward
+
+    # after deckhouse and the ONE funnel
+    p.append(deckhouse(-L * 0.072, 24.0, 12.6, 5.4, fb))
+    p += funnel(0, -L * 0.078, fb + 5.4, 9.6, 8.8, 6.4, rake=8)
+    p += air_search(0, -3.5, fb + 5.4, 6.8, 2.8)        # Type 517 mattress
+    for s in (-1, 1):
+        p += satcom(s * 4.4, -20.5, fb + 5.4, 1.40)
+        p += esm_array(s * 7.2, 22.0, z_02)
+        p += bridge_wing(s * 6.4, 24.0, z_bridge, gun=False)
+        p += chaff_launcher(s * 6.8, 15.0, z_01, yaw=s * 30)
+        p += boat_bay(s * B * 0.47, -L * 0.040, fb)
+        p += torpedo_tubes(s * B * 0.32, -L * 0.155, fb + 0.4, yaw=s * 55)
+
+    # aviation and the aft farm
+    p += vls(0, -L * 0.192, fb, 4, 8)                   # 32 aft = 32 fwd
+    p += hangar(-L * 0.290, 19.0, 13.2, 6.4, fb, doors=1)
+    p += helipad(-L * 0.428, 13.0, 19.0, fb)
+    with mat("deck"):                                   # HQ-10, hangar roof
+        p.append(cube((0, -38.5, fb + 6.4 + 1.2), (3.4, 2.6, 2.0),
+                      rot=(R(-20), 0, 0)))
+
+    p += vls(0, L * 0.290, fb + SH, 4, 8)               # 32 fwd
+    p += gun_mount(L * 0.385, fb + SH, r=1.95, barrel_l=6.8)   # H/PJ-38 130mm
+    p += breakwater(L * 0.335, B * 0.70, fb + SH)
+    p += anchor_gear(L * 0.440, fb + SH, B)
+    p += clutter(hull_planform(L, B, bow=0.30, transom=0.84, w=0.90), fb,
+                 spacing=34.0)
+    p.append(team_patch(-47.0, fb + 6.4, 4.2, 5.0))     # hangar roof, aft
+    return p, ship_meta(L, B, fb, z_02 + 15.0 + 2.0, gun_y=L * 0.385,
+                        gun_z=fb + SH + 2.5)
+
+
+def sub_kilo():
+    """Project 877 Kilo — 72.6 x 9.9 m, published draught 6.2 m, 2 300 t
+    surfaced (published figures; ru.json carries no submarine role). A
+    double-hulled boat with a big reserve of buoyancy, so it rides HIGH:
+    freeboard 1.70 m, showing 7.47 m wide in plan.
+
+    WHAT SEPARATES IT FROM THE TYPE 209, since both are diesel boats:
+
+      THE PLAN IS FAT. L/B = 7.3 against the 209's 10.0 — at the same zoom
+      the Kilo is a wide teardrop where the 209 is a pencil, and the plan
+      strip it shows (7.5 m) is half again the 209's 4.9 m.
+      THE SAIL IS LONG AND LOW, 12 m for only 3.2 m of height, unstepped,
+      with no fairwater planes (a Kilo's foreplanes are hull-mounted and
+      retracted at the surface) — against the 209's short stepped fin.
+      A RAISED WHALEBACK over the torpedo room: the bow casing steps up a
+      dark half-metre with two bright hatches on it, where the 209's mark
+      amidships is its light snorkel housing.
+    """
+    L, B, FB = 72.6, 9.9, 1.70            # published draught 6.2 m to the keel
+    assert sub_show_width(B, FB) > B * 0.52
+    p, axis, deck = sub_hull(L, B, FB, name="kilo")
+    p += casing(L * 0.34, -L * 0.34, B * 0.54, deck - 0.10)
+    top = deck - 0.10 + 0.42                                    # casing crown
+    with mat("gunbore"):                                # the whaleback
+        p.append(cube((0, L * 0.200, top + 0.20), (B * 0.40, L * 0.160, 0.40)))
+    p += sub_fittings([L * 0.230, L * 0.165], top + 0.40, r=0.50)
+    p += sail(L * 0.140, 12.0, 3.2, B * 0.30, deck, planes=False, masts=3)
+    p += sub_fittings([-L * 0.140, -L * 0.260], top, r=0.62)
+    p += stern_planes(L, B, axis, "cross")
+    p += propulsor(L, B, axis, "screw")
+    p.append(team_patch(-L * 0.060, top, 1.8, 2.6))
+    return p, ship_meta(L, B, deck, deck + 3.2 + 3.4, gun_y=L * 0.2,
+                        gun_z=deck + 1.0)
+
+
+#          name                     L      B     fb   sheer  number
+_ship_tex("nav_e3_ru_sovremenny", 156.0, 17.3, 5.2, 2.0, "715", bow=0.32)
+_ship_tex("nav_e6_cn_052d",       157.0, 17.0, 5.9, 2.2, "172")
+# no pennant number: Russian boats do not paint one on the sail
+_sub_tex("sub_e2_ru_kilo",         72.6,  9.9, 1.70, None, 10.2, 3.2, 2.97)
+
+
 NAVY = [
     ("nav_e4_us_destroyer",  destroyer_aaw,       "navy_haze"),
     ("nav_e1_us_frigate",    frigate_asw,         "navy_haze"),
@@ -2954,15 +3181,21 @@ NAVY = [
     ("nav_e1_us_landingcraft", landing_craft,     "navy_haze"),
     ("nav_e1_us_oiler",      fleet_oiler,         "navy_haze"),
     ("nav_e1_us_minewarfare", mine_warfare,       "navy_haze"),
+    # soviet / chinese lineage (red team, same convention as army/fleet)
+    ("nav_e3_ru_sovremenny", sovremenny,          "navy_haze", (0.68, 0.10, 0.10)),
+    ("nav_e6_cn_052d",       type052d,            "navy_haze", (0.68, 0.10, 0.10)),
+    ("sub_e2_ru_kilo",       sub_kilo,            "sub_dark",  (0.68, 0.10, 0.10)),
 ]
 
 if __name__ == "__main__":
     H.set_out(os.path.join(ROOT, "art", "blockout", "e4_navy"))
-    for name, _, camo in NAVY:
-        H.CAMO[name] = camo
-        H.TEAM[name] = (0.06, 0.20, 0.62)
+    for entry in NAVY:
+        name = entry[0]
+        H.CAMO[name] = entry[2] if len(entry) > 2 else "navy_haze"
+        H.TEAM[name] = entry[3] if len(entry) > 3 else (0.06, 0.20, 0.62)
     print("building navy...")
-    for name, fn, _ in NAVY:
+    for entry in NAVY:
+        name, fn = entry[0], entry[1]
         for lod in (0, 1, 2):
             n = H.build(name, fn, lod)
             print(f"  {name:26s} LOD{lod}  {n:6d} tris")

@@ -936,6 +936,208 @@ def repair_vehicle():
                    gun_z=top + 0.44, gun_y=-1.20)
 
 
+# ── soviet-lineage ground family (2026-08) ─────────────────────────
+# ru/cn/kp derivatives whose outlines genuinely differ from the US baseline.
+# Dimensions from data/factions/ru.json / cn.json (entry named per docstring);
+# anything the data lacks is a published spec, called out where used.
+
+def btr60():
+    """afv_e2_ru_btr60 — BTR-60PB (ru.json apc e2: 7.56 x 2.83 x 2.31 m,
+    10.3 t, 8x8 amphibious, 14.5 mm KPVT).
+
+    An 8-WHEEL BOAT HULL — nothing like the tracked M113 box. The hull rises
+    to a point at BOTH ends (bow tip at 1.12 m, boat stern), eight big wheels
+    carry it with daylight under the belly, and the only thing on the roof is
+    the same little cone turret the BRDM-2 wears, set FORWARD over the second
+    axle. Axle fractions follow the real 1.35/1.53/1.35 m spacing, so the
+    slight centre gap that identifies a BTR from above is preserved.
+    """
+    HL, HW, CL = 7.56, 2.83, 0.45
+    top = 1.86
+    p = []
+    p.append(profile([(-HL / 2, 1.12), (-HL / 2 + 1.48, top),
+                      (2.20, top), (HL / 2, 1.30), (3.30, CL),
+                      (-2.80, CL)], HW, "btr_hull"))
+    p.append(cube((0, -2.98, 1.50), (HW * 0.68, 0.10, 0.82),
+                  rot=(R(-60), 0, 0)))                          # trim vane
+    use("glass")
+    p.append(cube((0, -2.42, 1.72), (1.60, 0.08, 0.26),
+                  rot=(R(-27), 0, 0)))                          # driver screens
+    use("body")
+    p.append(cyl((0, -1.15, top + 0.20), 0.55, 0.40, v=16, taper=0.52))
+    p.append(dome((0, -1.15, top + 0.40), 0.30, 0.30, 0.12, v=14))
+    use("gun")
+    p.append(cyl((0, -1.85, top + 0.24), 0.034, 1.30, rot=(_fwd(2), 0, 0), v=8))
+    p.append(cyl((0, -1.65, top + 0.16), 0.024, 0.80, rot=(_fwd(2), 0, 0), v=6))
+    use("deck")
+    for k in range(2):                                          # troop hatches
+        p.append(cube((0, 0.10 + k * 0.95, top + 0.02), (1.45, 0.80, 0.06)))
+    p.append(cube((0, 2.62, 1.665), (1.60, 0.85, 0.06)))        # engine grilles
+    use("body")
+    for s in (-1, 1):                                           # side bench rails
+        p.append(cube((s * (HW / 2 - 0.05), 0.30, 1.30), (0.10, 3.60, 0.14)))
+    p += detail_kit(HL, HW, top, top + 0.40, -1.70, -0.60, era=0, mg=False)
+    p += wheeled_gear(HL, HW, CL, 4, 0.54, at=(0.16, 0.34, 0.54, 0.72))
+    return p, dict(top=top, hull_l=HL, hull_w=HW, turret_top=2.31,
+                   gun_z=top + 0.24, gun_y=-1.30)
+
+
+def zsu23():
+    """aad_e3_ru_zsu23 — ZSU-23-4M Shilka (ru.json spaag e2/e3: 6.54 x 3.13
+    x 2.58 m, 19.5 t, 6 road wheels, quad 23 mm, RPK-2 dish).
+
+    Built because the pair genuinely separates from the Gepard: the Shilka is
+    FOUR SHORT water-jacketed barrels CLUSTERED at the CENTRE of a big boxy
+    near-full-width turret with a ROUND DISH on a mast behind it — the Gepard
+    is TWO LONG barrels hung OUTBOARD of the turret sides under an OBLONG
+    search array. Cluster-vs-outboard and dish-vs-rectangle both survive RTS
+    zoom; hull is also 0.9 m lower than the Leopard-based Gepard's.
+    """
+    HL, HW, CL, HH = 6.54, 3.13, 0.40, 1.12
+    p, top = _base(HL, HW, CL, HH, 1.30, "zsu_hull")            # deck at 1.52
+    TR = 2.50
+    p.append(profile([(-1.42, top), (-1.55, TR - 0.40), (-1.15, TR),
+                      (1.25, TR), (1.48, TR - 0.42), (1.40, top)],
+                     2.90, "zsu_turret"))
+    p.append(cube((0, -1.30, 2.02), (1.34, 0.55, 0.50)))        # gun trough
+    e = math.radians(8)
+    ax = (0.0, -math.cos(e), math.sin(e))
+    # Barrel weights are RTS weights, not scale: at 0.030 m the quad
+    # cluster — the whole point of the vehicle — vanished from the lineup
+    # render while the Gepard's pair still read. 0.075/0.045 keeps the
+    # four-across grouping legible at gameplay zoom.
+    for x in (-0.51, -0.17, 0.17, 0.51):                        # quad 23 mm
+        p.append(cyl((x, -1.30 + ax[1] * 0.75, 2.02 + ax[2] * 0.75),
+                     0.075, 1.30, rot=(_fwd(8), 0, 0), v=10))   # water jacket
+        use("gun")
+        p.append(cyl((x, -1.30 + ax[1] * 1.95, 2.02 + ax[2] * 1.95),
+                     0.045, 1.20, rot=(_fwd(8), 0, 0), v=8))
+        p.append(cyl((x, -1.30 + ax[1] * 2.50, 2.02 + ax[2] * 2.50),
+                     0.062, 0.14, rot=(_fwd(8), 0, 0), v=8))    # flash hider
+        use("gunbore")
+        p.append(cyl((x, -1.30 + ax[1] * 2.58, 2.02 + ax[2] * 2.58),
+                     0.030, 0.02, rot=(_fwd(8), 0, 0), v=8))
+        use("body")
+    p.append(cyl((0, 1.05, TR + 0.30), 0.13, 0.65, v=10))       # radar mast
+    use("deck")
+    p.append(cyl((0, 1.05, TR + 0.90), 0.58, 0.30,
+                 rot=(_fwd(70), 0, 0), v=18))                   # the Gun Dish
+    use("body")
+    p.append(cyl((0, 0.83, TR + 0.98), 0.05, 0.40,
+                 rot=(_fwd(20), 0, 0), v=6))                    # feed horn
+    p.append(cube((-0.85, -0.75, TR + 0.16), (0.42, 0.50, 0.32)))  # optic box
+    p += _splash(HL, CL, top, HW, 1.30)
+    p += detail_kit(HL, HW, top, TR, -1.15, 1.25, era=0, mg=False)
+    p += running_gear(HL, HW, CL, 6, 0.335, 0.30)
+    return p, dict(top=top, hull_l=HL, hull_w=HW, turret_top=TR + 1.20,
+                   gun_z=2.02, gun_y=-1.30)
+
+
+def s300_tel():
+    """sam_e4_ru_s300tel — S-300PS 5P85-class TEL (ru.json long_sam e4:
+    13.11 x 3.15 x 3.8 m travelling, MAZ-7910 8x8, 4x 5V55R).
+
+    FOUR ROUND TUBES IN A 2x2 CLUSTER raised over the tail — against the
+    Patriot's ONE FLAT ROW of four SQUARE canisters at 38 deg, which is the
+    exact confusion the method notes call out. Round-vs-square and
+    cluster-vs-row both read in plan and in profile.
+
+    Two deliberate deviations, both for the validate_sockets 'sam' envelope
+    (12.9 m length, 7.2 m height ceilings, same reason the ballistic TEL is
+    shortened): hull 12.80 m against the published 13.11 (-2.4%), and the
+    tubes raised to 40 deg at 7.0 m rather than erected vertical at the real
+    ~7.8 m — vertical is a 9.6 m model. 40 deg keeps every cue (fat round
+    tubes, blunt caps, 2x2 frame, jacks down) and puts 4 m of tube across
+    the PLAN view where a vertical cluster is four dots.
+    """
+    HL, HW, CL, HH = 12.80, 3.15, 0.65, 1.00
+    p, top = _base(HL, HW, CL, HH, 0.30, "s3_hull")             # deck at 1.65
+    CY, CD, CH = -HL * 0.40, 2.30, 1.55
+    p += _cab(CY, top, 2.95, CD, CH, glass_h=0.55)
+    p.append(cube((0, -2.30, top + 0.70), (2.95, 3.30, 1.40)))  # equipment cabin
+    E, L, TR_ = 40.0, 7.00, 0.36
+    e = math.radians(E)
+    uy, uz = math.cos(e), math.sin(e)                # up the tubes (aft + up)
+    vy, vz = -math.sin(e), math.cos(e)               # across the cluster
+    TY, Z0 = 0.45, 1.95                              # breech-end trunnion
+    p.append(cube((0, TY + 0.15, top + 0.30), (2.45, 2.30, 0.60)))  # erector base
+    p.append(cube((0, TY + 0.40 * uy, Z0 + 0.40 * uz - 0.05),
+                  (1.95, 1.00, 1.95), rot=(R(E), 0, 0)))        # breech frame
+    for a in (2.60, 4.70):                                      # collar plates
+        p.append(cube((0, TY + a * uy, Z0 + a * uz), (1.78, 0.16, 1.78),
+                      rot=(R(E), 0, 0)))
+    for s in (-1, 1):                                           # erector rams
+        p.append(_strut((s * 0.92, TY + 1.90, top + 0.10),
+                        (s * 0.92, TY + 2.30 * uy, Z0 + 2.30 * uz - 0.30),
+                        0.17))
+    use("deck")
+    for sx in (-1, 1):                                          # 2x2 tube cluster
+        for sv in (-1, 1):
+            x = sx * 0.44
+            by, bz = TY + sv * 0.36 * vy, Z0 + sv * 0.36 * vz
+            p.append(cyl((x, by + uy * L / 2, bz + uz * L / 2), TR_, L,
+                         rot=(_aft(E), 0, 0), v=16))
+            use("gunbore")
+            p.append(cyl((x, by + uy * (L + 0.02), bz + uz * (L + 0.02)),
+                         TR_ * 0.93, 0.06, rot=(_aft(E), 0, 0), v=16))
+            use("deck")
+    use("body")
+    for s in (-1, 1):                                           # ground jacks
+        for yj in (-1.60, 4.90):
+            p.append(cyl((s * (HW / 2 - 0.16), yj, 0.60), 0.16, 1.20, v=8))
+            p.append(cube((s * (HW / 2 - 0.16), yj, 0.07), (0.50, 0.50, 0.14)))
+    ROOF = Z0 + 0.36 * vz + L * uz + TR_ * vz
+    p += _cab_kit(HL, HW, top, CY, CD, CH)
+    p += wheeled_gear(HL, HW, CL, 2, 0.64, first=0.075, last=0.195)
+    p += wheeled_gear(HL, HW, CL, 2, 0.64, first=0.63, last=0.75)
+    return p, dict(top=top, hull_l=HL, hull_w=HW, turret_top=ROOF,
+                   gun_z=Z0 + uz * L / 2, gun_y=TY + uy * L / 2)
+
+
+def type59():
+    """mbt_e2_cn_type59 — Type 59 (cn.json mbt e1/e2: 9.0 m gun forward,
+    3.27 m wide, 2.59 m high; the T-54A pattern. Hull length 6.04 m is the
+    published T-54 figure the data's gun-forward length implies).
+
+    The PLA's bulk tank for three epochs. Against the T-72 it must NOT read
+    as the same vehicle: FIVE big road wheels with the long bare gap of
+    T-54 torsion spacing (the T-72 runs six), a HIGH EGG DOME set forward
+    (the T-72's dome is squat and wide), NO skirts, NO ERA, and a CLEAN
+    100 mm tube — no bore evacuator, no brake, the D-10 tell (every later
+    Soviet gun carries a mid-tube bulge).
+    """
+    HL, HW, CL, HH = 6.04, 3.27, 0.43, 1.09
+    top = CL + HH                                               # 1.52
+    p = []
+    p.append(profile([(-HL / 2, CL), (-HL / 2 + 1.25, top),
+                      (HL / 2, top), (HL / 2, CL)], HW, "t59_hull"))
+    p.append(dome((0, -0.50, top - 0.10), 1.42, 1.52, 0.95, v=22))  # egg dome
+    p.append(cyl((0, -0.45, top + 0.03), 1.32, 0.14, v=20))     # turret ring
+    p.append(cube((0, -1.78, 1.72), (0.82, 0.52, 0.58)))        # mantlet
+    # 100 mm D-10T, hand-rolled so it stays CLEAN (barrel() adds an evacuator)
+    p.append(cyl((0, -3.57, 1.75), 0.100, 3.94, rot=(R(90), 0, 0), v=16))
+    use("gun")
+    p.append(cyl((0, -5.73, 1.75), 0.098, 0.52, rot=(R(90), 0, 0), v=16))
+    use("gunbore")
+    p.append(cyl((0, -5.975, 1.75), 0.060, 0.02, rot=(R(90), 0, 0), v=14))
+    use("body")
+    p.append(cyl((0.48, -0.05, 2.28), 0.30, 0.28, v=14))        # cupola
+    use("deck")
+    p.append(cyl((0.48, -0.05, 2.43), 0.33, 0.05, v=14))
+    for k in range(4):                                          # engine louvres
+        p.append(cube((0, 1.75 + k * 0.28, top + 0.02), (2.05, 0.20, 0.08)))
+    use("body")
+    for s in (-1, 1):                                           # rear fuel drums
+        p.append(cyl((s * 1.02, HL / 2 - 0.12, top + 0.24), 0.29, 0.90,
+                     rot=(R(90), 0, 0), v=12))
+    p.append(cyl((0, HL / 2 + 0.14, 0.98), 0.14, 2.30,
+                 rot=(0, R(90), 0), v=10))                      # unditching log
+    p += detail_kit(HL, HW, top, 2.30, -1.90, 0.90, era=0, mg=True)
+    p += running_gear(HL * 1.12, HW, CL, 5, 0.40, 0.28, skirt_front_only=True)
+    return p, dict(top=top, hull_l=HL, hull_w=HW, turret_top=2.40,
+                   gun_z=1.75, gun_y=-1.78)
+
+
 ARMY = [
     ("afv_e4_us_tankdestroyer", tank_destroyer),
     ("afv_e4_us_apc",           apc),
@@ -953,6 +1155,12 @@ ARMY = [
     ("log_e4_us_ammotruck",     ammo_truck),
     ("eng_e4_us_engineer",      engineer_vehicle),
     ("eng_e4_us_repair",        repair_vehicle),
+    # soviet / chinese lineage (camo + team colour per entry; the US entries
+    # above keep their 2-tuple form and default to camo_us / NATO blue)
+    ("afv_e2_ru_btr60",         btr60,    "camo_ru", (0.68, 0.10, 0.10)),
+    ("aad_e3_ru_zsu23",         zsu23,    "camo_ru", (0.68, 0.10, 0.10)),
+    ("sam_e4_ru_s300tel",       s300_tel, "camo_ru", (0.68, 0.10, 0.10)),
+    ("mbt_e2_cn_type59",        type59,   "camo_cn", (0.72, 0.14, 0.10)),
 ]
 
 
@@ -1003,13 +1211,45 @@ _us_ground("eng_e4_us_repair",        1.52, 0.30, 2.40, size=0.60, dust=0.65,
            height=1.4)
 
 
+# soviet/chinese-lineage texture requests: national star on the flat hull /
+# turret sides, ru flora mud and cn loess dust (same tints faction_models'
+# MBTs run, so a mixed battlegroup weathers as one force).
+_RU_MUD = (0.36, 0.32, 0.24)
+_CN_DUST = (0.46, 0.41, 0.30)
+
+
+def _sov_ground(name, kind, x, y, z, size=0.50, dust=0.55, height=1.2,
+                spacing=1.5, tint=_RU_MUD):
+    H.texture_features(
+        name, size_class="vehicle", groups=("body", "deck"),
+        panels=dict(spacing=spacing, strength=0.55, jitter=0.13, seams=0.55),
+        weathering=dict(
+            dust=dict(height=height, strength=dust, tint=tint),
+            edge_wear=dict(strength=0.5)),
+        insignia=[dict(kind=kind, center=( x, y, z), normal=( 1, 0, 0),
+                       size=size, alpha=0.9),
+                  dict(kind=kind, center=(-x, y, z), normal=(-1, 0, 0),
+                       size=size, alpha=0.9)])
+
+
+_sov_ground("afv_e2_ru_btr60",   "star_ru", 1.40, 0.60, 1.35, size=0.50,
+            height=1.1)
+_sov_ground("aad_e3_ru_zsu23",   "star_ru", 1.46, -0.05, 2.05, size=0.50)
+_sov_ground("sam_e4_ru_s300tel", "star_ru", 1.56, -2.30, 1.35, size=0.50,
+            dust=0.60)
+_sov_ground("mbt_e2_cn_type59",  "star_cn", 1.62, 0.30, 1.10, size=0.50,
+            dust=0.60, tint=_CN_DUST)
+
+
 if __name__ == "__main__":
     H.set_out(os.path.join(ROOT, "art", "blockout", "e4_army"))
-    for name, _ in ARMY:
-        H.CAMO[name] = "camo_us"
-        H.TEAM[name] = (0.06, 0.20, 0.62)
+    for entry in ARMY:
+        name = entry[0]
+        H.CAMO[name] = entry[2] if len(entry) > 2 else "camo_us"
+        H.TEAM[name] = entry[3] if len(entry) > 3 else (0.06, 0.20, 0.62)
     print("building army roles...")
-    for name, fn in ARMY:
+    for entry in ARMY:
+        name, fn = entry[0], entry[1]
         for lod in (0, 1, 2):
             n = H.build(name, fn, lod)
             print(f"  {name:28s} LOD{lod}  {n:6d} tris")

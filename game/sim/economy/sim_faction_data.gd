@@ -81,6 +81,16 @@ const BASE_STEMS := {
 	"ammo_truck": "log_e4_us_ammotruck", "command_vehicle": "cmd_e4_us_command",
 	"engineer_vehicle": "eng_e4_us_engineer", "repair_vehicle": "eng_e4_us_repair",
 	"ballistic_launcher": "msl_e4_us_ballistic",
+
+	# NAVAL. Absent for the same reason air was: every ship the economy
+	# produced -- carriers included -- drew a grey blockout while the art sat
+	# on disk. The whole naval ASW pillar is fought in these hulls.
+	"carrier": "nav_e1_us_carrier", "cruiser": "nav_e1_us_cruiser",
+	"corvette": "nav_e1_us_corvette", "asw_frigate": "nav_e1_us_frigate",
+	"patrol_vessel": "nav_e1_us_patrol", "amphib": "nav_e2_us_amphib",
+	"missile_boat": "nav_e2_us_missileboat",
+	"air_defence_destroyer": "nav_e4_us_destroyer",
+	"submarine": "sub_e2_us_nuclear",
 	"coastal_asm": "msl_e4_us_coastal", "rifle_squad": "inf_e4_us_rifle",
 	"at_team": "inf_e6_us_at", "manpads_team": "inf_e6_us_manpads",
 	"mortar_team": "inf_e6_us_mortar", "recon_team": "inf_e6_us_recon",
@@ -278,6 +288,27 @@ static func model_stem_for(role: String, faction: int, epoch: int) -> String:
 	if stems.is_empty():
 		return template
 	var chain: Array = ART_CHAIN.get(faction, ["us"])
+
+	# THE MANIFEST FIRST. A national variant is named for the vehicle, not for
+	# the role -- afv_e2_ru_btr60, not afv_e2_ru_apc -- so the pattern below
+	# can only ever find stems whose baseline carries no suffix. That is why
+	# MBTs were the only faction art the game ever showed: every BMP, BTR,
+	# 2S3, BM-21 and Sovremenny built for this project was unreachable.
+	var man := _manifest()
+	for code in chain:
+		var by_role: Variant = man.get(String(code))
+		if not (by_role is Dictionary):
+			continue
+		var by_epoch: Variant = (by_role as Dictionary).get(role)
+		if not (by_epoch is Dictionary):
+			continue
+		for ep in _epoch_order(epoch):
+			var stem: Variant = (by_epoch as Dictionary).get(str(ep))
+			# Checked against the filesystem like everything else: a manifest
+			# row whose GLB was never built must not beat a stem that exists.
+			if stem is String and _find_stem(stems, String(stem)) != "":
+				return String(stem)
+
 	for code in chain:
 		for ep in _epoch_order(epoch):
 			var cand := "%s_e%d_%s%s" % [family, ep, String(code), suffix]
@@ -285,6 +316,27 @@ static func model_stem_for(role: String, faction: int, epoch: int) -> String:
 			if found != "":
 				return found
 	return template
+
+
+static var _manifest_cache: Dictionary = {}
+static var _manifest_read := false
+
+
+## The art pipeline's published map of faction+role+epoch -> GLB stem.
+static func _manifest() -> Dictionary:
+	if _manifest_read:
+		return _manifest_cache
+	_manifest_read = true
+	var path := (ProjectSettings.globalize_path("res://")
+		+ "../data/models_manifest.json").simplify_path()
+	if not FileAccess.file_exists(path):
+		path = "res://data/models_manifest.json"
+		if not FileAccess.file_exists(path):
+			return _manifest_cache
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if parsed is Dictionary:
+		_manifest_cache = parsed as Dictionary
+	return _manifest_cache
 
 
 ## The player's epoch, then downward to 1, then upward to 7.
