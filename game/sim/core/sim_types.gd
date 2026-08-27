@@ -206,6 +206,8 @@ enum OrderKind {
 	SORTIE_STRIKE = 13, ## aircraft: fly to x/z, deliver, come home on fuel (docs/04)
 	SORTIE_PATROL = 14, ## aircraft: orbit x/z until the RTB rule says otherwise
 	ATTACK_MOVE = 15,  ## advance to a world point at combat power, engaging en route
+	SELL = 16,         ## refund part of a structure's cost and remove it
+	REPAIR = 17,       ## pay to restore a damaged structure
 }
 
 

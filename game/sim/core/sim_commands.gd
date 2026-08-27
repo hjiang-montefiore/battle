@@ -186,6 +186,23 @@ func sortie_patrol(issuer: int, unit: int, x: float, z: float,
 	return submit(c)
 
 
+## Sell a structure back. The refund is the economy's business, not the
+## caller's -- a UI that computed it would drift from the sim that pays it.
+func sell(issuer: int, unit: int) -> Command:
+	var c := Command.new()
+	c.kind = SimTypes.OrderKind.SELL
+	c.issuer = issuer; c.unit = unit
+	return submit(c)
+
+
+## Pay to restore a damaged structure. Refused when undamaged or unaffordable.
+func repair(issuer: int, unit: int) -> Command:
+	var c := Command.new()
+	c.kind = SimTypes.OrderKind.REPAIR
+	c.issuer = issuer; c.unit = unit
+	return submit(c)
+
+
 func size() -> int:
 	return _pending.size()
 

@@ -359,6 +359,64 @@ func role_of(unit: int) -> String:
 	return String(SimRoster.parse_key(k).get("role", ""))
 
 
+## Fraction of a structure's build cost returned when it is sold. Red Alert's
+## own number, and the reason selling is a real decision rather than a free
+## undo: half of what you paid is gone.
+const SELL_REFUND := 0.5
+
+## Cost to repair a structure from zero to full, as a fraction of its build
+## cost. Repairing a nearly-dead building should be a genuine choice against
+## rebuilding it; at half price it usually wins, which is what makes a
+## service depot worth having.
+const REPAIR_COST := 0.5
+
+
+## Sell a structure back for SELL_REFUND of its cost. Structures only: an army
+## is not liquidated a tank at a time, and letting it be would make retreat
+## strictly worse than scuttling.
+func sell_structure(player_id: int, unit: int) -> bool:
+	if not _is_own_structure(player_id, unit):
+		return false
+	var d := def_of(unit)
+	var refund: float = (d.cost if d != null else 0.0) * SELL_REFUND
+	# Scaled by what is LEFT of the building. Selling a burning wreck for the
+	# same money as an intact one would make damage free.
+	var whole := entities.structure_max[unit]
+	if whole > 0.0:
+		refund *= clampf(entities.structure[unit] / whole, 0.0, 1.0)
+	add_income(player_id, refund)
+	entities.kill(unit)
+	_log("sold %s for %.0f cr" % [entities.names[unit], refund])
+	return true
+
+
+## Pay to restore a damaged structure to full. Charged for the damage actually
+## made good, so topping up a scratch costs a scratch.
+func repair_structure(player_id: int, unit: int) -> bool:
+	if not _is_own_structure(player_id, unit):
+		return false
+	var whole := entities.structure_max[unit]
+	if whole <= 0.0:
+		return false
+	var missing := whole - entities.structure[unit]
+	if missing <= 0.01:
+		return false
+	var d := def_of(unit)
+	var price: float = (d.cost if d != null else 0.0) * REPAIR_COST * (missing / whole)
+	if not try_spend(player_id, price):
+		return false
+	entities.structure[unit] = whole
+	_log("repaired %s for %.0f cr" % [entities.names[unit], price])
+	return true
+
+
+func _is_own_structure(player_id: int, unit: int) -> bool:
+	return (unit >= 0 and unit < entities.count()
+		and entities.alive[unit] == 1
+		and entities.owner[unit] == player_id
+		and entities.is_structure[unit] == 1)
+
+
 func def_of(unit: int) -> SimUnitDef:
 	var k: String = _def_key_of.get(unit, "")
 	if k == "":

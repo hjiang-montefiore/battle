@@ -376,6 +376,10 @@ func _execute_command(c: SimCommandQueue.Command) -> bool:
 			return economy.queue_production(c.issuer, c.unit, c.key)
 		SimTypes.OrderKind.BUILD:
 			return economy.spawn_unit(c.issuer, c.key, c.x, c.z) >= 0
+		SimTypes.OrderKind.SELL:
+			return economy.sell_structure(c.issuer, c.unit)
+		SimTypes.OrderKind.REPAIR:
+			return economy.repair_structure(c.issuer, c.unit)
 		SimTypes.OrderKind.ATTACK_TRACK:
 			# Fire control. The track is assigned to the unit's weapons and slot
 			# 8c runs the gate and the launch. Deliberately NOT resolved to an

@@ -129,6 +129,9 @@ var _headless := false
 ## Economy visibility: the amber refine-bottleneck line, the red capitulation
 ## countdown, and the production-queue readout on the side panel.
 var _bottleneck_label: Label
+var _power_label: Label
+var _repair_btn: Button
+var _sell_btn: Button
 var _collapse_label: Label
 var _queue_label: Label
 var _queue_bar: ProgressBar
@@ -1211,6 +1214,46 @@ func _queue(def_key: String) -> void:
 # HUD
 # ═══════════════════════════════════════════════════════════════════════════
 
+## Every own STRUCTURE in the selection, which is what REPAIR and SELL act on.
+func _selected_structures() -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var e := _match.world.entities
+	for i in _selected:
+		if e.is_alive(i) and e.is_structure[i] == 1 and e.owner[i] == _me:
+			out.append(i)
+	return out
+
+
+func _on_repair() -> void:
+	var picked := _selected_structures()
+	var damaged := 0
+	var e := _match.world.entities
+	for i in picked:
+		if e.structure[i] < e.structure_max[i] - 0.01:
+			_match.world.commands.repair(_me, i)
+			damaged += 1
+	if damaged == 0:
+		_flash("nothing selected needs repair")
+	else:
+		_flash("repairing %d structure(s)" % damaged)
+		if _audio != null:
+			_audio.flat("ui_order", -6.0)
+
+
+func _on_sell() -> void:
+	var picked := _selected_structures()
+	if picked.is_empty():
+		_flash("select one of your own structures to sell")
+		return
+	for i in picked:
+		_match.world.commands.sell(_me, i)
+	_flash("sold %d structure(s) at %d%% of cost" % [
+		picked.size(), int(SimEconomy.SELL_REFUND * 100.0)])
+	_selected.clear()
+	if _audio != null:
+		_audio.flat("ui_order", -6.0)
+
+
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
@@ -1231,6 +1274,16 @@ func _build_hud() -> void:
 	_anchor(_bottleneck_label, 0.5, 0.0, -300.0, 8.0, 300.0, 30.0)
 	_bottleneck_label.add_theme_color_override("font_color", COL_UNKNOWN)
 	_bottleneck_label.visible = false
+
+	# LOW POWER. The economy has slowed production under a brownout since the
+	# day it was written -- power_satisfaction() scales the work done -- and
+	# the HUD never said so. A player whose factories have quietly halved
+	# their rate needs to be told why, in the place they are already looking.
+	_power_label = _label(layer, Vector2.ZERO, 16)
+	_power_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_anchor(_power_label, 0.5, 0.0, -300.0, 28.0, 300.0, 52.0)
+	_power_label.add_theme_color_override("font_color", COL_HOSTILE)
+	_power_label.visible = false
 
 	# The capitulation countdown. SimVictory gives a collapsed player 120 s to
 	# rebuild; a countdown buried in the stats block is not a warning.
@@ -1311,6 +1364,28 @@ func _build_hud() -> void:
 	col.add_child(_build_box)
 	_produce_box = VBoxContainer.new()
 	col.add_child(_produce_box)
+
+	# REPAIR and SELL, the two things Red Alert lets you do to a building you
+	# already own. Both go through the command queue like every other order --
+	# the economy decides the refund and the price, because a UI that computed
+	# them would drift from the sim that pays them.
+	var tools := HBoxContainer.new()
+	tools.add_theme_constant_override("separation", 2)
+	col.add_child(tools)
+	_repair_btn = Button.new()
+	_repair_btn.text = "REPAIR"
+	_repair_btn.custom_minimum_size = Vector2(0, 26)
+	_repair_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_repair_btn.add_theme_font_size_override("font_size", 11)
+	_repair_btn.pressed.connect(_on_repair)
+	tools.add_child(_repair_btn)
+	_sell_btn = Button.new()
+	_sell_btn.text = "SELL"
+	_sell_btn.custom_minimum_size = Vector2(0, 26)
+	_sell_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sell_btn.add_theme_font_size_override("font_size", 11)
+	_sell_btn.pressed.connect(_on_sell)
+	tools.add_child(_sell_btn)
 
 	_banner = Label.new()
 	_banner.set_anchors_preset(Control.PRESET_CENTER)
@@ -1505,6 +1580,22 @@ func _update_hud(dt := 0.0) -> void:
 	if choked:
 		econ += "    refining %.0f/%.0f" % [p.refine_capacity, p.extraction_per_min]
 	lines.append(econ)
+	if _repair_btn != null and _sell_btn != null:
+		var mine := _selected_structures()
+		var e2 := _match.world.entities
+		var hurt := false
+		for i in mine:
+			if e2.structure[i] < e2.structure_max[i] - 0.01:
+				hurt = true
+				break
+		_repair_btn.disabled = not hurt
+		_sell_btn.disabled = mine.is_empty()
+	if _power_label != null:
+		var sat := p.power_satisfaction()
+		_power_label.visible = sat < 0.999
+		if _power_label.visible:
+			_power_label.text = "LOW POWER -- PRODUCTION AT %.0f%%  (%.0f/%.0f MW)" % [
+				sat * 100.0, p.power_supply, p.power_draw]
 	if _bottleneck_label != null:
 		_bottleneck_label.visible = choked
 		if choked:
