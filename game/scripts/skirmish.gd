@@ -244,7 +244,10 @@ func _capture() -> void:
 		cx /= float(_selected.size())
 		cz /= float(_selected.size())
 		_rig.position = Vector3(cx, _match.terrain.ground_under(cx, cz), cz)
-	_rig.set("_dist", 700.0)
+	# The render shows the game at the zoom it is PLAYED at, not a wider survey
+	# framing -- a screenshot taken further out than the player ever sits is the
+	# reason a scale problem can survive a review.
+	_rig.set("_dist", _rig.get("zoom_start"))
 	_rig.call("_apply")
 	for unit in _match.own_units(_me):
 		if _match.world.entities.is_structure[unit] == 0:
@@ -328,7 +331,31 @@ func _build_environment() -> void:
 
 	var t := _match.terrain
 	_rig = RTS_CAMERA.new()
+	# THE SCALE THE GAME IS PLAYED AT. Ground width on screen is ~1.58x the zoom
+	# distance (48 deg FOV, 16:9), so these three numbers are, in metres of
+	# ground visible across the middle of the screen:
+	#
+	#   zoom_min    45 ->    71 m   a 9 m tank is 200 px: inspect one vehicle
+	#   zoom_start 260 ->   411 m   a 9 m tank is 35 px: the RTS working view
+	#   zoom_max  2400 ->  3799 m   59% of the 6.4 km map, 1.5x the base-to-base
+	#
+	# 260 is measured, not taste: the starting base spans 405 m corner to corner
+	# (furthest structure 202 m from the base centre), so 411 m of screen is the
+	# tightest view that still frames the whole base. The starting force also
+	# includes recon out at 1540 m, and deliberately does NOT fit -- framing that
+	# too would need zoom 1946 and put a tank back at 22 px. Forward scouts
+	# belong on the minimap; the main view belongs to the base and the fight.
+	#
+	# zoom_start is the number that was actually wrong. The far stop was already
+	# generous -- at 3799 m a player sees more of this map than the reference RTS
+	# shows of its own -- but the game OPENED at 420 m of zoom, which is 665 m of
+	# ground and puts a tank at 17 px. That is what "the map is too big to the
+	# models" describes: not a map that is too wide, but a view that starts too
+	# far out to see what is on it. The models are built at real published
+	# dimensions and the sim reasons in real metres, so the view is the only
+	# honest place to fix it.
 	_rig.set("zoom_min", 45.0)
+	_rig.set("zoom_start", 260.0)
 	_rig.set("zoom_max", 2400.0)
 	_rig.set("pan_speed", 260.0)
 	_rig.set("bounds_m", minf(t.extent_x_m(), t.extent_z_m()) * 0.5)
@@ -703,7 +730,7 @@ static func _hash01(x: int, y: int) -> float:
 ## heightfield and the whole world renders as flat sky.
 func _frame_on_base() -> void:
 	var b := _match.base_position(_me)
-	_rig.set("_dist", 420.0)
+	_rig.set("_dist", _rig.get("zoom_start"))
 	_rig.position = Vector3(b.x, _match.terrain.ground_under(b.x, b.y), b.y)
 	_rig.call("_apply")
 

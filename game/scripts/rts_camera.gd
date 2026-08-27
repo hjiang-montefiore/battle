@@ -12,13 +12,30 @@ extends Node3D
 ## The outer few pixels of that band pan faster, so a deliberate shove at the
 ## screen edge crosses the map while a drifting pointer only nudges it.
 @export var edge_boost := 2.6
+## ZOOM IS IN METRES OF CAMERA-TO-GROUND DISTANCE, and the useful range depends
+## entirely on the scene. THE DEFAULTS BELOW ARE THE MODEL VIEWER'S, not a
+## skirmish's: proving_ground.gd adds this rig with no overrides at all onto a
+## 400x400 m pad, where 18-140 m is the right range and 200 m of bounds is the
+## pad. A skirmish map is 6.4-8 km and overrides all four. Do not "fix" these to
+## skirmish numbers -- that silently breaks the only scene that relies on them.
+##
+## Useful conversion, because every judgement about scale needs it: with a 48
+## deg vertical FOV at 16:9, the ground width across the middle of the screen is
+## almost exactly 1.58 x the zoom distance. So 200 m of zoom shows ~317 m of
+## ground, and a 9 m tank is then ~45 px wide on a 1600 px screen.
 @export var zoom_min := 18.0
 @export var zoom_max := 140.0
+## Where the view OPENS. This is the single number that decides whether the
+## game reads as an RTS or as a map with specks on it, and it matters far more
+## than zoom_max: a player forms their impression of scale before they ever
+## touch the wheel. Kept as an export so the scene that knows its own map size
+## sets it, rather than callers poking the private _dist.
+@export var zoom_start := 62.0
 @export var pitch_near := 38.0   ## shallower when zoomed in
 @export var pitch_far := 58.0    ## more top-down when zoomed out
-## Half-extent of the playfield. The ground plane is 400x400 m, so the rig is
-## held inside it -- holding one pan key used to walk the view off the map into
-## bare sky with no cue where home was.
+## Half-extent of the playfield, so the rig is held inside it -- holding one pan
+## key used to walk the view off the map into bare sky with no cue where home
+## was. 200 m is the model viewer's pad; a skirmish passes half its map extent.
 @export var bounds_m := 200.0
 
 var _dist := 62.0
@@ -30,6 +47,9 @@ func _ready() -> void:
 	_cam = Camera3D.new()
 	_cam.fov = 48.0
 	add_child(_cam)
+	# Exports are assigned before add_child(), so the opening zoom is honoured
+	# and is clamped into whatever range this scene declared.
+	_dist = clampf(zoom_start, zoom_min, zoom_max)
 	_apply()
 
 
@@ -81,7 +101,13 @@ func _process(dt: float) -> void:
 		# both basis vectors are negated to cancel that sign
 		var f := Vector3(-sin(_yaw), 0.0, -cos(_yaw))
 		var r := Vector3(-cos(_yaw), 0.0, sin(_yaw))
-		var scale := _dist / 62.0
+		# Scaling by zoom makes pan_speed mean SCREENS PER SECOND rather than
+		# metres per second, which is what a player actually feels. The
+		# reference is the opening zoom, so pan_speed is calibrated against the
+		# view the scene opens on; it used to be a bare 62.0, which was the old
+		# hardcoded opening distance and silently meant "metres per second" for
+		# any scene that opened anywhere else.
+		var scale := _dist / maxf(zoom_start, 1.0)
 		position += (r * move.x + f * move.y) * pan_speed * scale * dt
 		_clamp_to_bounds()
 

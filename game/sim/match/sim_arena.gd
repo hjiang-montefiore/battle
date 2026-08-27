@@ -8,10 +8,10 @@ extends RefCounted
 ## for a twenty-minute skirmish, where a tank at 60 km/h would spend an hour
 ## crossing the board.
 ##
-## So a skirmish gets its own scale. These maps are 12 to 20 km across, which
-## puts base-to-base at roughly eight minutes of driving, keeps a tank gun's
-## 3-4 km reach meaningful against the size of the board, and still leaves room
-## for terrain to matter. Everything else about them is a real SimTerrain
+## So a skirmish gets its own scale. These maps are 6.4 to 8 km across, which
+## puts base-to-base at 2.6 to 4.3 km -- three to five minutes of driving --
+## and still leaves room for terrain to matter. Everything else about them is a
+## real SimTerrain
 ## heightfield, so line of sight, gradients, water and the path planner all
 ## behave exactly as they do in a theatre.
 ##
@@ -24,11 +24,11 @@ const COASTAL_SHELF := "coastal_shelf"
 const ALL := [SKIRMISH_VALLEY, OPEN_STEPPE, COASTAL_SHELF]
 
 const DESCRIPTIONS := {
-	SKIRMISH_VALLEY: "12.8 km. A ridge down the middle: the picture is broken "
+	SKIRMISH_VALLEY: "6.4 km. A ridge down the middle: the picture is broken "
 		+ "by terrain, and whoever takes the high ground sees first.",
-	OPEN_STEPPE: "16 km of almost nothing. Nowhere to hide from a radar, so "
+	OPEN_STEPPE: "8 km of almost nothing. Nowhere to hide from a radar, so "
 		+ "the fight is about emissions and reach rather than cover.",
-	COASTAL_SHELF: "16 km with one connected sea round the west and south "
+	COASTAL_SHELF: "8 km with one connected sea round the west and south "
 		+ "edges. Land war with a naval flank, and a shoreline in reach of "
 		+ "every base.",
 }
@@ -248,6 +248,21 @@ static func base_positions(terrain: SimTerrain, count: int) -> Array:
 	# between them. Halving the map got the crossing from 9.2 min to 4.6; this
 	# gets it to 2.6, which is a march rather than a commute, and still leaves
 	# the outer third of the map as ground to flank through and expand into.
+	#
+	# THE MAPS HAVE NOW BEEN HALVED AS FAR AS THEY CAN GO. Measured against the
+	# epoch-4 roster: an MBT's main gun reaches 3.72 km and a light tank's 3.16
+	# km, while 0.20 of the 6.4 km valley puts the two bases 2.56 km apart. Base
+	# separation is ALREADY SHORTER THAN TANK REACH -- a tank sitting in its own
+	# base is very nearly in range of the enemy's. Halve again, or push this
+	# fraction lower, and the opening move of every match becomes parking the
+	# armour at home and shelling the enemy HQ from inside your own build
+	# radius, which deletes the manoeuvre game entirely.
+	#
+	# So if the maps ever feel too big again, the fix is NOT here and NOT the
+	# cell count. It is the camera: the complaint that prompted the last halving
+	# ("too big", "hard to encounter") is produced just as well by a view that
+	# opens too far out, and that is a presentation number with no gameplay cost.
+	# See the zoom block in skirmish.gd.
 	var radius: float = minf(terrain.extent_x_m(), terrain.extent_z_m()) * 0.20
 	# A two-player match sits on the diagonal rather than on an axis: on the
 	# valley map that puts the ridge squarely between the two bases, which is

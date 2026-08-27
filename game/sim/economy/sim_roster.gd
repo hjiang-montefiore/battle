@@ -551,7 +551,22 @@ static func _ensure() -> void:
 		"damage_model": SimTypes.DamageModel.STRUCTURE, "hp": 350.0, "armor": "building",
 		"extraction": 240.0, "build_radius": 90.0,
 		"rcs": 220.0, "visual": 400.0, "mount": 20.0},
-	"refinery": {"name": "Refinery", "domain": S, "category": SimTypes.Category.GROUND,
+	# NAMED "ORE REFINERY", NOT "REFINERY". The owner's report was "there is no
+	# ore refine factory" while this building was sitting in the build list the
+	# whole time, because "Refinery" does not tell a player what it is FOR. The
+	# name is the only string the UI has -- the build card is `name + cost`, the
+	# tooltip's first line is `name`, and the selection readout is `name` -- so
+	# renaming the role fixes discoverability in all three places at once
+	# without the HUD needing to know anything new.
+	#
+	# It does two jobs on purpose and keeps doing both: it caps how much crude
+	# an oil derrick's output becomes credits, AND it is where ore harvesters
+	# unload (SimEconomy.nearest_dropoff selects on refine_capacity > 0). That
+	# coupling is the design -- neglect refineries and BOTH halves of the
+	# economy throttle at once -- so this is a rename, not a split. "Ore
+	# Refinery" names the half a player cannot otherwise discover; the crude
+	# half already announces itself through the refining-bottleneck banner.
+	"refinery": {"name": "Ore Refinery", "domain": S, "category": SimTypes.Category.GROUND,
 		"is_structure": true, "cost": 1400.0, "build_seconds": 35.0,
 		"damage_model": SimTypes.DamageModel.STRUCTURE, "hp": 600.0, "armor": "building",
 		"refine": 520.0, "power_draw": 30.0, "build_radius": 160.0,
