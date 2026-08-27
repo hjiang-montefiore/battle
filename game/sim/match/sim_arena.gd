@@ -41,6 +41,12 @@ static func build(key: String, seed_value := 20260826) -> SimTerrain:
 	# knowing theatres exist. Same determinism contract either way.
 	if key in SimTheatre.ALL:
 		return SimTheatre.build(key, seed_value)
+	# An AUTHORED map is a legal arena key too, by the same reasoning: the match
+	# layer asks for a key and gets terrain, and does not need to know whether a
+	# person sculpted it or a generator did. The map file carries every seed it
+	# needs, which is why seed_value is not threaded into it.
+	if key.begins_with(SimMapFile.ARENA_PREFIX):
+		return SimMapFile.arena_build(key, seed_value)
 	var rng := SimRng.new(seed_value)
 	match key:
 		OPEN_STEPPE: return _open_steppe(rng)
@@ -136,6 +142,11 @@ static func base_positions(terrain: SimTerrain, count: int) -> Array:
 	var out: Array = []
 	if count <= 0:
 		return out
+	# An authored map places its OWN starts. Without this the map loads and
+	# plays, but on the generator's ring slots -- so the passes and knolls the
+	# author put between the bases would sit somewhere else entirely.
+	if SimMapFile.map_of(terrain) != null:
+		return SimMapFile.base_positions(terrain, count)
 	var radius: float = minf(terrain.extent_x_m(), terrain.extent_z_m()) * 0.36
 	# A two-player match sits on the diagonal rather than on an axis: on the
 	# valley map that puts the ridge squarely between the two bases, which is
