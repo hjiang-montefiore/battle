@@ -24,6 +24,14 @@ const DRAG_THRESHOLD_PX := 11.0
 const TRACK_PICK_PX := 26.0
 
 # ── palette ──────────────────────────────────────────────────────────────────
+## Hillshade sun, matching the DirectionalLight3D's azimuth 136 / elevation 48
+## so the painted relief and the lit models agree about where the sun is.
+const SUN_DIR := Vector3(0.465, 0.743, -0.481)
+## How much to exaggerate the terrain gradient before shading it. The relief
+## is real but gentle -- 340 m over 12.8 km -- and at 1.0 the hillshade is as
+## invisible as the gradient it is meant to reveal.
+const RELIEF_GAIN := 9.0
+
 const COL_OWN := Color(0.42, 0.78, 1.00)
 const COL_ALLY := Color(0.45, 0.95, 0.60)
 const COL_SELECTED := Color(1.00, 0.95, 0.35)
@@ -35,7 +43,14 @@ const COL_ILLUM := Color(1.00, 0.58, 0.10)
 const COL_EMIT_RING := Color(1.00, 0.85, 0.25)
 const COL_SILENT_DOT := Color(0.45, 0.55, 0.62, 0.85)
 const COL_BAR_BG := Color(0.05, 0.05, 0.05, 0.75)
-const COL_PANEL := Color(0.04, 0.05, 0.06, 0.82)
+## The side bar. Was 0.82 alpha over a pale map, which let the terrain show
+## through the build list and made every icon fight its own background.
+const COL_PANEL := Color(0.055, 0.075, 0.095, 0.96)
+## RA2's side bar is FRAMED. A lit inner edge is what separates a panel from
+## a dark patch of ground behind it.
+const COL_PANEL_EDGE := Color(0.42, 0.62, 0.76, 0.85)
+const COL_PLATE := Color(0.03, 0.05, 0.07, 0.80)
+const COL_PLATE_EDGE := Color(0.34, 0.52, 0.64, 0.50)
 ## Supply reach, painted on the ground -- the circle docs/04 reasons with.
 const COL_SUPPLY := Color(0.55, 0.88, 0.50, 0.75)
 ## A full fuel tank. Distinct from the health greens so the two bars never
@@ -77,6 +92,8 @@ var _my_team: int = 0
 var _rig: Node3D
 var _proxies: Dictionary = {}          ## entity index -> Node3D
 var _terrain_mesh: MeshInstance3D
+## Per-cell hillshade, built once with the mesh.
+var _shade := PackedFloat32Array()
 var _selected: Array[int] = []
 var _drag_from := Vector2.ZERO
 var _dragging := false
@@ -152,6 +169,7 @@ func _ready() -> void:
 
 	_build_environment()
 	_build_terrain_mesh()
+	_build_oil_markers()
 	_audio = GameAudioScript.new()
 	add_child(_audio)
 	if not _headless:
@@ -260,16 +278,31 @@ func _build_environment() -> void:
 	sky.sky_material = sm
 	e.sky = sky
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	e.ambient_light_energy = 0.35
+	e.ambient_light_energy = 0.26
 	e.fog_enabled = true
-	e.fog_density = 0.00009
-	e.fog_light_color = Color(0.60, 0.64, 0.68)
+	# Fog was 0.00009 with a bright grey-blue light colour, which over a
+	# 12.8 km map at the far zoom stop laid a pale wash across everything and
+	# flattened the ground to a single tone. Halved, and tinted toward the
+	# terrain rather than toward the sky, so distance still reads as distance
+	# without bleaching the near field.
+	e.fog_density = 0.000042
+	e.fog_light_color = Color(0.50, 0.54, 0.55)
+
+	# Contrast and saturation, explicitly. Ambient sky light plus a low sun
+	# over gentle relief lands everything in the middle of the range, and a
+	# picture with no blacks and no whites reads as haze however much detail
+	# is actually in it. This is the cheapest fix for "the map has no detail"
+	# that does not involve inventing detail.
+	e.adjustment_enabled = true
+	e.adjustment_contrast = 1.24
+	e.adjustment_saturation = 1.06
+	e.adjustment_brightness = 1.02
 	env.environment = e
 	add_child(env)
 
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-48, 136, 0)
-	sun.light_energy = 1.7
+	sun.light_energy = 2.0
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 900.0
 	add_child(sun)
@@ -292,6 +325,37 @@ func _build_terrain_mesh() -> void:
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var hx := t.extent_x_m() * 0.5
 	var hz := t.extent_z_m() * 0.5
+	# Per-vertex HILLSHADE, computed once and cached. This is the single thing
+	# that was missing: the map was a height gradient with contour bands, and
+	# on 340 m of relief spread over 12.8 km every band came out the same
+	# colour to within a few percent, so the ground rendered as a flat sage
+	# wash with no readable shape at all. The sun cannot rescue it either --
+	# the slopes are so gentle that direct lighting varies by almost nothing.
+	#
+	# A hillshade is the cartographer's answer and it is cheap: light the
+	# terrain's own GRADIENT from a fixed low sun, which exaggerates relief
+	# rather than reproducing it. Ridges get a lit face and a shadowed one, so
+	# you can see which way the ground falls -- which in this game is not
+	# decoration, because the ground decides what your radar can see.
+	_shade = PackedFloat32Array()
+	_shade.resize(t.cells_x * t.cells_z)
+	var inv := 1.0 / (2.0 * t.cell_size_m)
+	for cz in range(t.cells_z):
+		for cx in range(t.cells_x):
+			var x0: int = maxi(cx - 1, 0)
+			var x1: int = mini(cx + 1, t.cells_x - 1)
+			var z0: int = maxi(cz - 1, 0)
+			var z1: int = mini(cz + 1, t.cells_z - 1)
+			var dhdx: float = (t.height_at_cell(x1, cz)
+					- t.height_at_cell(x0, cz)) * inv
+			var dhdz: float = (t.height_at_cell(cx, z1)
+					- t.height_at_cell(cx, z0)) * inv
+			# RELIEF_GAIN exaggerates the gradient. At 1.0 a 3 % slope is a
+			# 3 % slope and invisible; at 9.0 it is a face you can read.
+			var n := Vector3(-dhdx * RELIEF_GAIN, 1.0,
+					-dhdz * RELIEF_GAIN).normalized()
+			_shade[cz * t.cells_x + cx] = clampf(n.dot(SUN_DIR), 0.0, 1.0)
+
 	for cz in range(t.cells_z - 1):
 		for cx in range(t.cells_x - 1):
 			var quad := [Vector2i(cx, cz), Vector2i(cx + 1, cz),
@@ -301,11 +365,24 @@ func _build_terrain_mesh() -> void:
 				var wx: float = float(q.x) * t.cell_size_m - hx
 				var wz: float = float(q.y) * t.cell_size_m - hz
 				p.append(Vector3(wx, t.height_at_cell(q.x, q.y), wz))
-			_tri(st, p[0], p[1], p[2])
-			_tri(st, p[0], p[2], p[3])
+			_tri(st, p[0], p[1], p[2], quad)
+			_tri(st, p[0], p[2], p[3], [quad[0], quad[2], quad[3]])
 	st.generate_normals()
 	var mat := StandardMaterial3D.new()
 	mat.vertex_color_use_as_albedo = true
+	# GROUND DETAIL. The hillshade below fixed the SHAPE of the terrain; this
+	# fixes its SURFACE. Cells are 100 m across, so vertex colour alone is a
+	# gradient with nothing in it above 100 m -- correct in the large, and at
+	# any zoom a player actually uses it reads as smooth painted plastic.
+	#
+	# A tiling value-noise texture in triplanar world space gives the ground
+	# grain at metres rather than hectometres, and MULTIPLIES the vertex
+	# colour, so the hillshade, the contour banding and the water all survive
+	# underneath it. Triplanar because the mesh carries no UVs: it is built
+	# from a heightfield, and projecting from world position needs none.
+	mat.albedo_texture = _ground_detail()
+	mat.uv1_triplanar = true
+	mat.uv1_scale = Vector3(0.11, 0.11, 0.11)   # ~9 m per tile
 	# The palette below is written in sRGB, the way a colour picker gives it.
 	# Left as linear it renders about two stops brighter and the whole map
 	# comes out a pale sage that hides every contour on it.
@@ -317,10 +394,118 @@ func _build_terrain_mesh() -> void:
 	add_child(_terrain_mesh)
 
 
-func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
-	for v in [a, b, c]:
-		st.set_color(_ground_colour(v.y))
-		st.add_vertex(v)
+## A tiling grain for the ground, built once at load.
+##
+## Deterministic by construction -- a fixed seed and integer hashing, no RNG
+## draws -- because two players on the same map should see the same ground,
+## and because anything that reaches for randomness at load time is one more
+## thing that can desync a replay.
+##
+## Kept close to white (0.86-1.12) and very slightly warm: this multiplies the
+## terrain palette, so a texture with colour of its own would tint the whole
+## map rather than texture it.
+func _ground_detail() -> ImageTexture:
+	const N := 256
+	var img := Image.create(N, N, true, Image.FORMAT_RGB8)
+	for y in range(N):
+		for x in range(N):
+			var v := 0.0
+			var amp := 1.0
+			var total := 0.0
+			# Four octaves of value noise, each wrapping on N so the tile has
+			# no seam. Wrapping is why the lattice period divides N.
+			for oct in [8, 16, 32, 96]:
+				v += _value_noise(x, y, oct, N) * amp
+				total += amp
+				amp *= 0.55
+			v = v / total
+			# Darkens only. 8-bit cannot store above 1.0, so a range that
+			# straddled white threw half its variation away as clipping.
+			var g: float = 0.74 + 0.26 * v
+			img.set_pixel(x, y, Color(g * 1.02, g, g * 0.94))
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
+
+
+## Value noise on a lattice of `period` cells across `n` pixels, with smooth
+## interpolation and wrap-around, so the result tiles.
+func _value_noise(x: int, y: int, period: int, n: int) -> float:
+	var step: float = float(n) / float(period)
+	var fx: float = float(x) / step
+	var fy: float = float(y) / step
+	var x0 := int(floor(fx))
+	var y0 := int(floor(fy))
+	var tx: float = fx - float(x0)
+	var ty: float = fy - float(y0)
+	tx = tx * tx * (3.0 - 2.0 * tx)
+	ty = ty * ty * (3.0 - 2.0 * ty)
+	var a := _lattice(x0, y0, period)
+	var b := _lattice(x0 + 1, y0, period)
+	var c := _lattice(x0, y0 + 1, period)
+	var d := _lattice(x0 + 1, y0 + 1, period)
+	return lerpf(lerpf(a, b, tx), lerpf(c, d, tx), ty)
+
+
+func _lattice(x: int, y: int, period: int) -> float:
+	var h: int = (posmod(x, period) * 73856093) ^ (posmod(y, period) * 19349663) ^ 0x5f3759
+	h = (h ^ (h >> 13)) * 1274126177
+	return float((h ^ (h >> 16)) & 0xFFFF) / 65535.0
+
+
+## OIL FIELDS on the ground. A resource a player cannot SEE is not a resource
+## -- it is a rule they have to be told about. Drawn as a low dark slick with
+## a derrick-height marker so it reads from the playing camera without being
+## mistaken for a unit.
+func _build_oil_markers() -> void:
+	var econ := _match.world.economy
+	for f in econ.oil_fields:
+		var y := _match.terrain.ground_under(f.x, f.y)
+		var slick := MeshInstance3D.new()
+		var disc := CylinderMesh.new()
+		disc.top_radius = 62.0
+		disc.bottom_radius = 62.0
+		disc.height = 1.5
+		disc.radial_segments = 20
+		slick.mesh = disc
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color(0.10, 0.09, 0.07)
+		m.roughness = 0.55
+		m.metallic = 0.35
+		slick.material_override = m
+		slick.position = Vector3(f.x, y + 0.8, f.y)
+		add_child(slick)
+		# A vertical mark, because a flat disc disappears at a shallow camera
+		# angle and this has to be findable while you are looking for it.
+		var post := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = 1.6
+		cyl.bottom_radius = 4.5
+		cyl.height = 26.0
+		cyl.radial_segments = 8
+		post.mesh = cyl
+		var pm := StandardMaterial3D.new()
+		pm.albedo_color = Color(0.16, 0.14, 0.10)
+		post.material_override = pm
+		post.position = Vector3(f.x, y + 13.0, f.y)
+		add_child(post)
+
+
+## A framed dark box behind one readout, sized to the text actually in it.
+func _plate(l: Label) -> void:
+	if l == null or not l.visible or l.text.strip_edges() == "":
+		return
+	var r: Rect2 = l.get_rect().grow_individual(10.0, 6.0, 10.0, 6.0)
+	_overlay.draw_rect(r, COL_PLATE)
+	_overlay.draw_rect(r, COL_PLATE_EDGE, false, 1.0)
+
+
+func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3,
+		cells: Array) -> void:
+	var v := [a, b, c]
+	for k in range(3):
+		var q: Vector2i = cells[k]
+		st.set_color(_ground_colour(v[k].y, q.x, q.y))
+		st.add_vertex(v[k])
 
 
 ## Height as colour, with a contour band every 40 m.
@@ -330,17 +515,72 @@ func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
 ## from a playing camera -- you cannot tell which way the ground falls, so you
 ## cannot tell what your radar can see. Banding makes the slope readable at a
 ## glance, the way a contour map does, without drawing anything on top of it.
-func _ground_colour(h: float) -> Color:
+func _ground_colour(h: float, cx: int, cz: int) -> Color:
 	if h < 0.0:
 		# Water reads as water at a glance, which matters: a naval yard can
 		# only go here and nothing else can.
 		return Color(0.05, 0.14, 0.26).lerp(Color(0.10, 0.26, 0.40),
 			clampf(1.0 + h / 200.0, 0.0, 1.0))
-	var t: float = clampf(h / 420.0, 0.0, 1.0)
-	var c := Color(0.20, 0.27, 0.13).lerp(Color(0.55, 0.50, 0.38), t)
+	# A RAMP, not a two-colour lerp. Lerping dark green straight to tan means
+	# every height between them is the same olive, and on this map almost all
+	# the ground IS between them -- which is why it rendered as one flat
+	# colour. Stops give lowland, meadow, scrub, dry ground and rock their own
+	# hues, so height reads as terrain type the way it does on a real map and
+	# the eye gets colour to separate ground by, not just brightness.
+	var c := _ramp(h)
+
+	# Contour band. Raised from 0.13 to 0.22 -- at 0.13 on a hillshaded
+	# surface the band is quieter than the shading and disappears into it.
 	if int(floor(h / 40.0)) % 2 == 1:
-		c = c.darkened(0.13)
-	return c
+		c = c.darkened(0.22)
+
+	# Mottle. Deterministic per cell -- no randf() below the presentation
+	# line and none wanted here either, since the map must look identical on
+	# a replay. Two hashed octaves at different scales, so the ground reads as
+	# ground rather than as a painted surface, without implying detail that
+	# the simulation does not have.
+	var m := (_hash01(cx, cz) - 0.5) * 0.10 \
+			+ (_hash01(cx >> 2, cz >> 2) - 0.5) * 0.09 \
+			+ (_hash01(cx >> 5, cz >> 5) - 0.5) * 0.11
+	c = Color(clampf(c.r + m, 0.0, 1.0), clampf(c.g + m, 0.0, 1.0),
+			clampf(c.b + m * 0.7, 0.0, 1.0))
+
+	# ...and the hillshade, which is the reason any of the above is visible.
+	var idx := cz * _match.terrain.cells_x + cx
+	var sh: float = _shade[idx] if idx < _shade.size() else 0.7
+	var k: float = 0.46 + 0.86 * sh
+	return Color(clampf(c.r * k, 0.0, 1.0), clampf(c.g * k, 0.0, 1.0),
+			clampf(c.b * k, 0.0, 1.0))
+
+
+## Height -> terrain colour, through named stops.
+static func _ramp(h: float) -> Color:
+	const STOPS := [
+		[0.0,   Color(0.16, 0.27, 0.13)],   # valley floor, damp green
+		[70.0,  Color(0.25, 0.35, 0.15)],   # meadow
+		[150.0, Color(0.38, 0.39, 0.19)],   # scrub
+		[250.0, Color(0.50, 0.44, 0.27)],   # dry ground
+		[340.0, Color(0.58, 0.55, 0.44)],   # bare earth
+		[440.0, Color(0.69, 0.68, 0.66)],   # rock
+	]
+	if h <= float(STOPS[0][0]):
+		return STOPS[0][1]
+	for k in range(STOPS.size() - 1):
+		var a: float = STOPS[k][0]
+		var b: float = STOPS[k + 1][0]
+		if h < b:
+			return (STOPS[k][1] as Color).lerp(STOPS[k + 1][1],
+					(h - a) / (b - a))
+	return STOPS[STOPS.size() - 1][1]
+
+
+## Deterministic 0..1 hash of a cell. Integer mixing, no RNG state, so two
+## runs of the same map paint the same ground -- docs/06's determinism rule
+## applies to what the player sees, not only to what the sim decides.
+static func _hash01(x: int, y: int) -> float:
+	var n: int = (x * 73856093) ^ (y * 19349663)
+	n = (n ^ (n >> 13)) * 1274126177
+	return float((n ^ (n >> 16)) & 0xFFFF) / 65535.0
 
 
 ## Put the camera over the player's own base, ON the ground.
@@ -1318,6 +1558,11 @@ func _build_hud() -> void:
 	var style := StyleBoxFlat.new()
 	style.bg_color = COL_PANEL
 	style.set_content_margin_all(8)
+	style.set_border_width_all(1)
+	style.border_width_left = 2
+	style.border_color = COL_PANEL_EDGE
+	style.corner_radius_top_left = 3
+	style.corner_radius_bottom_left = 3
 	panel.add_theme_stylebox_override("panel", style)
 	panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	layer.add_child(panel)
@@ -1656,7 +1901,7 @@ func _update_hud(dt := 0.0) -> void:
 	if _attack_move_armed:
 		lines.append("ATTACK MOVE -- left click the objective; right click or ESC cancels")
 	lines.append("")
-	lines.append("WASD/edge pan · QE rotate · wheel zoom · LMB select · double-click same type "
+	lines.append("WASD or arrows/edge pan · QE rotate · wheel zoom · LMB select · double-click same type "
 		+ "· drag box · RMB move or attack a contact")
 	lines.append("A attack-move · S stop · X hold fire · R radiate/silent "
 		+ "· SPACE pause · TAB speed · H home")
@@ -1749,6 +1994,18 @@ func _draw_overlay() -> void:
 		return
 	var cam: Camera3D = _rig.camera()
 	var e := _match.world.entities
+
+	# A PLATE behind every floating readout. Red Alert 2 never puts text
+	# straight onto the battlefield -- every number it shows you sits in a
+	# framed box -- and the reason is not decoration: outlined text over a
+	# moving, mottled map is still text over a moving, mottled map, and the
+	# eye has to do work to separate them. These are drawn here rather than
+	# built as PanelContainers because the labels are positioned in absolute
+	# pixels against screen corners, and the overlay sits behind them in the
+	# same CanvasLayer, so a rect drawn here lands exactly underneath.
+	for l: Label in [_stats, _selection_info, _log_label, _power_label,
+			_bottleneck_label, _queue_label]:
+		_plate(l)
 
 	if _dragging:
 		var a := _drag_from

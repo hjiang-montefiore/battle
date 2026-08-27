@@ -138,6 +138,44 @@ static func _coastal_shelf(rng: SimRng) -> SimTerrain:
 ## is always corner-to-corner across the longest diagonal on the map.
 ##
 ## Deterministic and index-ordered: player 0 always gets the first slot.
+## WHERE THE CRUDE IS. Two fields inside each player's own reach, and a
+## contested ring between them that nobody starts near.
+##
+## The split is the whole design. Fields at home mean a player is never
+## starved by bad luck; fields in the middle mean the fastest economy belongs
+## to whoever is willing to hold ground they do not start on. All of it is
+## derived from the base ring, so it is symmetric for any player count -- an
+## economy that favoured seat 0 would be a fairness bug, not a map.
+static func oil_fields(terrain: SimTerrain, bases: Array) -> Array:
+	var out: Array = []
+	var hx := terrain.extent_x_m() * 0.5
+	var hz := terrain.extent_z_m() * 0.5
+	for b in bases:
+		var home: Vector2 = b
+		var away := -home.normalized() if home.length() > 1.0 else Vector2(1, 0)
+		var side := Vector2(-away.y, away.x)
+		for s in [-1.0, 1.0]:
+			var pt: Vector2 = home + away * 520.0 + side * (s * 620.0)
+			if _dry(terrain, pt, hx, hz):
+				out.append(pt)
+	# The contested ring: as many fields as there are players, on the same
+	# circle, rotated half a step so they sit BETWEEN the bases rather than in
+	# front of them.
+	var n: int = maxi(bases.size(), 2)
+	var radius: float = minf(hx, hz) * 0.30
+	for k in range(n):
+		var a: float = TAU * (float(k) + 0.5) / float(n)
+		var pt := Vector2(cos(a), sin(a)) * radius
+		if _dry(terrain, pt, hx, hz):
+			out.append(pt)
+	return out
+
+
+static func _dry(terrain: SimTerrain, p: Vector2, hx: float, hz: float) -> bool:
+	return (absf(p.x) < hx - 200.0 and absf(p.y) < hz - 200.0
+		and not terrain.is_water(p.x, p.y))
+
+
 static func base_positions(terrain: SimTerrain, count: int) -> Array:
 	var out: Array = []
 	if count <= 0:

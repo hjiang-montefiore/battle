@@ -417,6 +417,58 @@ func _is_own_structure(player_id: int, unit: int) -> bool:
 		and entities.is_structure[unit] == 1)
 
 
+## OIL FIELDS -- the thing on the map worth walking to.
+##
+## Until this existed a derrick carried its extraction rate in its own stats
+## and pumped it anywhere inside the build radius, so the ground held nothing
+## a player wanted and map control bought nothing. Now the crude is IN THE
+## MAP: a derrick must stand on a field, one derrick per field, and the fields
+## are placed by the arena where both sides have to reach for them.
+##
+## Positions only. Who owns what is answered by asking which derrick stands on
+## it, so there is no ownership state here to disagree with the entity list.
+var oil_fields: Array[Vector2] = []
+
+## How near a derrick must be to count as standing on the field.
+const OIL_CLAIM_M := 90.0
+
+
+func add_oil_field(x: float, z: float) -> void:
+	oil_fields.append(Vector2(x, z))
+
+
+## The field this point would claim, or -1. Nearest wins, so two fields close
+## together still resolve to one answer.
+func oil_field_at(x: float, z: float) -> int:
+	var best := -1
+	var best_d := OIL_CLAIM_M * OIL_CLAIM_M
+	for k in range(oil_fields.size()):
+		var d := _dist2(x, z, oil_fields[k].x, oil_fields[k].y)
+		if d < best_d:
+			best_d = d
+			best = k
+	return best
+
+
+## The derrick standing on field `k`, or -1. Derived from the entity list
+## rather than stored, so a destroyed derrick frees its field with no
+## bookkeeping and no way for the two to fall out of step.
+func derrick_on(field: int) -> int:
+	if field < 0 or field >= oil_fields.size():
+		return -1
+	var f: Vector2 = oil_fields[field]
+	for i in range(entities.count()):
+		if entities.alive[i] == 0 or entities.is_structure[i] == 0:
+			continue
+		var d := def_of(i)
+		if d == null or d.role != "oil_derrick":
+			continue
+		if _dist2(entities.pos_x[i], entities.pos_z[i], f.x, f.y) \
+				< OIL_CLAIM_M * OIL_CLAIM_M:
+			return i
+	return -1
+
+
 func def_of(unit: int) -> SimUnitDef:
 	var k: String = _def_key_of.get(unit, "")
 	if k == "":
@@ -634,6 +686,17 @@ func placement_problem(player_id: int, d: SimUnitDef, x: float, z: float) -> Str
 			return "a naval yard needs water"
 		if not wants_water and wet:
 			return "cannot build on water"
+	# A derrick pumps CRUDE, and crude is in the ground at particular places.
+	# This is what makes the map worth holding: the fields are finite, they sit
+	# between the bases as often as in them, and taking a third one means
+	# defending ground you do not start on.
+	if d.role == "oil_derrick" and not oil_fields.is_empty():
+		var field := oil_field_at(x, z)
+		if field < 0:
+			return "an oil derrick must stand on an oil field"
+		var taken := derrick_on(field)
+		if taken >= 0:
+			return "that field is already being pumped"
 	# Clearance against everything already standing, whoever owns it.
 	for i in range(entities.count()):
 		if entities.alive[i] == 0 or entities.is_structure[i] == 0:

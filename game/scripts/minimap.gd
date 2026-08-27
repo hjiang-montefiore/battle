@@ -131,6 +131,24 @@ func _to_world(p: Vector2) -> Vector2:
 	return Vector2(wx, wz)
 
 
+## Oil fields, drawn under everything else: they never move, and a player
+## planning an expansion is reading the map for exactly this.
+func _draw_oil() -> void:
+	var econ := _match.world.economy
+	if econ == null:
+		return
+	for k in range(econ.oil_fields.size()):
+		var f: Vector2 = econ.oil_fields[k]
+		var p := _to_map(f.x, f.y)
+		var held := econ.derrick_on(k)
+		# Amber when nobody is pumping it, dim when somebody already is --
+		# the map should show what is still worth taking.
+		var col := Color(0.86, 0.62, 0.16) if held < 0 else Color(0.40, 0.33, 0.18)
+		draw_circle(p, 3.0, col)
+		if held < 0:
+			draw_arc(p, 5.0, 0.0, TAU, 12, col, 1.0)
+
+
 # ── the dynamic layers ───────────────────────────────────────────────────────
 
 func _draw() -> void:
@@ -138,6 +156,7 @@ func _draw() -> void:
 		return
 	if _terrain_tex != null:
 		draw_texture_rect(_terrain_tex, Rect2(Vector2.ZERO, size), false)
+	_draw_oil()
 
 	# OWN FORCES, from ground truth: dots for units, squares for structures.
 	var e := _match.world.entities
