@@ -42,7 +42,8 @@ jobs:
           set -euo pipefail
           for t in test_spine test_combat test_movement test_economy \
                    test_ai test_match test_terminal_hit test_track_support \
-                   test_transport test_faction_roster test_saveload; do
+                   test_transport test_faction_roster test_saveload \
+                   test_datalink test_air_assets; do
             echo "=== $t ==="
             godot --path game --headless --script "res://sim/tests/$t.gd"
           done
