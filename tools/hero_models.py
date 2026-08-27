@@ -646,6 +646,8 @@ CAMO = {"mbt_e4_us_m1_abrams": "camo_us",
 #       size_class="vehicle",            # -> textures.SIZE_CLASS resolution
 #       groups=("body", "deck"),         # material groups that get composed
 #       camo_scale=None,                 # metres per camo tile (class default)
+#       group_base={"deck": "camo"},     # compose a flat-material group over
+#                                        # the unit camo instead of its colour
 #       panels=dict(spacing=1.5, strength=0.5, jitter=0.10, seams=0.55),
 #       weathering=dict(
 #           dust=dict(height=1.1, strength=0.45, tint=(0.50, 0.44, 0.34)),
@@ -808,6 +810,19 @@ def apply_composed_texture(g, gname, unit, feats, ao_img, lod):
         camo_png = CAMO.get(unit)
     else:
         base_rgb = tuple(base_in.default_value[:3])
+    # additive roster hook (2026-08, air pass): a group whose material is a
+    # flat colour can still ask to be composed over the unit CAMO — aircraft
+    # keep large airframe skin (nacelles, intakes, fairings) in `deck`, and
+    # a flat dark slab next to a textured wing reads as a different vehicle.
+    if (feats.get("group_base") or {}).get(gname) == "camo":
+        camo_png = CAMO.get(unit)
+    # Additive roster hook: feats["base_rgb"] = {group: rgb} overrides the
+    # material's own base for that group's composed texture — how a ship
+    # states "the deck is non-slip grey" without touching GROUP_MATS, which
+    # every other module shares.
+    ov = (feats.get("base_rgb") or {}).get(gname)
+    if ov is not None:
+        camo_png, base_rgb = None, tuple(ov)
 
     img = T.compose(unit, gname, camo_png, base_rgb, pos, nrm, ao, feats)
     suffix = "" if lod == 0 else f"_lod{lod}"
@@ -1000,6 +1015,16 @@ def build(name, fn, lod):
     # which is what pulls the running gear out of the silhouette.
     bpy.ops.mesh.primitive_plane_add(size=60, location=(0, 0, -0.002))
     ground = bpy.context.object
+    # texture-pass hook (additive): aircraft are authored around z=0 with wings
+    # BELOW it, so the fixed contact plane buried half the airframe and the AO
+    # bake painted every under-z surface black. A roster entry may ask for the
+    # plane to sit under the whole model instead.
+    feats_ao = TEXTURE_FEATURES.get(name) or {}
+    if feats_ao.get("ao_ground") == "under":
+        from mathutils import Vector as _V
+        zmin = min((g2.matrix_world @ _V(c)).z
+                   for g2 in made.values() for c in g2.bound_box)
+        ground.location.z = zmin - 0.35
     # hash() is salted per process, so camo alignment changed on every
     # rebuild and the build was not reproducible.
     jitter = (sum(ord(c) * (i + 7) for i, c in enumerate(name)) % 97) / 97.0

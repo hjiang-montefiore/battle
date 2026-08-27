@@ -48,21 +48,36 @@ const WATER_FRACTION_NEEDED := 0.02
 var _exit := 1
 var _rows: Array = []              ## for the final table
 var _out: FileAccess = null
+var _resume_after := ""            ## "<scenario>:<arena>", see _initialize()
 
 
 func _initialize() -> void:
 	# `-- theatres_only` reruns just the theatre probes (own results file, so
 	# a concurrent full sweep is not clobbered).
+	# `-- resume_after=<scenario>:<arena>` restarts a killed sweep: theatre
+	# probes are skipped and cells up to AND INCLUDING the named one are
+	# skipped, so the finished rows from the killed run are not paid for
+	# twice. Its rows go to their own file; the two files are concatenated by
+	# whoever reads them. Determinism makes this sound: a cell's result does
+	# not depend on which cells ran before it in the same process (each match
+	# is a fresh SimMatchSetup and a fresh SimWorld from fixed seeds).
 	var theatres_only := "theatres_only" in OS.get_cmdline_user_args()
-	var out_name := "user://scenario_sweep_theatres.txt" if theatres_only \
-		else "user://scenario_sweep.txt"
+	for a in OS.get_cmdline_user_args():
+		if String(a).begins_with("resume_after="):
+			_resume_after = String(a).substr("resume_after=".length())
+	var out_name := "user://scenario_sweep.txt"
+	if theatres_only:
+		out_name = "user://scenario_sweep_theatres.txt"
+	elif _resume_after != "":
+		out_name = "user://scenario_sweep_resume.txt"
 	_out = FileAccess.open(out_name, FileAccess.WRITE)
 	_say("SCENARIO x ARENA SWEEP  (sim cap %.0f s, wall cap %d s/match)" % [
 		SIM_CAP_S, WALL_CAP_MS / 1000])
 	_say("results file: " + ProjectSettings.globalize_path(out_name))
 	_say("")
 
-	_probe_theatres()
+	if _resume_after == "":
+		_probe_theatres()
 	if not theatres_only:
 		_sweep()
 		_final_table()
@@ -116,10 +131,15 @@ func _sweep() -> void:
 		"SCENARIO", "ARENA", "OUTCOME", "WINNER", "sim_s", "kills", "shots", "wall_s"])
 	_say("-".repeat(100))
 
+	var skipping := _resume_after != ""
 	for key in SimMatchSetup.SCENARIOS:
 		var probe_setup := SimMatchSetup.scenario(key)
 		var needs_water := _scenario_needs_water(probe_setup)
 		for arena in SimArena.ALL:
+			if skipping:
+				if "%s:%s" % [key, arena] == _resume_after:
+					skipping = false
+				continue
 			if needs_water and not water_of[arena]:
 				_row(key, arena, "SKIPPED", "needs water, arena has none",
 					0.0, 0, 0, 0.0)

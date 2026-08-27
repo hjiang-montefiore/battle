@@ -3200,6 +3200,102 @@ STRUCTURES = [
     ("bld_e4_us_helipad",          helipad),
 ]
 
+# ═══ texture requests (2026-08 texture pass) ═══════════════════════════════
+# ROSTER DATA, not geometry: these registrations ask hero_models.build() to
+# compose per-unit albedos for the body (painted wall) and deck (concrete)
+# groups. The brief, in this module's terms:
+#   * concrete tonal variation      -> concrete_field + the compose mottle
+#   * roof gravel vs wall tone      -> concrete_field's normal/height split;
+#                                      gravel ballast on the military and
+#                                      industrial roof decks, smooth pour on
+#                                      the fortification family
+#   * stains under vents            -> ao_grime (grime keyed on the AO bake,
+#                                      which is already dark at the base of
+#                                      every vent box, duct and parapet) plus
+#                                      explicit soot below the named stacks
+#   * faction accent on team stripe -> the team group is NOT composed; it
+#                                      stays the flat team colour and nothing
+#                                      here adds insignia anywhere else.
+# All coordinates are build-space metres, copied from the constants in the
+# model functions above (stack centres, wall heads, roof decks).
+_TEX_GRAVEL = {"military": 0.16, "industrial": 0.13, "fortification": 0.0}
+
+
+def _tex(name, roof_z, family="military", body_stains=None, deck_stains=None,
+         streaks=True, streak_strength=0.30, wall_panels=3.8, deck_panels=4.0):
+    weather = dict(
+        dust=dict(height=0.9, strength=0.24, tint=(0.34, 0.32, 0.28)),
+        ao_grime=dict(strength=0.32, threshold=0.55),
+        edge_wear=dict(strength=0.30))
+    if streaks:
+        weather["streaks"] = dict(z0=roof_z, length=max(roof_z, 3.5),
+                                  density=0.30, strength=streak_strength,
+                                  tint=(0.21, 0.20, 0.18))
+    if body_stains:
+        weather["stains"] = body_stains
+    deck_weather = dict(
+        ao_grime=dict(strength=0.38, threshold=0.60,
+                      tint=(0.052, 0.050, 0.046)),
+        edge_wear=dict(strength=0.22))
+    if deck_stains:
+        deck_weather["stains"] = deck_stains
+    H.texture_features(
+        name,
+        size_class="structure",
+        groups=("body", "deck"),
+        panels=dict(spacing=wall_panels, strength=0.36, jitter=0.10,
+                    seams=0.42),
+        concrete=dict(roof_above=2.0, gravel=0.0, wall=0.13, apron=0.06),
+        weathering=weather,
+        groups_override={"deck": dict(
+            panels=dict(spacing=deck_panels, strength=0.30, jitter=0.07,
+                        seams=0.38),
+            concrete=dict(roof_above=2.0, gravel=_TEX_GRAVEL[family],
+                          wall=0.10, apron=0.09),
+            weathering=deck_weather)})
+
+
+# command-economy spine
+_tex("bld_e4_us_hq", 11.5)                       # wall head 11.5, decks above
+_tex("bld_e4_us_power_plant", 12.0, family="industrial",
+     body_stains=[dict(origin=(-5.0, 5.0, 17.5), direction=(0, 0, -1),
+                       length=3.5, width=1.35, strength=0.55),
+                  dict(origin=(5.0, 5.0, 17.5), direction=(0, 0, -1),
+                       length=3.5, width=1.35, strength=0.55)])  # stack soot
+_tex("bld_e4_us_oil_derrick", 3.2, family="industrial", streak_strength=0.24)
+_tex("bld_e4_us_refinery", 7.0, family="industrial",
+     body_stains=[dict(origin=(2.0, -5.0, 13.4), direction=(0, 0, -1),
+                       length=3.0, width=0.95, strength=0.50)])  # heater stack
+_tex("bld_e4_us_supply_depot", 5.4, family="industrial", streak_strength=0.22)
+# production group
+_tex("bld_e4_us_barracks", 8.0, streak_strength=0.24)
+_tex("bld_e4_us_light_factory", 8.9, family="industrial",
+     body_stains=[dict(origin=(-6.5, 2.0, 9.7), direction=(0, 0, -1),
+                       length=2.5, width=0.62, strength=0.50)])  # its one stack
+_tex("bld_e4_us_heavy_factory", 12.35, family="industrial")
+_tex("bld_e4_us_research_facility", 11.1)
+_tex("bld_e4_us_repair_depot", 6.4, family="industrial",
+     deck_stains=[dict(origin=(0.0, -7.0, 0.25), direction=(0, -1, -0.05),
+                       length=3.5, width=1.6, strength=0.38,
+                       tint=(0.045, 0.043, 0.040))])  # oil on the approach
+# coastal / defence
+_tex("bld_e1_us_naval_yard", 9.2, family="industrial")
+_tex("bld_e2_us_coastal_battery", 4.8, family="fortification",
+     streak_strength=0.40)
+_tex("bld_e4_us_fixed_radar", 4.2)
+_tex("bld_e4_us_fixed_sam", 3.8, family="fortification", streak_strength=0.38)
+_tex("bld_e4_us_ew_station", 4.2)
+_tex("bld_e4_us_bunker", 2.9, family="fortification", streak_strength=0.42)
+# air group
+_tex("bld_e4_us_airbase", 5.4)
+_tex("bld_e4_us_hardened_shelter", 8.5, family="fortification",
+     streak_strength=0.38)
+_tex("bld_e4_us_helipad", 0.9, streaks=False,
+     deck_stains=[dict(origin=(0.0, 0.0, 1.05), direction=(0, 1, -0.02),
+                       length=4.5, width=1.4, strength=0.28,
+                       tint=(0.050, 0.048, 0.045))])  # rotor-wash smear
+
+
 if __name__ == "__main__":
     H.set_out(os.path.join(ROOT, "art", "blockout", "e4_structures"))
     if not STRUCTURES:

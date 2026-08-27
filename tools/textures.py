@@ -144,6 +144,22 @@ SCHEMES = {
     # air_dark's 0.22 -> 0.30 and air_grey's 0.42 -> 0.52.
     "air_black": ([(0.50, (0.055, 0.058, 0.065)),
                    (1.01, (0.088, 0.092, 0.102))], 151, 3),
+    # strike/CAS/bomber camouflage — European One: two greens and a dark
+    # grey. The role channel the air roster needs: air-superiority is GREY,
+    # mud-movers are GREEN, and the two never meet in band space.
+    "air_camo": ([(0.40, (0.24, 0.28, 0.22)),
+                  (0.75, (0.33, 0.36, 0.27)),
+                  (1.01, (0.28, 0.29, 0.30))], 161, 4),
+    # army helicopters — overall olive drab, two close tones
+    "helo_drab": ([(0.55, (0.23, 0.25, 0.18)),
+                   (1.01, (0.29, 0.31, 0.22))], 171, 3),
+    # navy — haze grey (FS 26270 territory). Deliberately LIGHTER than
+    # air_dark and flatter than air_grey: a warship is one colour and gets
+    # its life from the compose pass (boot topping, rust, deck tone), so the
+    # two bands sit close. Subs keep air_dark — a haze-grey submarine would
+    # surrender the strongest sub-vs-surface tone cue the roster has.
+    "navy_haze": ([(0.52, (0.44, 0.465, 0.48)),
+                   (1.01, (0.51, 0.53, 0.545))], 181, 3),
     # ground
     "terrain": ([(0.42, (0.32, 0.33, 0.24)),
                  (0.74, (0.38, 0.38, 0.28)),
@@ -304,7 +320,7 @@ def panel_lines(pos, nrm, a, b, ax, texel, spacing=1.6, strength=0.5,
 
 
 def concrete_field(pos, nrm, a, b, rng, zmin=0.0, roof_above=2.0,
-                   gravel=0.16, gravel_lift=1.05, wall=0.13, apron=0.08,
+                   gravel=0.16, gravel_lift=1.65, wall=0.13, apron=0.08,
                    gravel_scale=0.45):
     """Multiplicative concrete finish for STRUCTURES — the layer that makes a
     roof deck read as gravel ballast and a wall read as weathered render.
@@ -390,6 +406,15 @@ def exhaust_streak(pos, nrm, rng, origin=(0, 0, 0), direction=(0, 1, 0),
         * np.clip(1 - t / length, 0, 1) * (t > -0.15)
     m = _wnoise(t, r * 3.0, max(length * 0.5, 0.4), rng, 2, 8)
     return np.clip(f * (0.55 + 0.65 * m), 0, 1).astype(np.float32)
+
+
+def tint_spot(pos, center, radius, strength=0.6):
+    """Factor field for a locally repainted REGION — a radome, an anti-glare
+    panel, a di-electric fairing. Solid inside `radius` of `center`, with a
+    soft ~25% falloff band so the paint edge is sprayed, not decal-cut."""
+    d = np.linalg.norm(pos - np.array(center, np.float32), axis=-1)
+    f = np.clip((radius - d) / (radius * 0.25 + 1e-6), 0, 1)
+    return (strength * f).astype(np.float32)
 
 
 def edge_wear(ao, strength=0.4):
@@ -537,7 +562,12 @@ def insignia_stamp(kind, px=256, text=None, color=None):
         return _paint([(ring, white), (hbar | hmid, white)], px)
     if kind == "pennant":
         col = color or white
-        return _paint([(_text_mask(xx, yy, text or "0"), col)], px)
+        t = text or "0"
+        # Auto-fit: at the default h=1.6 anything past one glyph overruns the
+        # -1..1 stamp and is clipped by the decal window. Solve h so the row
+        # spans at most 1.9 stamp units (total = gw * (1.25 n - 0.25)).
+        h = min(1.5, 1.9 / ((5.0 / 7.0) * (1.25 * len(t) - 0.25)))
+        return _paint([(_text_mask(xx, yy, t, h=h), col)], px)
     raise KeyError(f"unknown insignia kind {kind!r}")
 
 
@@ -618,6 +648,13 @@ def compose(unit, group, camo_png, base_rgb, pos, nrm, ao, features):
     mid = _wnoise(a, b, max(span * 0.09, 0.8), rng, octaves=2, base=6)
     img = img * (0.94 + 0.12 * mid)[..., None]
 
+    # 1b. local repaints (radomes, fairings) — paint, so UNDER panel lines
+    # and weathering
+    for t in features.get("tints") or []:
+        f = tint_spot(pos, t["center"], t["radius"],
+                      t.get("strength", 0.6))[..., None]
+        img = img * (1 - f) + np.array(t["rgb"], np.float32) * f
+
     texel = _texel_size(pos, valid)
 
     # 1b. concrete finish (structures): roof gravel vs wall tone vs apron
@@ -635,17 +672,48 @@ def compose(unit, group, camo_png, base_rgb, pos, nrm, ao, features):
     # 3. weathering
     wx = features.get("weathering") or {}
     ao2 = _resize(ao.astype(np.float32), res)
+    if "deckpaint" in wx:
+        # Flat-paint every UP-FACING surface above z0 — how a carrier's
+        # flight deck (which lives in the `body` group, not `deck`) gets its
+        # dark non-slip coat without touching geometry. Keeps the mid-scale
+        # mottle so the acreage doesn't go back to reading as plastic.
+        cfg = dict(wx["deckpaint"])
+        tint = np.array(cfg.pop("tint", (0.16, 0.165, 0.17)), np.float32)
+        z0 = float(cfg.pop("z0")); st = float(cfg.pop("strength", 1.0))
+        f = st * np.clip((pos[..., 2] - z0) / max(texel * 2, 0.1), 0, 1) \
+            * np.clip((n[..., 2] - 0.55) / 0.30, 0, 1)
+        f = (f * valid)[..., None]
+        paint = tint * (0.90 + 0.20 * mid[..., None])
+        img = img * (1 - f) + paint * f
+    if "boottop" in wx:
+        # The waterline boot-topping stripe. PAINT, so it goes down first and
+        # the rust runs over it. Vertical surfaces only — the band must not
+        # creep onto a low deck or a sponson underside.
+        cfg = dict(wx["boottop"])
+        tint = np.array(cfg.pop("tint", (0.045, 0.048, 0.052)), np.float32)
+        z1 = float(cfg.pop("z1", 1.0)); z0 = float(cfg.pop("z0", -10.0))
+        zz = pos[..., 2]
+        e = max(texel * 1.5, 0.05)
+        f = np.clip((z1 - zz) / e, 0, 1) * np.clip((zz - z0) / e, 0, 1)
+        f = f * np.clip((0.55 - np.abs(n[..., 2])) / 0.35, 0, 1)
+        f = (f * valid)[..., None]
+        img = img * (1 - f) + tint * f
     if "dust" in wx:
         cfg = dict(wx["dust"]); tint = np.array(cfg.pop("tint", (0.45, 0.40, 0.31)), np.float32)
         f = dust_gradient(pos, n, a, b, rng, zmin=zmin, **cfg)[..., None]
         img = img * (1 - f) + tint * f
-    if "streaks" in wx:
-        cfg = dict(wx["streaks"]); tint = np.array(cfg.pop("tint", (0.30, 0.22, 0.16)), np.float32)
+    # streaks: one dict or a list of them — a ship rusts from its scuppers
+    # AND from its hawse pipes, at two different z0.
+    scfgs = wx.get("streaks")
+    for cfg in ([scfgs] if isinstance(scfgs, dict) else scfgs or []):
+        cfg = dict(cfg); tint = np.array(cfg.pop("tint", (0.30, 0.22, 0.16)), np.float32)
         f = rust_streaks(pos, n, a, rng, **cfg)[..., None]
         img = img * (1 - f) + tint * f
     for e in wx.get("exhaust") or []:
+        e = dict(e)
+        tint = np.array(e.pop("tint", (0.06, 0.058, 0.055)), np.float32)
         f = exhaust_streak(pos, n, rng, **e)[..., None]
-        img = img * (1 - f) + np.array((0.06, 0.058, 0.055), np.float32) * f
+        img = img * (1 - f) + tint * f
     # stains: the exhaust cone reused as a grime/soot smudge with its own
     # tint — stack soot, drips below a known fixture. Coordinates in metres.
     for e in wx.get("stains") or []:
@@ -676,10 +744,18 @@ def compose(unit, group, camo_png, base_rgb, pos, nrm, ao, features):
     return np.clip(img, 0, 1).astype(np.float32)
 
 
+# Schemes that must NOT carry the fine panel mottle: terrain never wanted it,
+# and navy_haze turns into carved concrete with it — at a ship's 15+ m camo
+# scale the "panel" speckle lands at 30 cm and reads as stone grain. A ship's
+# tonal life comes from the compose pass instead.
+NO_PANEL = {"terrain", "navy_haze"}
+
+
 def generate_all():
     print("generating textures...")
     for name, (bands, seed, res) in SCHEMES.items():
-        camo(name, bands, seed, res, panel=(name != "terrain"))
+        camo(name, bands, seed, res, panel=(name not in NO_PANEL),
+             grain=(0.02 if name in NO_PANEL else 0.035))
     print("done")
 
 

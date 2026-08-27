@@ -1694,9 +1694,9 @@ AIR = [
     ("air_e1_us_interceptor",   interceptor,        "air_grey"),
     ("air_e4_us_superiority",   air_superiority,    "air_grey"),
     ("air_e4_us_multirole",     multirole,          "air_grey"),
-    ("air_e4_us_strike",        strike,             "air_dark"),
-    ("air_e1_us_cas",           cas,                "air_dark"),
-    ("air_e1_us_bomber",        bomber,             "air_dark"),
+    ("air_e4_us_strike",        strike,             "air_camo"),
+    ("air_e1_us_cas",           cas,                "air_camo"),
+    ("air_e1_us_bomber",        bomber,             "air_camo"),
     ("air_e4_us_stealthbomber", stealth_bomber,     "air_dark"),
     ("air_e2_us_sead",          sead,               "air_grey"),
     ("air_e4_us_stealth",       stealth_strike,     "air_black"),
@@ -1706,13 +1706,314 @@ AIR = [
     ("tkr_e2_us_tanker",        tanker,             "air_white"),
     ("isr_e1_us_recon",         isr,                "air_dark"),
     ("mpa_e1_us_maritime",      maritime_patrol,    "air_white"),
-    ("hel_e3_us_attack",        attack_helo,        "air_dark"),
-    ("hel_e2_us_transport",     transport_helo,     "air_dark"),
+    ("hel_e3_us_attack",        attack_helo,        "helo_drab"),
+    ("hel_e2_us_transport",     transport_helo,     "helo_drab"),
     ("hel_e2_us_asw",           asw_helo,           "air_grey"),
     ("uav_e5_us_recon",         recon_uav,          "air_white"),
     ("uav_e6_us_armed",         armed_uav,          "air_grey"),
     ("uav_e7_us_loiter",        loitering_munition, "air_grey"),
 ]
+
+
+
+# ── the texture pass (2026-08): per-unit composed-texture requests ─────────
+# Roster DATA, not geometry: every number below was measured off the built
+# meshes (chord intersections at spanwise stations), so a decal sits ON the
+# wing it names. Conventions: nose is +Y, port is -X. US star goes on the
+# PORT wing top and the STARBOARD wing bottom (the real placement — from the
+# RTS camera you see exactly one wing star, like an overhead photo).
+# Colour code: e1/e2 grey-and-white aircraft carry full-colour (insignia
+# blue) stars, e4 low-vis greys carry grey stencils, camouflage carries
+# black stencils. Radomes are their own paint via `tints`.
+_LOWVIS = (0.25, 0.27, 0.31)
+_BLUE   = (0.10, 0.16, 0.38)
+_BLACK  = (0.10, 0.10, 0.11)
+_RADOME_GREY = (0.20, 0.21, 0.24)
+_RADOME_DARK = (0.12, 0.12, 0.13)
+
+
+def _wingstars(xw, y, z, size, color, alpha=0.9, dz=0.05):
+    """Port-top + starboard-bottom pair at the measured wing point."""
+    return [dict(kind="star_us", center=(-xw, y, z + dz), normal=(0, 0, 1),
+                 size=size, up=(0, 1, 0), alpha=alpha, color=color),
+            dict(kind="star_us", center=(xw, y, z - dz), normal=(0, 0, -1),
+                 size=size, alpha=alpha, color=color)]
+
+
+def _sidestars(xs, y, z, size, color, alpha=0.9):
+    return [dict(kind="star_us", center=(xs, y, z), normal=(1, 0, 0),
+                 size=size, alpha=alpha, color=color),
+            dict(kind="star_us", center=(-xs, y, z), normal=(-1, 0, 0),
+                 size=size, alpha=alpha, color=color)]
+
+
+H.texture_features(          # F-106: single tail-pipe, black radome era
+    "air_e1_us_interceptor", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck"), group_base={"deck": "camo"},
+    panels=dict(spacing=1.3, strength=0.5, jitter=0.07, seams=0.45),
+    weathering=dict(
+        exhaust=[dict(origin=(0.0, -6.2, 0.8), direction=(0, -1, 0.03),
+                      length=3.0, width=0.5, strength=0.45)],
+        edge_wear=dict(strength=0.35)),
+    tints=[dict(center=(0.0, 10.6, 0.0), radius=0.85, rgb=_RADOME_GREY,
+                strength=0.8)],
+    insignia=_wingstars(2.9, -5.45, 0.15, 1.15, _BLUE))
+
+H.texture_features(          # F-15: twin engines, low-vis everything
+    "air_e4_us_superiority", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck"), group_base={"deck": "camo"},
+    panels=dict(spacing=1.5, strength=0.5, jitter=0.07, seams=0.45),
+    weathering=dict(
+        exhaust=[dict(origin=(1.1, -6.8, 0.65), direction=(0, -1, 0.05),
+                      length=2.8, width=0.55, strength=0.55),
+                 dict(origin=(-1.1, -6.8, 0.65), direction=(0, -1, 0.05),
+                      length=2.8, width=0.55, strength=0.55)],
+        edge_wear=dict(strength=0.35)),
+    tints=[dict(center=(0.0, 9.7, 0.0), radius=0.9, rgb=_RADOME_GREY,
+                strength=0.8)],
+    insignia=(_wingstars(3.3, -3.8, 0.17, 1.3, _LOWVIS)
+              + _sidestars(1.1, 3.1, 0.0, 0.9, _LOWVIS)))
+
+H.texture_features(          # F-16 — the entry proven by the API proof build
+    "air_e4_us_multirole", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck"), group_base={"deck": "camo"},
+    panels=dict(spacing=1.6, strength=0.5, jitter=0.07, seams=0.45),
+    weathering=dict(
+        exhaust=[dict(origin=(0.0, -5.0, 0.2), direction=(0, -1, 0.05),
+                      length=2.8, width=0.55, strength=0.5)],
+        edge_wear=dict(strength=0.4)),
+    tints=[dict(center=(0.0, 7.5, 0.0), radius=0.7, rgb=_RADOME_GREY,
+                strength=0.8)],
+    insignia=[
+        dict(kind="star_us", center=(-2.7, -1.7, 0.19), normal=(0, 0, 1),
+             size=1.25, up=(0, 1, 0), alpha=0.9, color=_LOWVIS),
+        dict(kind="star_us", center=(2.7, -1.7, 0.09), normal=(0, 0, -1),
+             size=1.25, alpha=0.9, color=_LOWVIS),
+        dict(kind="star_us", center=(0.95, -2.0, 0.10), normal=(1, 0, 0),
+             size=0.75, alpha=0.9, color=_LOWVIS),
+        dict(kind="star_us", center=(-0.95, -2.0, 0.10), normal=(-1, 0, 0),
+             size=0.75, alpha=0.9, color=_LOWVIS),
+        dict(kind="pennant", center=(0.0, -5.6, 2.3), normal=(1, 0, 0),
+             size=1.1, alpha=0.85, text="16", color=_LOWVIS)])
+
+H.texture_features(          # F-111: swing wing measured at mid-sweep
+    "air_e4_us_strike", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck"), group_base={"deck": "camo"},
+    camo_scale=3.2,
+    panels=dict(spacing=1.6, strength=0.5, jitter=0.07, seams=0.45),
+    weathering=dict(
+        exhaust=[dict(origin=(0.55, -8.6, 0.95), direction=(0, -1, 0.05),
+                      length=3.0, width=0.55, strength=0.5),
+                 dict(origin=(-0.55, -8.6, 0.95), direction=(0, -1, 0.05),
+                      length=3.0, width=0.55, strength=0.5)],
+        edge_wear=dict(strength=0.35)),
+    tints=[dict(center=(0.0, 11.2, 0.0), radius=0.9, rgb=(0.15, 0.16, 0.17),
+                strength=0.8)],
+    insignia=_wingstars(4.8, -1.0, 0.17, 1.25, _BLACK))
+
+H.texture_features(          # A-10: soot from the podded TF34s
+    "air_e1_us_cas", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck", "gun"),
+    group_base={"deck": "camo", "gun": "camo"},
+    panels=dict(spacing=1.4, strength=0.5, jitter=0.07, seams=0.45),
+    weathering=dict(
+        exhaust=[dict(origin=(1.62, -5.3, 1.0), direction=(0, -1, 0.06),
+                      length=3.0, width=0.55, strength=0.5),
+                 dict(origin=(-1.62, -5.3, 1.0), direction=(0, -1, 0.06),
+                      length=3.0, width=0.55, strength=0.5)],
+        edge_wear=dict(strength=0.35)),
+    insignia=_wingstars(5.7, -0.2, 0.02, 1.35, _BLACK))
+
+H.texture_features(          # B-52: SEA camouflage, black radome
+    "air_e1_us_bomber", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck"), group_base={"deck": "camo"},
+    camo_scale=6.0,
+    panels=dict(spacing=3.0, strength=0.4, jitter=0.06, seams=0.45),
+    weathering=dict(edge_wear=dict(strength=0.3)),
+    tints=[dict(center=(0.0, 24.3, 0.0), radius=1.3, rgb=_RADOME_DARK,
+                strength=0.85)],
+    insignia=_wingstars(14.1, 1.5, -0.24, 2.4, _BLACK, dz=0.08))
+
+H.texture_features(          # B-2: exhaust troughs stain the upper deck
+    "air_e4_us_stealthbomber", size_class="aircraft", ao_ground="under", groups=("body",),
+    camo_scale=5.0,
+    panels=dict(spacing=2.6, strength=0.45, jitter=0.06, seams=0.5),
+    weathering=dict(
+        exhaust=[dict(origin=(5.2, -7.4, 1.15), direction=(0, -1, 0),
+                      length=3.5, width=1.0, strength=0.4),
+                 dict(origin=(-5.2, -7.4, 1.15), direction=(0, -1, 0),
+                      length=3.5, width=1.0, strength=0.4)],
+        edge_wear=dict(strength=0.3)),
+    tints=[dict(center=(0.0, 10.5, 0.35), radius=1.5, rgb=(0.14, 0.15, 0.17),
+                strength=0.5)],
+    insignia=_wingstars(13.1, -2.2, 0.5, 1.7, (0.36, 0.38, 0.42), alpha=0.8))
+
+H.texture_features(          # F-105G: Vietnam-era full-colour stars
+    "air_e2_us_sead", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck"), group_base={"deck": "camo"},
+    panels=dict(spacing=1.4, strength=0.5, jitter=0.07, seams=0.45),
+    weathering=dict(
+        exhaust=[dict(origin=(0.0, -7.2, 0.95), direction=(0, -1, 0.04),
+                      length=3.0, width=0.5, strength=0.5)],
+        edge_wear=dict(strength=0.35)),
+    tints=[dict(center=(0.0, 10.6, 0.0), radius=0.8, rgb=_RADOME_GREY,
+                strength=0.8)],
+    insignia=(_wingstars(2.7, -3.55, 0.15, 1.1, _BLUE)
+              + _sidestars(1.15, 3.0, 0.03, 0.85, _BLUE)))
+
+H.texture_features(          # F-117: matt black — panels and soot only,
+    "air_e4_us_stealth",     # tone IS the identification channel
+    size_class="aircraft", ao_ground="under",
+    groups=("body", "deck"), group_base={"deck": "camo"},
+    panels=dict(spacing=1.3, strength=0.35, jitter=0.05, seams=0.4),
+    weathering=dict(
+        exhaust=[dict(origin=(1.5, -4.9, 0.98), direction=(0, -1, 0),
+                      length=2.5, width=0.8, strength=0.3),
+                 dict(origin=(-1.5, -4.9, 0.98), direction=(0, -1, 0),
+                      length=2.5, width=0.8, strength=0.3)],
+        edge_wear=dict(strength=0.25)))
+
+H.texture_features(          # E-3: full-colour markings on white
+    "aew_e3_us_aewc", size_class="aircraft", ao_ground="under", groups=("body",),
+    camo_scale=4.5,
+    panels=dict(spacing=2.4, strength=0.4, jitter=0.06, seams=0.45),
+    weathering=dict(edge_wear=dict(strength=0.3)),
+    tints=[dict(center=(0.0, 23.3, 0.0), radius=1.0, rgb=_RADOME_DARK,
+                strength=0.85)],
+    insignia=(_wingstars(11.1, -3.2, -0.32, 2.0, _BLUE, dz=0.06)
+              + _sidestars(1.35, 7.3, 0.0, 1.4, _BLUE)))
+
+H.texture_features(          # Sea King AEW: RAF roundels, side and top
+    "aew_e3_uk_aewhelo", size_class="aircraft", ao_ground="under",
+    groups=("body", "gun"), group_base={"gun": "camo"},
+    panels=dict(spacing=1.1, strength=0.45, jitter=0.07, seams=0.45),
+    weathering=dict(
+        exhaust=[dict(origin=(0.8, 1.6, 2.5), direction=(0, -1, 0),
+                      length=2.2, width=0.4, strength=0.4),
+                 dict(origin=(-0.8, 1.6, 2.5), direction=(0, -1, 0),
+                      length=2.2, width=0.4, strength=0.4)],
+        edge_wear=dict(strength=0.3)),
+    tints=[dict(center=(0.0, 8.2, 1.35), radius=0.5, rgb=(0.15, 0.16, 0.17),
+                strength=0.6)],
+    insignia=[
+        dict(kind="roundel_uk", center=(1.45, 2.0, 1.6), normal=(1, 0, 0),
+             size=0.95, alpha=0.9),
+        dict(kind="roundel_uk", center=(-1.45, 2.0, 1.6), normal=(-1, 0, 0),
+             size=0.95, alpha=0.9),
+        dict(kind="roundel_uk", center=(0.0, 0.6, 2.6), normal=(0, 0, 1),
+             size=1.15, up=(0, 1, 0), alpha=0.9)])
+
+H.texture_features(          # EB-66: wide wing, full-colour era
+    "ewa_e2_us_electronic", size_class="aircraft", ao_ground="under", groups=("body",),
+    panels=dict(spacing=1.5, strength=0.5, jitter=0.07, seams=0.45),
+    weathering=dict(
+        exhaust=[dict(origin=(0.7, -5.6, 0.75), direction=(0, -1, 0.04),
+                      length=2.6, width=0.5, strength=0.45),
+                 dict(origin=(-0.7, -5.6, 0.75), direction=(0, -1, 0.04),
+                      length=2.6, width=0.5, strength=0.45)],
+        edge_wear=dict(strength=0.35)),
+    tints=[dict(center=(0.0, 8.5, 0.05), radius=0.8, rgb=_RADOME_GREY,
+                strength=0.8)],
+    insignia=(_wingstars(4.0, -2.0, 0.17, 1.15, _BLUE)
+              + _sidestars(1.25, 2.5, 0.1, 0.85, _BLUE)))
+
+H.texture_features(          # KC-135: white top, blue markings
+    "tkr_e2_us_tanker", size_class="aircraft", ao_ground="under", groups=("body",),
+    camo_scale=4.5,
+    panels=dict(spacing=2.4, strength=0.4, jitter=0.06, seams=0.45),
+    weathering=dict(edge_wear=dict(strength=0.3)),
+    tints=[dict(center=(0.0, 20.8, 0.0), radius=0.9, rgb=_RADOME_DARK,
+                strength=0.85)],
+    insignia=(_wingstars(10.0, -3.1, -0.30, 1.9, _BLUE, dz=0.06)
+              + _sidestars(1.3, 6.6, 0.0, 1.35, _BLUE)))
+
+H.texture_features(          # U-2: near-black, whisper-quiet markings
+    "isr_e1_us_recon", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck"), group_base={"deck": "camo"},
+    panels=dict(spacing=1.6, strength=0.4, jitter=0.05, seams=0.4),
+    weathering=dict(
+        exhaust=[dict(origin=(0.0, -6.8, 0.5), direction=(0, -1, 0.03),
+                      length=2.5, width=0.45, strength=0.4)],
+        edge_wear=dict(strength=0.3)),
+    insignia=_wingstars(7.9, 1.0, 0.45, 1.0, (0.42, 0.44, 0.48), alpha=0.85))
+
+H.texture_features(          # P-3: white over grey, black radome
+    "mpa_e1_us_maritime", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck"), group_base={"deck": "camo"},
+    camo_scale=4.0,
+    panels=dict(spacing=2.2, strength=0.4, jitter=0.06, seams=0.45),
+    weathering=dict(edge_wear=dict(strength=0.3)),
+    tints=[dict(center=(0.0, 16.0, 0.0), radius=0.9, rgb=_RADOME_DARK,
+                strength=0.85)],
+    insignia=(_wingstars(7.6, 1.2, -0.76, 1.5, _BLUE, dz=0.06)
+              + _sidestars(1.55, 2.45, 0.0, 1.25, _BLUE)))
+
+H.texture_features(          # AH-64: olive drab, black stencils on the boom
+    "hel_e3_us_attack", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck", "gun"),
+    group_base={"deck": "camo", "gun": "camo"},
+    panels=dict(spacing=0.9, strength=0.45, jitter=0.07, seams=0.45),
+    weathering=dict(
+        dust=dict(height=0.9, strength=0.3, tint=(0.40, 0.36, 0.28)),
+        exhaust=[dict(origin=(0.9, -0.6, 2.1), direction=(0, -1, -0.02),
+                      length=2.2, width=0.4, strength=0.45),
+                 dict(origin=(-0.9, -0.6, 2.1), direction=(0, -1, -0.02),
+                      length=2.2, width=0.4, strength=0.45)],
+        edge_wear=dict(strength=0.3)),
+    tints=[dict(center=(0.0, 7.5, 1.55), radius=0.5, rgb=_RADOME_DARK,
+                strength=0.7)],
+    insignia=_sidestars(0.6, -3.8, 1.6, 0.7, _BLACK))
+
+H.texture_features(          # UH-60: olive drab, dustier
+    "hel_e2_us_transport", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck", "gun"),
+    group_base={"deck": "camo", "gun": "camo"},
+    panels=dict(spacing=1.0, strength=0.45, jitter=0.07, seams=0.45),
+    weathering=dict(
+        dust=dict(height=1.0, strength=0.3, tint=(0.40, 0.36, 0.28)),
+        exhaust=[dict(origin=(0.8, 0.4, 2.6), direction=(0, -1, 0),
+                      length=2.4, width=0.45, strength=0.4),
+                 dict(origin=(-0.8, 0.4, 2.6), direction=(0, -1, 0),
+                      length=2.4, width=0.45, strength=0.4)],
+        edge_wear=dict(strength=0.3)),
+    tints=[dict(center=(0.0, 7.65, 1.78), radius=0.5, rgb=_RADOME_DARK,
+                strength=0.6)],
+    insignia=_sidestars(0.65, -3.7, 1.55, 0.75, _BLACK))
+
+H.texture_features(          # SH-60: navy low-vis grey
+    "hel_e2_us_asw", size_class="aircraft", ao_ground="under",
+    groups=("body", "gun"), group_base={"gun": "camo"},
+    panels=dict(spacing=1.0, strength=0.45, jitter=0.07, seams=0.45),
+    weathering=dict(
+        exhaust=[dict(origin=(0.6, 0.8, 2.3), direction=(0, -1, 0),
+                      length=1.8, width=0.4, strength=0.35)],
+        edge_wear=dict(strength=0.3)),
+    tints=[dict(center=(0.0, 6.15, 1.6), radius=0.45, rgb=(0.18, 0.19, 0.21),
+                strength=0.6)],
+    insignia=_sidestars(0.4, -3.45, 1.7, 0.6, _LOWVIS))
+
+H.texture_features(          # RQ-4: white, grey stencil, bulged nose
+    "uav_e5_us_recon", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck"), group_base={"deck": "camo"},
+    panels=dict(spacing=1.3, strength=0.4, jitter=0.05, seams=0.4),
+    weathering=dict(edge_wear=dict(strength=0.3)),
+    tints=[dict(center=(0.0, 6.5, 0.15), radius=0.7, rgb=(0.55, 0.57, 0.60),
+                strength=0.5)],
+    insignia=_wingstars(7.1, 0.4, 0.45, 0.9, (0.32, 0.34, 0.38), alpha=0.85))
+
+H.texture_features(          # MQ-9: grey, low-vis
+    "uav_e6_us_armed", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck"), group_base={"deck": "camo"},
+    panels=dict(spacing=1.0, strength=0.4, jitter=0.05, seams=0.4),
+    weathering=dict(edge_wear=dict(strength=0.3)),
+    tints=[dict(center=(0.0, 5.5, 0.0), radius=0.5, rgb=_RADOME_GREY,
+                strength=0.7)],
+    insignia=_wingstars(5.0, 0.35, 0.32, 0.75, _LOWVIS, dz=0.04))
+
+H.texture_features(          # loitering munition: 3 m — panels only
+    "uav_e7_us_loiter", size_class="aircraft", ao_ground="under", groups=("body",),
+    panels=dict(spacing=0.45, strength=0.35, jitter=0.05, seams=0.4),
+    weathering=dict(edge_wear=dict(strength=0.3)))
 
 if __name__ == "__main__":
     H.set_out(os.path.join(ROOT, "art", "blockout", "e4_air"))

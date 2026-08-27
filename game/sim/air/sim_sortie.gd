@@ -491,12 +491,16 @@ func _check_rtb(u: int, t: Task) -> bool:
 	return false
 
 
-## The braking allowance, in metres of cruise range: what stopping at the pad
-## really costs, given SimMovement brakes at 2 x accel. See the header.
+## The kinematic allowance, in metres of cruise range: what coming home
+## really costs beyond the straight-line distance. Two terms, both measured
+## against SimMovement's real steering: braking for the pad at 2 x accel
+## costs v^2 / (4 x accel), and the turn-around is a half-circle of radius
+## v / turn_rate flown at speed. See the header.
 func _landing_overhead_m(u: int) -> float:
 	var a := maxf(entities.accel_ms2[u], 0.1)
 	var v := entities.max_speed_ms[u]
-	return v * v / (4.0 * a)
+	var w := maxf(entities.turn_rate_rads[u], 0.05)
+	return v * v / (4.0 * a) + PI * v / w
 
 
 func _begin_rtb(u: int, t: Task, rec: int, reason: String) -> void:

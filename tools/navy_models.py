@@ -2800,22 +2800,139 @@ def mine_warfare():
 # the three-quarter band sheets and for nothing else.
 
 
+# ══════════════════════════════════════════════════════════════════
+# THE TEXTURE PASS (2026-08) — roster data only, geometry frozen
+# ══════════════════════════════════════════════════════════════════
+# Each entry below REQUESTS compose layers from tools/textures.py through the
+# additive hero_models.texture_features() hook. The treatment, uniform across
+# the surface fleet:
+#   - haze grey hull (navy_haze in the roster, replacing air_dark),
+#   - black boot-topping stripe at the waterline (hulls float at z = 0),
+#   - vertical rust streaking from the scuppers (deck edge, z0 = fb) and a
+#     pair of hawse-pipe stains run straight down the bow flare,
+#   - the weather deck recoloured to a darker neutral non-slip grey via the
+#     base_rgb override (GROUP_MATS itself is shared with every module and
+#     stays untouched),
+#   - the hull number stencilled white on both sides of the bow.
+# SUBMARINES KEEP air_dark: tone is the strongest sub-vs-surface cue the
+# roster has (same argument as the F-117 in textures.py), so they take the
+# weathering pass on the dark scheme and carry their number on the sail.
+_STENCIL = (0.90, 0.90, 0.87)
+_RUST = (0.35, 0.20, 0.11)
+_DECK_GREY = (0.165, 0.170, 0.168)
+
+
+def _ship_tex(name, L, B, fb, sheer, num, res=2048, bow=0.30, num_frac=0.40,
+              extra_insignia=(), extra_weather=None, groups=("body", "deck")):
+    """One surface ship's texture request. All coordinates are build-space
+    metres: bow at +Y, waterline at z = 0, weather deck at z = fb."""
+    zt = fb + sheer                          # sheer strake height at the bow
+    t = (0.50 - num_frac) / bow              # entry fraction at the number
+    xn = 0.5 * B * (t ** 0.62)               # deck-level half-beam there
+    size = max(1.8, 0.72 * zt)
+    ins = [dict(kind="pennant", text=num, color=_STENCIL, alpha=0.92,
+                center=(s * xn, num_frac * L, 0.54 * zt),
+                normal=(s, 0, 0), size=size) for s in (-1, 1)] if num else []
+    weather = dict(
+        boottop=dict(z1=min(2.2, 0.16 * fb + 0.35), tint=(0.045, 0.048, 0.052)),
+        streaks=[dict(z0=fb + 0.10, length=max(4.0, fb * 1.1), density=0.34,
+                      strength=0.58, tint=_RUST)],
+        exhaust=[dict(origin=(s * 0.17 * B, 0.445 * L, zt + 0.05),
+                      direction=(0, 0, -1), length=max(2.0, zt * 0.75),
+                      width=0.55, strength=0.6, tint=_RUST)
+                 for s in (-1, 1)],          # the hawse-pipe stains
+        edge_wear=dict(strength=0.35))
+    if extra_weather:
+        weather.update(extra_weather)
+    H.texture_features(
+        name, size_class="ship", res=res, groups=groups,
+        base_rgb=({"deck": _DECK_GREY} if "deck" in groups else None),
+        # Big soft haze blotches, and RESTRAINED plating: at 0.42/0.45 the
+        # destroyer rendered as carved stone blocks — every plate outlined.
+        camo_scale=min(24.0, max(10.0, L * 0.12)),
+        panels=dict(spacing=min(9.0, max(3.0, L * 0.045)), strength=0.34,
+                    jitter=0.06, seams=0.28),
+        weathering=weather,
+        insignia=ins + list(extra_insignia))
+
+
+def _sub_tex(name, L, B, deck, num, sail_y, sail_h, sail_w, num_size=1.8):
+    ins = []
+    if num:
+        ins = [dict(kind="pennant", text=num, color=_STENCIL, alpha=0.85,
+                    center=(s * sail_w * 0.5, sail_y, deck + sail_h * 0.5),
+                    normal=(s, 0, 0), size=num_size) for s in (-1, 1)]
+    H.texture_features(
+        name, size_class="ship", res=1024, groups=("body",),
+        panels=dict(spacing=3.0, strength=0.32, jitter=0.05, seams=0.35),
+        weathering=dict(
+            streaks=[dict(z0=deck + 0.35, length=2.6, density=0.30,
+                          strength=0.35, tint=(0.26, 0.18, 0.12))],
+            edge_wear=dict(strength=0.30)),
+        insignia=ins)
+
+
+#          name                    L      B     fb   sheer  number
+_ship_tex("nav_e4_us_destroyer",  155.3, 20.1, 5.9, 2.4, "62")
+_ship_tex("nav_e1_us_cruiser",    172.8, 16.8, 5.6, 2.2, "52")
+_ship_tex("nav_e1_us_frigate",    138.1, 13.7, 4.6, 2.0, "54", bow=0.32)
+_ship_tex("nav_e1_us_corvette",    89.1, 13.3, 3.9, 1.5, "30", res=1024)
+_ship_tex("nav_e2_us_missileboat", 56.1, 10.2, 3.0, 1.1, "71", res=1024,
+          bow=0.34)
+_ship_tex("nav_e1_us_patrol",      54.6,  7.6, 2.9, 0.0, "13", res=1024)
+_ship_tex("nav_e1_us_minewarfare", 68.3, 11.9, 3.6, 1.2, "1",  res=1024,
+          bow=0.24)
+_ship_tex("nav_e1_us_oiler",      206.5, 29.7, 8.0, 2.6, "187", bow=0.24)
+# Capitals: the flight deck lives in the BODY group, so its dark non-slip
+# coat is a deckpaint layer over everything up-facing above the deck line;
+# the painted `deck`-group stripes are left out of the compose so they keep
+# their designed contrast against the dark lanes. Deck number at the bow.
+_ship_tex("nav_e1_us_carrier",    332.8, 40.8, 19.6, 0.0, None,
+          groups=("body",),
+          extra_weather=dict(deckpaint=dict(z0=20.8, tint=(0.155, 0.16, 0.165))),
+          extra_insignia=[dict(kind="pennant", text="68", color=_STENCIL,
+                               center=(8.0, 146.0, 21.4), normal=(0, 0, 1),
+                               size=18.0, up=(0, -1, 0), alpha=0.9)])
+_ship_tex("nav_e2_us_amphib",     257.3, 32.3, 19.0, 0.0, None,
+          groups=("body",),
+          extra_weather=dict(deckpaint=dict(z0=20.1, tint=(0.155, 0.16, 0.165))),
+          extra_insignia=[dict(kind="pennant", text="1", color=_STENCIL,
+                               center=(8.5, 113.0, 20.6), normal=(0, 0, 1),
+                               size=12.0, up=(0, -1, 0), alpha=0.9)])
+# The LCAC floats ON the sea: no boot topping (the dark skirt is the
+# waterline), no rust columns on an aluminium craft — panels and wear only,
+# plus its craft number on both side boxes.
+H.texture_features(
+    "nav_e1_us_landingcraft", size_class="ship", res=1024, groups=("body",),
+    panels=dict(spacing=2.4, strength=0.40, jitter=0.08, seams=0.45),
+    weathering=dict(edge_wear=dict(strength=0.40)),
+    insignia=[dict(kind="pennant", text="91", color=_STENCIL, alpha=0.9,
+                   center=(s * 14.3 * 0.47, 0.5, 4.1), normal=(s, 0, 0),
+                   size=2.2) for s in (-1, 1)])
+#         name                L      B    deck  number  sail y/h/w
+_sub_tex("sub_e2_us_nuclear", 110.3, 10.1, 1.90, "688", 23.7, 5.8, 3.2,
+         num_size=2.4)
+_sub_tex("sub_e1_us_diesel",   62.0,  6.2, 1.20, "209", 12.4, 3.6, 2.2)
+_sub_tex("sub_e7_de_aip",      57.2,  7.0, 1.30, "212", 10.0, 3.8, 2.1)
+_sub_tex("sub_e1_kp_midget",   34.0,  3.8, 0.80, None,   5.1, 1.9, 1.3)
+
+
 NAVY = [
-    ("nav_e4_us_destroyer",  destroyer_aaw,       "air_dark"),
-    ("nav_e1_us_frigate",    frigate_asw,         "air_dark"),
-    ("nav_e1_us_cruiser",    cruiser,             "air_dark"),
-    ("nav_e1_us_corvette",   corvette,            "air_dark"),
-    ("nav_e2_us_missileboat", missile_boat,       "air_dark"),
-    ("nav_e1_us_patrol",     patrol_vessel,       "air_dark"),
+    ("nav_e4_us_destroyer",  destroyer_aaw,       "navy_haze"),
+    ("nav_e1_us_frigate",    frigate_asw,         "navy_haze"),
+    ("nav_e1_us_cruiser",    cruiser,             "navy_haze"),
+    ("nav_e1_us_corvette",   corvette,            "navy_haze"),
+    ("nav_e2_us_missileboat", missile_boat,       "navy_haze"),
+    ("nav_e1_us_patrol",     patrol_vessel,       "navy_haze"),
     ("sub_e1_us_diesel",     sub_diesel,          "air_dark"),
     ("sub_e2_us_nuclear",    sub_nuclear,         "air_dark"),
     ("sub_e7_de_aip",        sub_aip,             "air_dark"),
     ("sub_e1_kp_midget",     sub_midget,          "air_dark"),
-    ("nav_e1_us_carrier",    carrier,             "air_dark"),
-    ("nav_e2_us_amphib",     amphibious_assault,  "air_dark"),
-    ("nav_e1_us_landingcraft", landing_craft,     "air_dark"),
-    ("nav_e1_us_oiler",      fleet_oiler,         "air_dark"),
-    ("nav_e1_us_minewarfare", mine_warfare,       "air_dark"),
+    ("nav_e1_us_carrier",    carrier,             "navy_haze"),
+    ("nav_e2_us_amphib",     amphibious_assault,  "navy_haze"),
+    ("nav_e1_us_landingcraft", landing_craft,     "navy_haze"),
+    ("nav_e1_us_oiler",      fleet_oiler,         "navy_haze"),
+    ("nav_e1_us_minewarfare", mine_warfare,       "navy_haze"),
 ]
 
 if __name__ == "__main__":

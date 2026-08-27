@@ -1,6 +1,6 @@
 {
  "faction": "kp",
- "source_notes": "Korean People's Army, epochs 1-7 (docs/05 boundaries). Compiled from recalled open-source references (IISS Military Balance patterns, standard Soviet-type specifications, parade imagery analysis) with NO web access; every uncertain figure is listed in estimated_fields and confidence is graded per entry. The faction freezes at epochs 3-4 by design (docs/08): the last major imports are the 1984-88 Soviet package (MiG-23ML, MiG-29, Su-25K, S-125, S-200, Mi-24D). After that, only artillery, MRLs, missiles, submarines and a thin parade layer advance. Absences are recorded as explicit nulls with reasons — the KPA has no multirole fighters, no SEAD, no AEW&C, no tankers, no MPA, no SSNs, and (until 2025) no destroyers. Where a system is shared with another faction (T-55/Type 59, BM-21 pattern, Romeo/Type 033 with cn) the baseline Soviet figures are used so cross-faction numbers match. Ship entries: mass_t = displacement, height = draft, speed_kmh converted from knots, road_range_km = endurance range. Aircraft: mass_t = MTOW, width = span/rotor diameter. M2020-generation parade systems (MBT, Pantsir-style SPAAGM, Pon'gae-5) are carried at low confidence: existence is certain, capability is a claim.",
+ "source_notes": "Korean People's Army, epochs 1-7 (docs/05 boundaries). Compiled from recalled open-source references (IISS Military Balance patterns, standard Soviet-type specifications, parade imagery analysis) with NO web access; every uncertain figure is listed in estimated_fields and confidence is graded per entry. The faction freezes at epochs 3-4 by design (docs/08): the last major imports are the 1984-88 Soviet package (MiG-23ML, MiG-29, Su-25K, S-125, S-200, Mi-24D). After that, only artillery, MRLs, missiles, submarines and a thin parade layer advance. Absences are recorded as explicit nulls with reasons — the KPA has no multirole fighters, no SEAD, no AEW&C, no tankers, no MPA, no SSNs, and (until 2025) no destroyers. Where a system is shared with another faction (T-55/Type 59, BM-21 pattern, Romeo/Type 033 with cn) the baseline Soviet figures are used so cross-faction numbers match. Ship entries: mass_t = displacement, height = draft, speed_kmh converted from knots, road_range_km = endurance range. Aircraft: mass_t = MTOW, width = span/rotor diameter. M2020-generation parade systems (MBT, Pantsir-style SPAAGM, Pon'gae-5) are carried at low confidence: existence is certain, capability is a claim. | 2026-08 normalization: measurement conventions per data/factions/CONVENTIONS.md (aircraft mass=MTOW; combat-aircraft range=combat radius with attested ferry kept in ferry_range_km; support-aircraft range=max unrefuelled range; helicopter len=fuselage with rotor_diameter_m separate and width=max airframe width; tank len=gun-forward; ship and submarine height=draught; submarine mass=submerged displacement; towed pieces carry null road range). Epoch boundaries follow the fielded-in-numbers policy (a system entering in the last ~year of an epoch sits where it was fielded in numbers); converted fields carry '| conv 2026-08' or '| audit 2026-08' notes in basis.",
  "roles": {
   "mbt": {
    "1": {
@@ -448,9 +448,9 @@
      "height": 1.9
     },
     "mass_t": 5.6,
-    "speed_kmh": 90,
+    "speed_kmh": 80,
     "road_range_km": 500,
-    "crew": 2,
+    "crew": 5,
     "main_armament": "7.62mm SGMB",
     "gun_gen": null,
     "armor_class": "steel",
@@ -462,9 +462,11 @@
     "missiles": null,
     "confidence": "low",
     "estimated_fields": [
-     "entered_service"
+     "entered_service",
+     "crew",
+     "speed_kmh"
     ],
-    "basis": "Presumed with 1960s Soviet aid packages; thinly documented."
+    "basis": "Presumed with 1960s Soviet aid packages; thinly documented. | audit 2026-08: aligned to ru BRDM-1 (crew 2+3 scouts, 80 km/h); this file had 2 crew / 90 km/h"
    },
    "3": {
     "designation": "BRDM-2",
@@ -875,7 +877,7 @@
     },
     "mass_t": 13.7,
     "speed_kmh": 75,
-    "road_range_km": 500,
+    "road_range_km": 750,
     "crew": 5,
     "main_armament": "122mm x40, 20.4km",
     "gun_gen": null,
@@ -892,7 +894,7 @@
      "mass_t",
      "road_range_km"
     ],
-    "basis": "Local Grad copy; standard BM-21 ballistics."
+    "basis": "Local Grad copy; standard BM-21 ballistics. | audit 2026-08: aligned to ru BM-21 750 km (Ural-375D); sources span 405-750"
    },
    "4": {
     "designation": "M1985 240mm MRL",
@@ -1207,7 +1209,7 @@
      "width": 2.6,
      "height": 3.0
     },
-    "mass_t": 7.1,
+    "mass_t": 8.0,
     "speed_kmh": null,
     "road_range_km": null,
     "crew": 6,
@@ -1224,9 +1226,10 @@
     "confidence": "high",
     "estimated_fields": [
      "dims_m",
-     "entered_service"
+     "entered_service",
+     "mass_t"
     ],
-    "basis": "The backbone of one of the world's densest (and oldest) SAM networks; standard S-75 specs."
+    "basis": "The backbone of one of the world's densest (and oldest) SAM networks; standard S-75 specs. | origin authority ru: SM-90 launcher"
    },
    "4": {
     "designation": "S-125 Pechora (SA-3) battery",
@@ -1282,7 +1285,7 @@
      "width": 3.0,
      "height": 3.5
     },
-    "mass_t": 10.0,
+    "mass_t": 16.0,
     "speed_kmh": null,
     "road_range_km": null,
     "crew": 8,
@@ -1302,7 +1305,7 @@
      "mass_t",
      "entered_service"
     ],
-    "basis": "Two sites delivered 1987; long reach against tankers/AEW-sized targets only."
+    "basis": "Two sites delivered 1987; long reach against tankers/AEW-sized targets only. | audit 2026-08: aligned to ru S-200 launcher 16 t (was 10)"
    },
    "7": {
     "designation": "Pon'gae-5 (KN-06) battery",
@@ -1349,7 +1352,7 @@
     },
     "mass_t": 6.1,
     "speed_kmh": 1076,
-    "road_range_km": 1240,
+    "road_range_km": 400,
     "crew": 1,
     "main_armament": "1x37mm N-37 + 2x23mm NR-23",
     "gun_gen": null,
@@ -1361,8 +1364,11 @@
     "radar_gen": null,
     "missiles": null,
     "confidence": "high",
-    "estimated_fields": [],
-    "basis": "MiG Alley; mass_t is MTOW, range with slipper tanks. Flown over Korea from Nov 1950."
+    "estimated_fields": [
+     "road_range_km"
+    ],
+    "basis": "MiG Alley; mass_t is MTOW, range with slipper tanks. Flown over Korea from Nov 1950. | conv 2026-08: road_range_km = combat radius (estimated; attested ferry/range kept in ferry_range_km)",
+    "ferry_range_km": 1240
    },
    "2": {
     "designation": "MiG-21F-13",
@@ -1374,7 +1380,7 @@
     },
     "mass_t": 8.6,
     "speed_kmh": 2125,
-    "road_range_km": 1300,
+    "road_range_km": 370,
     "crew": 1,
     "main_armament": "1x30mm NR-30",
     "gun_gen": null,
@@ -1388,9 +1394,11 @@
     "missiles": "2x K-13 (AA-2 Atoll) IR",
     "confidence": "high",
     "estimated_fields": [
-     "entered_service"
+     "entered_service",
+     "road_range_km"
     ],
-    "basis": "First deliveries ~1963; span in width field. Day-only, no search radar."
+    "basis": "First deliveries ~1963; span in width field. Day-only, no search radar. | conv 2026-08: road_range_km = combat radius (estimated; attested ferry/range kept in ferry_range_km)",
+    "ferry_range_km": 1300
    },
    "3": {
     "designation": "MiG-21PFM (with J-6/J-7 fleet)",
@@ -1402,7 +1410,7 @@
     },
     "mass_t": 9.1,
     "speed_kmh": 2175,
-    "road_range_km": 1300,
+    "road_range_km": 370,
     "crew": 1,
     "main_armament": "GP-9 23mm gun pod",
     "gun_gen": null,
@@ -1416,9 +1424,11 @@
     "confidence": "medium",
     "estimated_fields": [
      "entered_service",
-     "mass_t"
+     "mass_t",
+     "road_range_km"
     ],
-    "basis": "1970s deliveries plus Chinese J-6/J-7; first (limited) radar intercept capability."
+    "basis": "1970s deliveries plus Chinese J-6/J-7; first (limited) radar intercept capability. | conv 2026-08: road_range_km = combat radius (estimated; attested ferry/range kept in ferry_range_km)",
+    "ferry_range_km": 1300
    },
    "4": {
     "designation": "MiG-23ML",
@@ -1430,7 +1440,7 @@
     },
     "mass_t": 17.8,
     "speed_kmh": 2445,
-    "road_range_km": 1950,
+    "road_range_km": 700,
     "crew": 1,
     "main_armament": "1x23mm GSh-23L",
     "gun_gen": null,
@@ -1442,8 +1452,11 @@
     "radar_gen": "R2",
     "missiles": "R-23/R-24 SARH BVR + R-60 IR",
     "confidence": "high",
-    "estimated_fields": [],
-    "basis": "46 delivered 1984-85 — the first BVR shooter. Width is span spread; range is ferry. The interceptor line freezes here."
+    "estimated_fields": [
+     "road_range_km"
+    ],
+    "basis": "46 delivered 1984-85 — the first BVR shooter. Width is span spread; range is ferry. The interceptor line freezes here. | conv 2026-08: road_range_km = combat radius (estimated; attested ferry/range kept in ferry_range_km)",
+    "ferry_range_km": 1950
    }
   },
   "air_superiority": {
@@ -1472,7 +1485,7 @@
     },
     "mass_t": 18.0,
     "speed_kmh": 2400,
-    "road_range_km": 1430,
+    "road_range_km": 700,
     "crew": 1,
     "main_armament": "1x30mm GSh-30-1",
     "gun_gen": null,
@@ -1486,8 +1499,11 @@
     "radar_gen": "R3",
     "missiles": "R-27R SARH + R-73/R-60 IR",
     "confidence": "high",
-    "estimated_fields": [],
-    "basis": "Deliveries from 1988, local assembly into the mid-90s, ~35-40 airframes. The ceiling of the frozen air force — nothing newer ever arrived."
+    "estimated_fields": [
+     "road_range_km"
+    ],
+    "basis": "Deliveries from 1988, local assembly into the mid-90s, ~35-40 airframes. The ceiling of the frozen air force — nothing newer ever arrived. | conv 2026-08: road_range_km = combat radius (estimated; attested ferry/range kept in ferry_range_km)",
+    "ferry_range_km": 1430
    }
   },
   "multirole": {
@@ -1548,7 +1564,7 @@
     },
     "mass_t": 13.5,
     "speed_kmh": 2150,
-    "road_range_km": 1450,
+    "road_range_km": 480,
     "crew": 1,
     "main_armament": "2x30mm NR-30 + ~2t bombs",
     "gun_gen": null,
@@ -1564,7 +1580,8 @@
      "entered_service",
      "road_range_km"
     ],
-    "basis": "~25-30 delivered ~1971; range is ferry. The only dedicated strike jet the KPA ever received — inherited (and decaying) thereafter."
+    "basis": "~25-30 delivered ~1971; range is ferry. The only dedicated strike jet the KPA ever received — inherited (and decaying) thereafter. | conv 2026-08: road_range_km = combat radius (estimated; attested ferry/range kept in ferry_range_km)",
+    "ferry_range_km": 1450
    }
   },
   "cas": {
@@ -1590,8 +1607,10 @@
     "radar_gen": null,
     "missiles": null,
     "confidence": "high",
-    "estimated_fields": [],
-    "basis": "Korean War ground-attack workhorse; largely destroyed by late 1950."
+    "estimated_fields": [
+     "road_range_km"
+    ],
+    "basis": "Korean War ground-attack workhorse; largely destroyed by late 1950. | conv 2026-08: 800 km suspected max range, radius unknown"
    },
    "4": {
     "designation": "Su-25K Frogfoot",
@@ -1603,7 +1622,7 @@
     },
     "mass_t": 17.6,
     "speed_kmh": 975,
-    "road_range_km": 750,
+    "road_range_km": 375,
     "crew": 1,
     "main_armament": "30mm GSh-30-2 + ~4t stores",
     "gun_gen": null,
@@ -1615,8 +1634,11 @@
     "radar_gen": null,
     "missiles": "Kh-25ML laser-guided + S-8/S-24 rockets",
     "confidence": "high",
-    "estimated_fields": [],
-    "basis": "~35 delivered 1987-89 with the MiG-29 package; range is combat radius with load. Frozen since."
+    "estimated_fields": [
+     "road_range_km"
+    ],
+    "basis": "~35 delivered 1987-89 with the MiG-29 package; range is combat radius with load. Frozen since. | conv 2026-08: road_range_km = combat radius (estimated; attested ferry/range kept in ferry_range_km); 750 was max-load range",
+    "ferry_range_km": 750
    }
   },
   "bomber": {
@@ -1645,7 +1667,8 @@
     "estimated_fields": [
      "mass_t"
     ],
-    "basis": "'Bedcheck Charlie' — wood/fabric airframe nearly invisible to 1950 radar. The concealment doctrine in embryo; docs/08's signature model loves this."
+    "basis": "'Bedcheck Charlie' — wood/fabric airframe nearly invisible to 1950 radar. The concealment doctrine in embryo; docs/08's signature model loves this.",
+    "dims_convention": "road_range_km = max range (harassment biplane; radius not meaningful)"
    },
    "2": {
     "designation": "Il-28 / Harbin H-5",
@@ -1657,7 +1680,7 @@
     },
     "mass_t": 23.2,
     "speed_kmh": 902,
-    "road_range_km": 2180,
+    "road_range_km": 1100,
     "crew": 3,
     "main_armament": "~3t bombs + 4x23mm; torpedo option",
     "gun_gen": null,
@@ -1671,9 +1694,11 @@
     "missiles": null,
     "confidence": "medium",
     "estimated_fields": [
-     "entered_service"
+     "entered_service",
+     "road_range_km"
     ],
-    "basis": "Soviet Il-28s ~1960, Chinese H-5s later; ~80 nominally still on strength — the world's last light-jet-bomber fleet, frozen for 60 years."
+    "basis": "Soviet Il-28s ~1960, Chinese H-5s later; ~80 nominally still on strength — the world's last light-jet-bomber fleet, frozen for 60 years. | conv 2026-08: road_range_km = combat radius (estimated; attested ferry/range kept in ferry_range_km)",
+    "ferry_range_km": 2180
    }
   },
   "sead": {
@@ -1835,7 +1860,7 @@
     "entered_service": 1962,
     "dims_m": {
      "len": 16.79,
-     "width": 21.0,
+     "width": 2.0,
      "height": 4.4
     },
     "mass_t": 7.55,
@@ -1853,16 +1878,18 @@
     "missiles": null,
     "confidence": "medium",
     "estimated_fields": [
-     "entered_service"
+     "entered_service",
+     "dims_m"
     ],
-    "basis": "Width field is main rotor diameter. Soviet deliveries in the 1960s."
+    "basis": "Width field is main rotor diameter. Soviet deliveries in the 1960s. | conv 2026-08: rotor diameter moved to rotor_diameter_m; width = max airframe width",
+    "rotor_diameter_m": 21.0
    },
    "4": {
     "designation": "Mi-8T / MD-500 fleet",
     "entered_service": 1980,
     "dims_m": {
      "len": 18.17,
-     "width": 21.29,
+     "width": 2.5,
      "height": 5.65
     },
     "mass_t": 12.0,
@@ -1880,9 +1907,11 @@
     "missiles": null,
     "confidence": "medium",
     "estimated_fields": [
-     "entered_service"
+     "entered_service",
+     "dims_m"
     ],
-    "basis": "Mi-8 figures given. Alongside: 87 civilian Hughes MD-500s smuggled via a West German front 1983-85 — US-silhouette deception, an SOF-insertion special. Rotor dia in width."
+    "basis": "Mi-8 figures given. Alongside: 87 civilian Hughes MD-500s smuggled via a West German front 1983-85 — US-silhouette deception, an SOF-insertion special. Rotor dia in width. | conv 2026-08: rotor diameter moved to rotor_diameter_m; width = max airframe width",
+    "rotor_diameter_m": 21.29
    }
   },
   "attack_helicopter": {
@@ -1906,7 +1935,7 @@
     "entered_service": 1985,
     "dims_m": {
      "len": 17.51,
-     "width": 17.3,
+     "width": 6.6,
      "height": 6.5
     },
     "mass_t": 11.5,
@@ -1924,9 +1953,11 @@
     "missiles": "9M17P Falanga-P (AT-2) MCLOS",
     "confidence": "medium",
     "estimated_fields": [
-     "entered_service"
+     "entered_service",
+     "dims_m"
     ],
-    "basis": "~20 delivered mid-80s; armed MD-500Ds with Susong-po ATGMs serve as the light complement. Frozen since. Rotor dia in width."
+    "basis": "~20 delivered mid-80s; armed MD-500Ds with Susong-po ATGMs serve as the light complement. Frozen since. Rotor dia in width. | conv 2026-08: rotor diameter moved to rotor_diameter_m; width = max airframe width (stub-wing span)",
+    "rotor_diameter_m": 17.3
    }
   },
   "asw_helicopter": {
@@ -1950,7 +1981,7 @@
     "entered_service": 1985,
     "dims_m": {
      "len": 18.38,
-     "width": 21.29,
+     "width": 3.8,
      "height": 6.9
     },
     "mass_t": 14.0,
@@ -1970,9 +2001,11 @@
     "missiles": null,
     "confidence": "low",
     "estimated_fields": [
-     "entered_service"
+     "entered_service",
+     "dims_m"
     ],
-    "basis": "A handful reported; serviceability doubtful. The faction's only nominal airborne ASW."
+    "basis": "A handful reported; serviceability doubtful. The faction's only nominal airborne ASW. | conv 2026-08: rotor diameter moved to rotor_diameter_m; width = max airframe width (amphibious hull)",
+    "rotor_diameter_m": 21.29
    }
   },
   "air_defence_destroyer": {
@@ -2268,7 +2301,7 @@
     },
     "mass_t": 1350.0,
     "speed_kmh": 24,
-    "road_range_km": 11000,
+    "road_range_km": 16000,
     "crew": 52,
     "main_armament": "6x533mm TT",
     "gun_gen": null,
@@ -2285,7 +2318,7 @@
      "entered_service",
      "road_range_km"
     ],
-    "basis": "A handful reportedly transferred mid-1960s and long retired; existence in KPA service is itself only moderately attested. Mass is submerged displacement; speed submerged ~13kn."
+    "basis": "A handful reportedly transferred mid-1960s and long retired; existence in KPA service is itself only moderately attested. Mass is submerged displacement; speed submerged ~13kn. | audit 2026-08: aligned to ru Whiskey surfaced transit range 16,000 km (was 11,000)"
    },
    "3": {
     "designation": "Romeo-class (Type 033)",
@@ -2806,7 +2839,8 @@
     "estimated_fields": [
      "entered_service"
     ],
-    "basis": "THE infiltration special: fabric biplane with a tiny radar and IR signature flying at treetop height to insert SOF — still in service seven decades later. Docs/08's concealment column, airborne. Width is upper-wing span."
+    "basis": "THE infiltration special: fabric biplane with a tiny radar and IR signature flying at treetop height to insert SOF — still in service seven decades later. Docs/08's concealment column, airborne. Width is upper-wing span.",
+    "dims_convention": "road_range_km = max range (transport)"
    }
   }
  }
