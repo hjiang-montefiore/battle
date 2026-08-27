@@ -303,6 +303,56 @@ def panel_lines(pos, nrm, a, b, ax, texel, spacing=1.6, strength=0.5,
     return field.astype(np.float32)
 
 
+def concrete_field(pos, nrm, a, b, rng, zmin=0.0, roof_above=2.0,
+                   gravel=0.16, gravel_lift=1.05, wall=0.13, apron=0.08,
+                   gravel_scale=0.45):
+    """Multiplicative concrete finish for STRUCTURES — the layer that makes a
+    roof deck read as gravel ballast and a wall read as weathered render.
+
+    Three surface families, split by normal and height (world metres):
+      * up-facing above zmin+roof_above  -> ROOF: two-scale gravel grain plus
+        a small mean lift, so a roof deck and the apron below it stop being
+        the same flat pour;
+      * near-vertical                    -> WALL: rain-tone streaking, long in
+        Z and short across, the way weather actually runs down concrete;
+      * up-facing below the roof line    -> APRON/PAD: broad pour mottle only.
+    Everything is a factor around 1.0 — the value LADDER between camo wall
+    (0.588) and concrete deck (0.098) survives untouched.
+    """
+    z = pos[..., 2]
+    nz = nrm[..., 2]
+    up = nz > 0.55
+    vert = np.abs(nz) < 0.45
+    roof = up & (z > zmin + roof_above)
+    ground = up & ~roof
+    f = np.ones(z.shape, np.float32)
+    if gravel > 0:
+        g1 = _wnoise(a, b, gravel_scale, rng, octaves=2, base=8)
+        g2 = rng.random(z.shape).astype(np.float32)
+        f = np.where(roof, f * gravel_lift
+                     * (1.0 + gravel * (g1 - 0.5) * 2.0)
+                     * (1.0 + 0.5 * gravel * (g2 - 0.5)), f)
+    else:
+        # smooth poured concrete still varies pour to pour
+        g1 = _wnoise(a, b, 2.6, rng, octaves=2, base=5)
+        f = np.where(roof, f * (1.0 + 0.10 * (g1 - 0.5) * 2.0), f)
+    s = _wnoise(a, z * 0.22, 1.7, rng, octaves=2, base=6)
+    f = np.where(vert, f * (1.0 + wall * (s - 0.5) * 2.0), f)
+    m = _wnoise(a, b, 6.0, rng, octaves=2, base=4)
+    f = np.where(ground, f * (1.0 + apron * (m - 0.5) * 2.0), f)
+    return f.astype(np.float32)
+
+
+def ao_grime(ao2, a, b, rng, strength=0.35, threshold=0.55):
+    """Blend-factor field: grime pooled where the AO bake is already dark —
+    the base of every vent box, duct, parapet and mast lands a stain without
+    any of them needing coordinates. Noise-broken so it reads as dirt, not as
+    a second AO pass."""
+    g = np.clip((threshold - ao2) / max(threshold, 1e-4), 0, 1)
+    g = g * (0.45 + 0.65 * _wnoise(a, b, 1.1, rng, octaves=2, base=8))
+    return np.clip(strength * g, 0, 1).astype(np.float32)
+
+
 def dust_gradient(pos, nrm, a, b, rng, zmin=0.0, height=1.2,
                   strength=0.45, tint=(0.45, 0.40, 0.31)):
     """Factor field for dust rising from the running gear. Blend to `tint`."""
@@ -533,6 +583,12 @@ def compose(unit, group, camo_png, base_rgb, pos, nrm, ao, features):
     Returns float RGB at pos's resolution, same value space as the camo PNGs.
     """
     res = pos.shape[0]
+    # Per-GROUP overrides (additive, 2026-08): one unit's deck and body can
+    # want different layers — a building's concrete apron is not its painted
+    # wall. Keys under groups_override[group] REPLACE the top-level key.
+    ov = features.get("groups_override") or {}
+    if group in ov:
+        features = {**features, **ov[group]}
     rng = np.random.default_rng(seed_of(f"{unit}:{group}"))
     nlen = np.linalg.norm(nrm, axis=-1)
     valid = np.abs(nlen - 1.0) < 0.35
@@ -564,6 +620,12 @@ def compose(unit, group, camo_png, base_rgb, pos, nrm, ao, features):
 
     texel = _texel_size(pos, valid)
 
+    # 1b. concrete finish (structures): roof gravel vs wall tone vs apron
+    ccfg = features.get("concrete")
+    if ccfg is not None:
+        img = img * concrete_field(pos, n, a, b, rng, zmin=zmin,
+                                   **ccfg)[..., None]
+
     # 2. panel lines + per-panel value shifts
     pcfg = features.get("panels")
     if pcfg is not None:
@@ -584,6 +646,18 @@ def compose(unit, group, camo_png, base_rgb, pos, nrm, ao, features):
     for e in wx.get("exhaust") or []:
         f = exhaust_streak(pos, n, rng, **e)[..., None]
         img = img * (1 - f) + np.array((0.06, 0.058, 0.055), np.float32) * f
+    # stains: the exhaust cone reused as a grime/soot smudge with its own
+    # tint — stack soot, drips below a known fixture. Coordinates in metres.
+    for e in wx.get("stains") or []:
+        cfg = dict(e)
+        tint = np.array(cfg.pop("tint", (0.10, 0.096, 0.09)), np.float32)
+        f = exhaust_streak(pos, n, rng, **cfg)[..., None]
+        img = img * (1 - f) + tint * f
+    if "ao_grime" in wx:
+        cfg = dict(wx["ao_grime"])
+        tint = np.array(cfg.pop("tint", (0.13, 0.125, 0.115)), np.float32)
+        f = ao_grime(ao2, a, b, rng, **cfg)[..., None]
+        img = img * (1 - f) + tint * f
     if "edge_wear" in wx:
         img = img * (1 + edge_wear(ao2, **wx["edge_wear"]))[..., None]
 

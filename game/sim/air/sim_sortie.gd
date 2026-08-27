@@ -44,8 +44,22 @@ extends RefCounted
 ##                    restores the loadout the aircraft first flew with.
 ##
 ## DETERMINISM. Tasks live in a Dictionary keyed by unit index, and every
-## iteration sorts the keys first. No randf(), no wall clock, no hash-order
+## iteration sorts the keys first. No RNG calls, no wall clock, no hash-order
 ## anything.
+##
+## ONE HONEST ADDITION TO THE RULE. range_remaining prices the trip at cruise
+## SPEED, but fuel burns per MINUTE, and the movement layer accelerates and
+## brakes at real rates -- a 560 m/s interceptor spends a minute of full burn
+## braking for the pad, which the per-km model never budgeted. Measured, that
+## deficit is exactly the braking law's v^2 / (2 x decel) in metres of range.
+## The trigger therefore reserves it explicitly:
+##
+##     RTB when  range_remaining < RESERVE x (d_home + landing_overhead)
+##
+## with landing_overhead = v_max^2 / (4 x accel), matching SimMovement's
+## decel of 2 x accel. Without this term the rule as literally written lands
+## aircraft dry -- docs/04 consequence 6 anticipates the tuning, and this is
+## that tuning made kinematic instead of a fudged RESERVE.
 
 ## docs/04: the reserve factor. "1.10 is the specified default and makes the
 ## game tense."
@@ -78,6 +92,11 @@ const CLIMB_ROTARY_MS := 18.0
 const APPROACH_RADIUS_M := 600.0
 const TOUCHDOWN_RADIUS_M := 45.0
 const TOUCHDOWN_ALT_M := 15.0
+## Glide slope on the way home: desired height above the pad is distance x
+## this. Descending EN ROUTE matters for the fuel arithmetic -- the RTB
+## reserve is costed at cruise, and an aircraft that only starts down after
+## arriving overhead loiters on fuel the reserve never budgeted.
+const DESCENT_SLOPE := 0.1
 ## The apron convention: SimEconomy._spawn_altitude() parks aircraft at
 ## ground + 10 m, and a landing ends at the same height.
 const PARK_ALT_M := 10.0
@@ -185,7 +204,8 @@ func _order(unit: int, kind: int, x: float, z: float, radius_m: float) -> bool:
 		var full_range: float = entities.fuel_capacity[unit] \
 			/ entities.burn_cruise_lpm[unit] * 60.0 \
 			* entities.max_speed_ms[unit]
-		if full_range < RESERVE * (d_out + d_back):
+		if full_range < RESERVE * (d_out + d_back) \
+				+ 3.0 * _landing_overhead_m(unit):
 			_note("%s: sortie refused, beyond round-trip range"
 				% entities.names[unit])
 			return false
@@ -287,7 +307,9 @@ func _step_grounded(u: int, t: Task, dt: float) -> void:
 	var d_out := _dist2d(entities.pos_x[u], entities.pos_z[u], t.x, t.z)
 	var d_back := _recovery_dist_from(u, t.x, t.z)
 	var rr := entities.range_remaining_m(u)
-	if rr < RESERVE * (d_out + d_back):
+	# 3x the landing overhead: accelerating off the pad costs twice what
+	# braking does (accel is half decel), and the landing costs one more.
+	if rr < RESERVE * (d_out + d_back) + 3.0 * _landing_overhead_m(u):
 		# A full tank that still fails the gate can never pass it: the world
 		# changed under the order (the far recovery died). Stand down.
 		if entities.fuel[u] >= entities.fuel_capacity[u] - 0.001:
@@ -364,8 +386,11 @@ func _step_station(u: int, t: Task, dt: float) -> void:
 # ── RTB: home on the nearest surviving recovery, re-checked every step ───────
 
 func _step_rtb(u: int, t: Task, dt: float) -> void:
-	_fly_altitude(u, _cruise_alt_for(u), dt)
 	var rec := _nearest_recovery(u)
+	if rec >= 0:
+		_fly_altitude(u, _approach_alt(u, rec), dt)
+	else:
+		_fly_altitude(u, _cruise_alt_for(u), dt)
 	if rec < 0:
 		# docs/04 consequence 5, the dramatic half: every recovery point is
 		# gone. Orbit here at cruise until the tank runs out; the economy's
@@ -417,7 +442,7 @@ func _step_recovering(u: int, t: Task, dt: float) -> void:
 		entities.sortie_state[u] = SimTypes.SortieState.RTB
 		return
 	var pad_y: float = entities.pos_y[rec] + PARK_ALT_M
-	_fly_altitude(u, pad_y, dt)
+	_fly_altitude(u, _approach_alt(u, rec), dt)
 	var d := _dist2d(entities.pos_x[u], entities.pos_z[u],
 		entities.pos_x[rec], entities.pos_z[rec])
 	if d <= TOUCHDOWN_RADIUS_M \
@@ -457,11 +482,21 @@ func _check_rtb(u: int, t: Task) -> bool:
 		return false   # nowhere to go; fly the task until dry
 	var d := _dist2d(entities.pos_x[u], entities.pos_z[u],
 		entities.pos_x[rec], entities.pos_z[rec])
-	if rr < RESERVE * d:
-		last_rtb[u] = {"range_m": rr, "d_home_m": d, "reason": "fuel"}
+	var overhead := _landing_overhead_m(u)
+	if rr < RESERVE * (d + overhead):
+		last_rtb[u] = {"range_m": rr, "d_home_m": d,
+			"overhead_m": overhead, "reason": "fuel"}
 		_begin_rtb(u, t, rec, "fuel")
 		return true
 	return false
+
+
+## The braking allowance, in metres of cruise range: what stopping at the pad
+## really costs, given SimMovement brakes at 2 x accel. See the header.
+func _landing_overhead_m(u: int) -> float:
+	var a := maxf(entities.accel_ms2[u], 0.1)
+	var v := entities.max_speed_ms[u]
+	return v * v / (4.0 * a)
 
 
 func _begin_rtb(u: int, t: Task, rec: int, reason: String) -> void:
@@ -566,6 +601,15 @@ func _fly_altitude(u: int, desired_y: float, dt: float) -> void:
 	var climb := CLIMB_ROTARY_MS if _is_rotary(u) else CLIMB_FIXED_MS
 	entities.vel_y[u] = clampf((desired_y - entities.pos_y[u]) / maxf(dt, 0.001),
 		-climb, climb)
+
+
+## Desired altitude on the way in to a recovery: the glide slope, capped at
+## cruise. At the touchdown radius it meets the pad.
+func _approach_alt(u: int, rec: int) -> float:
+	var d := _dist2d(entities.pos_x[u], entities.pos_z[u],
+		entities.pos_x[rec], entities.pos_z[rec])
+	var above := maxf(d - TOUCHDOWN_RADIUS_M, 0.0) * DESCENT_SLOPE
+	return minf(entities.pos_y[rec] + PARK_ALT_M + above, _cruise_alt_for(u))
 
 
 func _cruise_alt_for(u: int) -> float:

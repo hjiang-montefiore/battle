@@ -955,6 +955,54 @@ ARMY = [
     ("eng_e4_us_repair",        repair_vehicle),
 ]
 
+
+# ── texture pass (2026-08): composed-texture REQUESTS, roster data only ──
+# Coordinates are build-space metres (Z-up, forward = -Y), read off the same
+# published dimensions each role above is pinned to. Dust and mud dominate a
+# ground vehicle at RTS zoom; insignia are subdued single-colour US stars on
+# the vertical plates (hull / casemate / shelter sides).
+_STAR = (0.14, 0.13, 0.12)          # subdued CARC-black star
+_DUST = (0.50, 0.44, 0.34)          # desert dust
+
+
+def _us_ground(name, x, y, z, size=0.55, dust=0.55, height=1.2, spacing=1.5):
+    """Standard US ground-vehicle request: mirrored hull-side stars at
+    (±x, y, z). x=None -> no insignia (the towed gun has no flat plate)."""
+    ins = []
+    if x is not None:
+        ins = [dict(kind="star_us", center=( x, y, z), normal=( 1, 0, 0),
+                    size=size, alpha=0.85, color=_STAR),
+               dict(kind="star_us", center=(-x, y, z), normal=(-1, 0, 0),
+                    size=size, alpha=0.85, color=_STAR)]
+    H.texture_features(
+        name, size_class="vehicle", groups=("body", "deck"),
+        panels=dict(spacing=spacing, strength=0.55, jitter=0.13, seams=0.55),
+        weathering=dict(
+            dust=dict(height=height, strength=dust, tint=_DUST),
+            edge_wear=dict(strength=0.5)),
+        insignia=ins)
+
+
+_us_ground("afv_e4_us_tankdestroyer", 1.46, 0.30, 1.55, size=0.50)
+_us_ground("afv_e4_us_apc",           1.35, 0.40, 1.25, size=0.60)
+_us_ground("afv_e4_us_atgm",          1.35, 0.60, 1.25, size=0.55)
+_us_ground("art_e4_us_towed",         None, 0, 0, dust=0.40, height=0.9,
+           spacing=1.0)
+_us_ground("art_e4_us_mortar",        1.35, 0.40, 1.25, size=0.55)
+_us_ground("msl_e4_us_ballistic",     1.54, 1.20, 1.15, size=0.50, dust=0.60)
+_us_ground("msl_e4_us_coastal",       1.25, 1.20, 1.00, size=0.50)
+_us_ground("aad_e4_us_spaag",         1.63, 0.60, 1.05, size=0.50)
+_us_ground("aad_e4_us_shorad",        1.36, 0.40, 1.35, size=0.60)
+_us_ground("aad_e4_us_longsam",       1.30, 1.60, 1.05, size=0.50)
+_us_ground("rad_e4_us_counterbty",    1.22, 1.00, 1.00, size=0.50)
+_us_ground("ewj_e4_us_jammer",        1.25, 1.00, 1.00, size=0.50)
+_us_ground("cmd_e4_us_command",       1.35, 0.70, 1.95, size=0.55)
+_us_ground("log_e4_us_ammotruck",     1.22, 1.60, 0.95, size=0.45, dust=0.60)
+_us_ground("eng_e4_us_engineer",      1.70, 0.50, 1.15, size=0.50, dust=0.65)
+_us_ground("eng_e4_us_repair",        1.52, 0.30, 2.40, size=0.60, dust=0.65,
+           height=1.4)
+
+
 if __name__ == "__main__":
     H.set_out(os.path.join(ROOT, "art", "blockout", "e4_army"))
     for name, _ in ARMY:

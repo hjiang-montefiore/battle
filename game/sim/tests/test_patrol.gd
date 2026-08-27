@@ -182,6 +182,7 @@ func _suite_multi_leg_loop() -> void:
 	var p := SimPatrol.install(w)
 	var u := _jeep(w, "boat", 0, 0.0, 0.0)
 	w.commands.patrol(0, u, _pts([200, 0, 200, 200]))
+	w.run_ticks(1)
 	_ok("the loop holds three legs", p.points_of(u).size() == 6)
 
 	var max_x := -INF

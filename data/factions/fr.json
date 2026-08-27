@@ -1230,10 +1230,10 @@
         "entered_service": 1965,
         "dims_m": {
           "len": 5.1,
-          "width": 2.4,
-          "height": 1.7
+          "width": 2.2,
+          "height": 2.1
         },
-        "mass_t": 6.0,
+        "mass_t": 3.5,
         "speed_kmh": null,
         "road_range_km": null,
         "crew": 6,
@@ -1254,17 +1254,17 @@
           "mass_t",
           "crew"
         ],
-        "basis": "French Army Hawk batteries from the mid-1960s; must match other Hawk operators' numbers"
+        "basis": "French Army Hawk batteries from the mid-1960s; must match other Hawk operators' numbers | audit 2026-08: launcher dims/mass aligned to us.json MIM-23/I-HAWK entries (same M192 launcher; shared-system rule)"
       },
       "3": {
         "designation": "I-Hawk (MIM-23B)",
         "entered_service": 1975,
         "dims_m": {
           "len": 5.1,
-          "width": 2.4,
-          "height": 1.7
+          "width": 2.2,
+          "height": 2.1
         },
-        "mass_t": 6.0,
+        "mass_t": 3.5,
         "speed_kmh": null,
         "road_range_km": null,
         "crew": 6,
@@ -1280,9 +1280,11 @@
         "missiles": "MIM-23B (40 km, SARH)",
         "confidence": "low",
         "estimated_fields": [
-          "entered_service"
+          "entered_service",
+          "dims_m",
+          "mass_t"
         ],
-        "basis": "I-Hawk upgrade adopted in the mid-1970s; French upgrade year recalled imprecisely"
+        "basis": "I-Hawk upgrade adopted in the mid-1970s; French upgrade year recalled imprecisely | audit 2026-08: launcher dims/mass aligned to us.json MIM-23/I-HAWK entries (same M192 launcher; shared-system rule)"
       },
       "4": {
         "designation": null,

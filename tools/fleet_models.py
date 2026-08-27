@@ -648,6 +648,39 @@ FLEET = [
     ("log_e4_us_fueltruck",  fuel_truck),
 ]
 
+
+# ── texture pass (2026-08): composed-texture REQUESTS, roster data only ──
+# Build-space metres, Z-up, forward = -Y. Same convention as army_models:
+# dust rising from the running gear, subdued US stars on vertical plates
+# (hull sides, radar-shelter sides, the fuel tank barrel).
+_STAR = (0.14, 0.13, 0.12)
+_DUST = (0.50, 0.44, 0.34)
+
+
+def _us_ground(name, x, y, z, size=0.55, dust=0.55, height=1.2, spacing=1.5):
+    ins = [dict(kind="star_us", center=( x, y, z), normal=( 1, 0, 0),
+                size=size, alpha=0.85, color=_STAR),
+           dict(kind="star_us", center=(-x, y, z), normal=(-1, 0, 0),
+                size=size, alpha=0.85, color=_STAR)]
+    H.texture_features(
+        name, size_class="vehicle", groups=("body", "deck"),
+        panels=dict(spacing=spacing, strength=0.55, jitter=0.13, seams=0.55),
+        weathering=dict(
+            dust=dict(height=height, strength=dust, tint=_DUST),
+            edge_wear=dict(strength=0.5)),
+        insignia=ins)
+
+
+_us_ground("afv_e4_us_ifv",         1.79, 0.50, 1.30, size=0.60, dust=0.60)
+_us_ground("rec_e4_us_recon",       1.36, 0.30, 1.35, size=0.60)
+_us_ground("art_e4_us_sph",         1.57, 0.60, 1.20, size=0.55, dust=0.60)
+_us_ground("art_e4_us_mlrs",        1.48, 0.60, 1.05, size=0.50, dust=0.60)
+_us_ground("rad_e4_us_search",      1.17, -0.55, 2.05, size=0.55)
+_us_ground("rad_e4_us_illuminator", 1.15, 0.20, 1.95, size=0.55)
+_us_ground("sam_e4_us_launcher",    1.13, -0.30, 1.90, size=0.50)
+_us_ground("log_e4_us_fueltruck",   0.70, 1.55, 1.95, size=0.50, dust=0.60)
+
+
 if __name__ == "__main__":
     H.set_out(os.path.join(ROOT, "art", "blockout", "e4_support"))
     for name, fn in FLEET:

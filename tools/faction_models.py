@@ -263,6 +263,36 @@ FACTIONS = [
     ("mbt_e4_tw_m1a2t",        m1a2t,              "camo_tw", (0.16, 0.46, 0.24)),
 ]
 
+
+# ── texture pass (2026-08): composed-texture REQUESTS, roster data only ──
+# Build-space metres, Z-up, forward = -Y. Each nation gets its own marking
+# and its own mud: European operators run dark wet loam, the ZTZ a paler
+# loess dust, the Chonma-ho the heaviest grime of the roster (minimal
+# maintenance is that faction's read).
+def _mbt(name, kind, x, y, z, size, dust, tint, color=None):
+    H.texture_features(
+        name, size_class="vehicle", groups=("body", "deck"),
+        panels=dict(spacing=1.5, strength=0.55, jitter=0.13, seams=0.55),
+        weathering=dict(
+            dust=dict(height=1.3, strength=dust, tint=tint),
+            edge_wear=dict(strength=0.5)),
+        insignia=[dict(kind=kind, center=( x, y, z), normal=( 1, 0, 0),
+                       size=size, alpha=0.9, color=color),
+                  dict(kind=kind, center=(-x, y, z), normal=(-1, 0, 0),
+                       size=size, alpha=0.9, color=color)])
+
+
+_mbt("mbt_e4_uk_challenger2", "roundel_uk", 1.50, 0.30, 2.00, 0.45,
+     0.50, (0.33, 0.29, 0.22))
+_mbt("mbt_e4_fr_leclerc",     "roundel_fr", 1.55, 0.30, 2.05, 0.45,
+     0.50, (0.35, 0.31, 0.23))
+_mbt("mbt_e6_cn_ztz99a",      "star_cn",    1.50, 0.20, 1.95, 0.50,
+     0.55, (0.46, 0.41, 0.30))
+_mbt("mbt_e2_kp_chonma",      "star_kp",    1.62, 0.40, 1.00, 0.45,
+     0.70, (0.36, 0.32, 0.24))
+_mbt("mbt_e4_tw_m1a2t",       "sun_tw",     1.45, -0.20, 2.00, 0.50,
+     0.55, (0.30, 0.27, 0.20))
+
 if __name__ == "__main__":
     H.set_out(os.path.join(ROOT, "art", "blockout", "e4_mbt_nations"))
     for name, _, camo, team in FACTIONS:
