@@ -417,6 +417,76 @@ func _is_own_structure(player_id: int, unit: int) -> bool:
 		and entities.is_structure[unit] == 1)
 
 
+## ORE FIELDS -- the economy you can lose.
+##
+## An oil derrick is static and safe: once it is up, its income cannot be
+## interrupted except by killing the building inside your base. Ore is the
+## other half of the Red Alert bargain and the more interesting one -- the
+## money has to be DRIVEN home, which makes a harvester a target and turns
+## raiding an economy into a strategy rather than a euphemism for attacking.
+##
+## A field holds a finite amount and shrinks as it is worked, so the good
+## ground runs out and the fight moves.
+var ore_fields: Array[Vector2] = []
+var ore_remaining: PackedFloat32Array = PackedFloat32Array()
+
+## How near a harvester must be to a field to work it.
+const ORE_REACH_M := 110.0
+
+
+func add_ore_field(x: float, z: float, amount: float) -> void:
+	ore_fields.append(Vector2(x, z))
+	ore_remaining.append(amount)
+
+
+## The richest field within reach of a point, or -1. Richest rather than
+## nearest: a harvester that picked the nearest would strip the field under
+## its own refinery and then stand in it.
+func ore_field_near(x: float, z: float, radius: float) -> int:
+	var best := -1
+	var best_amt := 0.0
+	for k in range(ore_fields.size()):
+		if ore_remaining[k] <= 0.0:
+			continue
+		if _dist2(x, z, ore_fields[k].x, ore_fields[k].y) > radius * radius:
+			continue
+		if ore_remaining[k] > best_amt:
+			best_amt = ore_remaining[k]
+			best = k
+	return best
+
+
+## Take up to `want` from a field. Returns what was actually there, which is
+## how a field runs dry without any separate emptiness check.
+func take_ore(field: int, want: float) -> float:
+	if field < 0 or field >= ore_remaining.size() or want <= 0.0:
+		return 0.0
+	var got: float = minf(want, ore_remaining[field])
+	ore_remaining[field] -= got
+	return got
+
+
+## The player's nearest structure that can accept ore. A refinery is the only
+## one -- the same building that caps oil refining, so a player who neglects
+## refineries throttles both halves of their economy at once.
+func nearest_dropoff(player_id: int, x: float, z: float) -> int:
+	var best := -1
+	var best_d := 1.0e18
+	for i in range(entities.count()):
+		if entities.alive[i] == 0 or entities.is_structure[i] == 0:
+			continue
+		if entities.owner[i] != player_id:
+			continue
+		var d := def_of(i)
+		if d == null or d.refine_capacity <= 0.0:
+			continue
+		var dd := _dist2(x, z, entities.pos_x[i], entities.pos_z[i])
+		if dd < best_d:
+			best_d = dd
+			best = i
+	return best
+
+
 ## OIL FIELDS -- the thing on the map worth walking to.
 ##
 ## Until this existed a derrick carried its extraction rate in its own stats

@@ -70,6 +70,13 @@ var nuclear_from_epoch: int = 99
 
 # ── survivability (docs/03) ──────────────────────────────────────────────────
 var damage_model: int = SimTypes.DamageModel.UNARMORED
+
+## THE ORE CYCLE. Capacity above zero is what MAKES a unit a harvester --
+## SimHarvest tests this rather than the role name, so nothing in the
+## simulation branches on a string.
+var ore_capacity: float = 0.0    ## credits carried per load
+var mine_rate: float = 0.0       ## credits/second filled at a field
+var unload_rate: float = 0.0     ## credits/second emptied at a refinery
 var structure_hp: float = 100.0
 ## Armour archetype key -- see SimRoster.ARMOR_LADDER. The per-facet millimetres
 ## and the ArmorType are BOTH functions of epoch, because docs/03's cliff is a

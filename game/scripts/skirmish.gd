@@ -147,6 +147,7 @@ var _headless := false
 ## countdown, and the production-queue readout on the side panel.
 var _bottleneck_label: Label
 var _power_label: Label
+var _ore_nodes: Array = []
 var _repair_btn: Button
 var _sell_btn: Button
 var _collapse_label: Label
@@ -170,6 +171,7 @@ func _ready() -> void:
 	_build_environment()
 	_build_terrain_mesh()
 	_build_oil_markers()
+	_build_ore_markers()
 	_audio = GameAudioScript.new()
 	add_child(_audio)
 	if not _headless:
@@ -214,6 +216,23 @@ func _capture() -> void:
 				_selected.append(u)
 	_match.run_ticks(400)
 	_frame_on_base()
+	# `--shot --oil` puts the camera over the nearest oil field instead of the
+	# base, which is the only way to review how the ground reads where the
+	# economy actually lives.
+	if "--oil" in argv or "--ore" in argv:
+		var econ := _match.world.economy
+		var pts: Array = econ.ore_fields if "--ore" in argv else econ.oil_fields
+		if not pts.is_empty():
+			var home := _match.base_position(_me)
+			var best: Vector2 = pts[0]
+			var bd := 1.0e18
+			for f in pts:
+				var d: float = (f - home).length()
+				if d < bd:
+					bd = d
+					best = f
+			_rig.position = Vector3(best.x,
+				_match.terrain.ground_under(best.x, best.y), best.y)
 	if at_s > 0.0 and not _selected.is_empty():
 		# Follow the army rather than the empty back yard it left behind.
 		var e := _match.world.entities
@@ -456,29 +475,119 @@ func _lattice(x: int, y: int, period: int) -> float:
 ## -- it is a rule they have to be told about. Drawn as a low dark slick with
 ## a derrick-height marker so it reads from the playing camera without being
 ## mistaken for a unit.
+## ORE on the ground: the gold a harvester drives to. Red Alert makes ore
+## unmistakable and slightly gaudy on purpose, because it is the thing a player
+## navigates their whole economy around.
+func _build_ore_markers() -> void:
+	var econ := _match.world.economy
+	_ore_nodes.clear()
+	for k in range(econ.ore_fields.size()):
+		var f: Vector2 = econ.ore_fields[k]
+		var y := _match.terrain.ground_under(f.x, f.y)
+		var node := Node3D.new()
+		node.position = Vector3(f.x, y, f.y)
+		add_child(node)
+		# A scatter of shards rather than one disc: it reads as a deposit, and
+		# it lets the field visibly THIN OUT as it is worked.
+		# PHYLLOTAXIS, properly: angle by the golden ANGLE and radius by
+		# sqrt(j/n) fills a disc evenly. The first attempt took the fractional
+		# part of j*0.618 for the radius as well, which is the same sequence
+		# used twice -- radius and angle marched together and drew a sparse
+		# spiral ring with a hole in the middle instead of a deposit.
+		var n := 72
+		for j in range(n):
+			var a: float = float(j) * 2.399963
+			var r: float = 74.0 * sqrt(float(j) / float(n))
+			var shard := MeshInstance3D.new()
+			var box := BoxMesh.new()
+			var s: float = 2.2 + fposmod(float(j) * 0.371, 1.0) * 3.0
+			box.size = Vector3(s, s * 1.5, s)
+			shard.mesh = box
+			var m := StandardMaterial3D.new()
+			m.albedo_color = Color(0.82, 0.63, 0.16)
+			m.metallic = 0.55
+			m.roughness = 0.38
+			m.emission_enabled = true
+			m.emission = Color(0.62, 0.44, 0.08)
+			m.emission_energy_multiplier = 0.15
+			shard.material_override = m
+			shard.position = Vector3(cos(a) * r, s * 0.4, sin(a) * r)
+			shard.rotation.y = a
+			node.add_child(shard)
+		_ore_nodes.append(node)
+
+
+## Thin the shards as the field is worked, so a stripped patch LOOKS stripped.
+func _update_ore() -> void:
+	var econ := _match.world.economy
+	for k in range(mini(_ore_nodes.size(), econ.ore_remaining.size())):
+		var node: Node3D = _ore_nodes[k]
+		var frac: float = clampf(econ.ore_remaining[k] / 9000.0, 0.0, 1.0)
+		var keep: int = int(ceil(frac * float(node.get_child_count())))
+		for j in range(node.get_child_count()):
+			(node.get_child(j) as MeshInstance3D).visible = j < keep
+
+
 func _build_oil_markers() -> void:
 	var econ := _match.world.economy
 	for f in econ.oil_fields:
 		var y := _match.terrain.ground_under(f.x, f.y)
+		# The stained ground. Dark, but not black: at 0.10 albedo it read as a
+		# hole cut in the terrain rather than oil-soaked earth, which is a
+		# surprisingly strong illusion at a shallow camera angle.
 		var slick := MeshInstance3D.new()
 		var disc := CylinderMesh.new()
-		# Sized for the halved map, and NOT pure black: at 0.10 albedo the disc
-		# read as a hole cut in the ground rather than a patch of oil-soaked
-		# earth, which is a surprisingly strong illusion at a shallow camera.
-		disc.top_radius = 36.0
-		disc.bottom_radius = 36.0
+		disc.top_radius = 40.0
+		disc.bottom_radius = 40.0
 		disc.height = 1.0
-		disc.radial_segments = 20
+		disc.radial_segments = 24
 		slick.mesh = disc
 		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.20, 0.17, 0.13)
-		m.roughness = 0.55
+		m.albedo_color = Color(0.19, 0.16, 0.12)
+		m.roughness = 0.5
 		m.metallic = 0.35
 		slick.material_override = m
-		slick.position = Vector3(f.x, y + 0.8, f.y)
+		slick.position = Vector3(f.x, y + 0.5, f.y)
 		add_child(slick)
-		# A vertical mark, because a flat disc disappears at a shallow camera
-		# angle and this has to be findable while you are looking for it.
+
+		# AN AMBER RING, the same amber the minimap draws an unclaimed field
+		# in. One colour meaning one thing in both places is most of what makes
+		# a map legible: a player who has learnt the blip has learnt the ground.
+		var ring := MeshInstance3D.new()
+		var torus := TorusMesh.new()
+		torus.inner_radius = 40.0
+		torus.outer_radius = 46.0
+		torus.rings = 28
+		torus.ring_segments = 6
+		ring.mesh = torus
+		var rm := StandardMaterial3D.new()
+		rm.albedo_color = Color(0.86, 0.62, 0.16)
+		rm.emission_enabled = true
+		rm.emission = Color(0.86, 0.62, 0.16)
+		rm.emission_energy_multiplier = 0.35
+		ring.material_override = rm
+		ring.position = Vector3(f.x, y + 1.0, f.y)
+		add_child(ring)
+
+		# Three seeps and a standing mark. The seeps say "crude", the mark is
+		# what you can still see once a building is standing on the disc.
+		for k in range(3):
+			var a := TAU * float(k) / 3.0 + 0.6
+			var pool := MeshInstance3D.new()
+			var pd := CylinderMesh.new()
+			pd.top_radius = 7.0
+			pd.bottom_radius = 7.0
+			pd.height = 0.6
+			pd.radial_segments = 12
+			pool.mesh = pd
+			var pmat := StandardMaterial3D.new()
+			pmat.albedo_color = Color(0.07, 0.06, 0.05)
+			pmat.metallic = 0.7
+			pmat.roughness = 0.22
+			pool.material_override = pmat
+			pool.position = Vector3(f.x + cos(a) * 22.0, y + 1.1, f.y + sin(a) * 22.0)
+			add_child(pool)
+
 		var post := MeshInstance3D.new()
 		var cyl := CylinderMesh.new()
 		cyl.top_radius = 1.2
@@ -619,6 +728,7 @@ func _process(dt: float) -> void:
 	_follow_ground()
 	_audio_tick()
 	_music_tick()
+	_update_ore()
 	_sync_proxies()
 	_prune_selection()
 	_project_tracks()

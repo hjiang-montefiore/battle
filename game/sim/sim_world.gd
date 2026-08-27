@@ -89,6 +89,7 @@ var arm_on_spawn: bool = false
 var transport_system = null
 var patrol_system = null
 var sortie_system = null
+var harvest_system = null
 ## player id -> SimAiDirector. Iterated through ai_player_ids(), which sorts,
 ## because docs/06 forbids relying on Dictionary order anywhere in the sim and
 ## two AIs deciding in an unstable order is a desync.
@@ -249,6 +250,7 @@ func _sim_step(dt: float) -> void:
 	_transport_slot(dt)
 	_patrol_slot(dt)
 	_sortie_slot(dt)
+	_harvest_slot(dt)
 
 	# ── 4. MOVEMENT ─────────────────────────────────────────────────────────
 	# Plans paths and steers. It writes VELOCITY and HEADING and never position.
@@ -360,8 +362,10 @@ func _command_is_authorised(c: SimCommandQueue.Command) -> bool:
 func _execute_command(c: SimCommandQueue.Command) -> bool:
 	match c.kind:
 		SimTypes.OrderKind.MOVE:
+			_interrupt_harvest(c.unit)
 			return movement.order_move(c.unit, c.x, c.z)
 		SimTypes.OrderKind.ATTACK_MOVE:
+			_interrupt_harvest(c.unit)
 			return movement.order_attack_move(c.unit, c.x, c.z, c.queued)
 		SimTypes.OrderKind.STOP:
 			movement.order_stop(c.unit)
@@ -469,6 +473,22 @@ func _patrol_slot(dt: float) -> void:
 func _sortie_slot(dt: float) -> void:
 	if sortie_system != null:
 		sortie_system.step(dt)
+
+
+## Slot 3.8. The ore cycle. Runs immediately before movement for the same
+## reason patrol does: its whole output is SimMovement order calls, and a
+## harvester that decided to drive home this tick should start this tick.
+## A harvester told to go somewhere stops harvesting until it gets there. The
+## cycle is autonomous by design, so without this a player's order lasted
+## exactly one tick before the unit turned back to the ore.
+func _interrupt_harvest(unit: int) -> void:
+	if harvest_system != null:
+		harvest_system.interrupt(unit)
+
+
+func _harvest_slot(dt: float) -> void:
+	if harvest_system != null:
+		harvest_system.step(dt)
 
 
 ## Slot 4. Path planning and steering.

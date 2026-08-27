@@ -229,6 +229,9 @@ static func _stamp(role: String, r: Dictionary, e: int, faction: int) -> SimUnit
 	d.power_draw = float(r.get("power_draw", 0.0))
 	d.power_supply = float(r.get("power_supply", 0.0))
 	d.extraction_per_min = float(r.get("extraction", 0.0))
+	d.ore_capacity = float(r.get("ore_capacity", 0.0))
+	d.mine_rate = float(r.get("mine_rate", 0.0))
+	d.unload_rate = float(r.get("unload_rate", 0.0))
 	d.refine_capacity = float(r.get("refine", 0.0))
 	d.supply_radius_m = float(r.get("supply_radius", 0.0))
 	d.supply_rate_lpm = float(r.get("supply_rate", 0.0))
@@ -532,6 +535,17 @@ static func _ensure() -> void:
 		"damage_model": SimTypes.DamageModel.STRUCTURE, "hp": 500.0, "armor": "building",
 		"power_supply": 100.0, "build_radius": 140.0,
 		"rcs": 300.0, "visual": 600.0, "mount": 18.0, "ir": 6.0},
+	# THE HARVESTER. Unarmed on purpose: it is the piece whose loss hurts, and
+	# a harvester that could defend itself would not be a target worth raiding.
+	# 700 credits a load against a 900 credit vehicle means a raid that kills
+	# one loaded harvester has taken more than the vehicle cost its owner.
+	"ore_miner": {"name": "Ore Miner", "domain": G, "category": SimTypes.Category.GROUND,
+		"cost": 900.0, "build_seconds": 16.0, "built_by": "light_factory",
+		"damage_model": SimTypes.DamageModel.ARMORED, "hp": 260.0, "armor": "light_vehicle",
+		"speed_kmh": 46.0, "accel": 2.2, "turn": 1.0, "footprint": 9.0,
+		"ore_capacity": 700.0, "mine_rate": 62.0, "unload_rate": 260.0,
+		"upkeep": 6.0, "fuel": 320.0, "burn_cruise": 1.0,
+		"rcs": 90.0, "visual": 260.0, "ir": 4.0, "mount": 3.0},
 	"oil_derrick": {"name": "Oil Derrick", "domain": S, "category": SimTypes.Category.GROUND,
 		"is_structure": true, "cost": 900.0, "build_seconds": 20.0,
 		"damage_model": SimTypes.DamageModel.STRUCTURE, "hp": 350.0, "armor": "building",

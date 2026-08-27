@@ -384,7 +384,25 @@ def running_gear(hull_l, hull_w, clearance, n_wheels, wheel_r, skirt_h,
     return parts
 
 
+## THE RED ALERT RATIO.
+##
+## Reported from play: "the weapon is too small". It was, and it was also
+## exactly right -- an M1's 120 mm tube is 0.21 m across on a 3.66 m hull, so
+## a physically honest barrel is 5.7% of the vehicle's width and lands on
+## roughly one pixel at the camera height this game is played from.
+##
+## Red Alert's answer, and every readable RTS since, is to fatten the WEAPON
+## while leaving the vehicle alone: a gun you can see is what tells a player
+## which of two similar hulls is the one that can kill them. Length is NOT
+## gained -- muzzle position and tube length are set from published
+## length-gun-forward and they are the silhouette cue that separates a
+## long-gun tank from a short one. Only thickness grows.
+WEAPON_GAIN = 2.6
+
+
 def barrel(y_tip, z, length, r, sleeve_len=0.0, sleeve_r=0.0):
+    r = r * WEAPON_GAIN
+    sleeve_r = sleeve_r * WEAPON_GAIN
     use("gun")
     """y_tip is the ABSOLUTE muzzle position, set from published
     length-gun-forward minus hull length. Barrel runs back from there."""
@@ -431,8 +449,12 @@ def detail_kit(HL, HW, top, roof, t_front, t_rear, era=0, mg=True):
                       (0.36, 0.80, 0.26)))
     use("gun")
     if mg:
-        p.append(cyl((0.62, -0.55, roof + 0.42), 0.045, 1.10, rot=(R(90), 0, 0), v=8))
-        p.append(cube((0.62, 0.15, roof + 0.30), (0.20, 0.34, 0.22)))
+        # The pintle gun gains too, for the same reason the main tube does:
+        # at 0.045 m it was a hair. Antennas below deliberately do NOT gain --
+        # they are meant to read as thin.
+        p.append(cyl((0.62, -0.55, roof + 0.42), 0.045 * WEAPON_GAIN, 1.10,
+                     rot=(R(90), 0, 0), v=8))
+        p.append(cube((0.62, 0.15, roof + 0.30), (0.20 * 1.5, 0.34, 0.22 * 1.5)))
     # antennas mount on the HULL deck, which every vehicle definitely has
     # underneath — mounting them off the turret roof left them hovering
     p.append(cyl((-1.15, HL * 0.26, top + 0.42), 0.045, 0.84, v=6))

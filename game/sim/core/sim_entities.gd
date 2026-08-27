@@ -145,6 +145,14 @@ var home_base := PackedInt32Array()
 ## SimTypes.SortieState. Written by the sortie system ONLY.
 var sortie_state := PackedInt32Array()
 
+## THE ORE CYCLE, SimHarvest's own columns and nobody else's. Kept here rather
+## than in that layer for the same reason every other per-unit column is: one
+## array per fact, indexed by entity, so a save is a snapshot of columns and
+## not a walk of object graphs.
+var harvest_state := PackedInt32Array()   ## SimHarvest.State
+var harvest_load := PackedFloat32Array()  ## credits aboard
+var harvest_target := PackedInt32Array()  ## ore field index, or dropoff entity
+
 ## index -> Array[SimSensorDef]
 var sensors: Dictionary = {}
 
@@ -239,6 +247,9 @@ func add(unit_name: String, p_faction: int, x: float, y: float, z: float,
 	cargo_capacity.append(0)
 	home_base.append(-1)
 	sortie_state.append(SimTypes.SortieState.GROUNDED)
+	harvest_state.append(0)
+	harvest_load.append(0.0)
+	harvest_target.append(-1)
 
 	sensors[i] = unit_sensors
 	_count += 1

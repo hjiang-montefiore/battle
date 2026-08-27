@@ -102,6 +102,7 @@ func _begin() -> void:
 	# none of the D/patrol/sortie gestures can reach them.
 	SimPatrol.install(world)
 	SimTransport.install(world)
+	SimHarvest.install(world)
 
 	victory = SimVictory.new(world.entities, world.economy, world.damage)
 
@@ -109,6 +110,9 @@ func _begin() -> void:
 	# The crude goes in before anyone builds, so a derrick has somewhere to be.
 	for f in SimArena.oil_fields(terrain, bases):
 		world.economy.add_oil_field(f.x, f.y)
+	for o in SimArena.ore_fields(terrain, bases):
+		world.economy.add_ore_field((o["pos"] as Vector2).x,
+			(o["pos"] as Vector2).y, float(o["amount"]))
 	# Ascending player id, always: the order players are created in decides the
 	# order their AIs think in and the order the economy pays them.
 	for pid in range(setup.players.size()):

@@ -195,6 +195,41 @@ static func oil_fields(terrain: SimTerrain, bases: Array) -> Array:
 	return out
 
 
+## WHERE THE ORE IS. A big field in each player's own back yard and a richer
+## one in the middle.
+##
+## The home field is what a player lives on and it is DELIBERATELY not enough
+## forever: it runs dry, and when it does the harvesters have to go further
+## out, which is the moment the map starts mattering. The middle fields hold
+## twice as much and sit where both sides can reach them.
+static func ore_fields(terrain: SimTerrain, bases: Array) -> Array:
+	var out: Array = []
+	var hx := terrain.extent_x_m() * 0.5
+	var hz := terrain.extent_z_m() * 0.5
+	var ring := 0.0
+	for b in bases:
+		ring += (b as Vector2).length()
+	ring = ring / maxf(float(bases.size()), 1.0)
+	if ring < 1.0:
+		ring = minf(hx, hz) * 0.20
+	for b in bases:
+		var home: Vector2 = b
+		var away := -home.normalized() if home.length() > 1.0 else Vector2(1, 0)
+		var side := Vector2(-away.y, away.x)
+		# Close enough that a harvester is not exposed on its first run, far
+		# enough that the run is a real distance somebody could interdict.
+		var pt: Vector2 = home + away * (ring * 0.32) - side * (ring * 0.34)
+		if _dry(terrain, pt, hx, hz):
+			out.append({"pos": pt, "amount": 9000.0})
+	var n: int = maxi(bases.size(), 2)
+	for k in range(n):
+		var a: float = TAU * float(k) / float(n) + PI / float(n) * 0.5
+		var pt := Vector2(cos(a), sin(a)) * (ring * 0.55)
+		if _dry(terrain, pt, hx, hz):
+			out.append({"pos": pt, "amount": 18000.0})
+	return out
+
+
 static func _dry(terrain: SimTerrain, p: Vector2, hx: float, hz: float) -> bool:
 	return (absf(p.x) < hx - 200.0 and absf(p.y) < hz - 200.0
 		and not terrain.is_water(p.x, p.y))

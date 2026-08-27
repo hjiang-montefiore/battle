@@ -133,6 +133,20 @@ func _to_world(p: Vector2) -> Vector2:
 
 ## Oil fields, drawn under everything else: they never move, and a player
 ## planning an expansion is reading the map for exactly this.
+## Ore, in the gold it is drawn on the ground in. Sized by what is LEFT, so
+## the map shows a worked-out patch shrinking away.
+func _draw_ore() -> void:
+	var econ := _match.world.economy
+	if econ == null:
+		return
+	for k in range(mini(econ.ore_fields.size(), econ.ore_remaining.size())):
+		if econ.ore_remaining[k] <= 0.0:
+			continue
+		var f: Vector2 = econ.ore_fields[k]
+		var frac: float = clampf(econ.ore_remaining[k] / 12000.0, 0.15, 1.0)
+		draw_circle(_to_map(f.x, f.y), 2.5 + 4.0 * frac, Color(0.82, 0.63, 0.16))
+
+
 func _draw_oil() -> void:
 	var econ := _match.world.economy
 	if econ == null:
@@ -156,6 +170,7 @@ func _draw() -> void:
 		return
 	if _terrain_tex != null:
 		draw_texture_rect(_terrain_tex, Rect2(Vector2.ZERO, size), false)
+	_draw_ore()
 	_draw_oil()
 
 	# OWN FORCES, from ground truth: dots for units, squares for structures.
