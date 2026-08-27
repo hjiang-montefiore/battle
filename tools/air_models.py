@@ -671,14 +671,26 @@ def stealth_bomber():
     for s in (-1, 1):
         p.append(cube((s * 5.60, 3.15, 1.44), (3.90, 0.50, 0.34),
                       rot=(R(-8), 0, 0)))                    # intake mouth
-        p.append(cube((s * 5.20, -4.35, 1.26), (3.10, 0.62, 0.24)))
+        p.append(cube((s * 5.20, -4.35, 1.30), (3.10, 0.62, 0.26)))
+        # the shielded exhaust trough, RECESSED and dark: a slot cut into the
+        # upper deck running aft from the nozzle to the trailing edge. It was
+        # a raised pale slab, which is exactly the "pale rectangle reads as a
+        # decal" failure the intake note above warns about — two tan plates on
+        # a grey wing were the loudest thing on the aeroplane and they were
+        # the one part of it that is not structure.
+        p.append(cube((s * 5.20, -5.95, 1.22), (3.50, 2.70, 0.26)))
     use("deck")
     for s in (-1, 1):
-        # the shielded exhaust trough: a real tile of a different material,
-        # running aft from the slot to the trailing edge
-        p.append(cube((s * 5.20, -5.85, 1.24), (3.30, 2.40, 0.22)))
+        # the heat-tile floor of the trough, inset inside the dark slot so it
+        # reads as a lit strip at the bottom of a groove rather than a plate
+        # stuck on the surface
+        p.append(cube((s * 5.20, -6.05, 1.20), (2.30, 2.10, 0.24)))
     use("glass")
-    p.append(dome((0, 6.40, 1.95), 0.95, 1.75, 0.45, v=16))    # cockpit
+    # the cockpit. Four large forward windows in a low bulge on the centreline
+    # — the only break in the leading-edge slope and the only thing on the
+    # upper surface with a horizon in it. It was a 0.95 m dome, invisible on a
+    # 52 m wing; the real canopy is 2.6 m across.
+    p.append(dome((0, 6.55, 1.92), 1.30, 2.60, 0.52, v=16))
     use("body")
     return p, dict(top=2.20, hull_l=L, hull_w=SPAN, turret_top=2.6,
                    gun_z=0.5, gun_y=6.0)
@@ -931,10 +943,20 @@ def stealth_strike():
     for s in (-1, 1):
         p.append(cube((s * 1.65, 3.92, 1.20), (1.02, 0.26, 0.34),
                       rot=(R(-7), 0, 0)))
+    use("gunbore")
+    for s in (-1, 1):
+        # the platypus trough itself: the darkest thing on a black aeroplane,
+        # a slot recessed into the aft deck between the ruddervator and the
+        # trailing edge.
+        p.append(cube((s * 2.05, -7.90, 0.96), (2.50, 3.10, 0.22)))
     use("deck")
     for s in (-1, 1):
-        # the platypus exhaust decks: wide, flat, aft, and a different tone
-        p.append(cube((s * 2.05, -7.85, 1.00), (2.30, 2.90, 0.24)))
+        # the pale heat tiles that line it. On the real aircraft these are the
+        # ONLY light-toned area on an otherwise matt-black airframe, so at
+        # gameplay size they are two small bright marks near the tail — but
+        # they have to stay small, or a 13 m aeroplane reads as two white
+        # plates with a dark border. 1.55 x 2.20 m each, 5% of the plan.
+        p.append(cube((s * 2.05, -7.90, 1.06), (1.55, 2.20, 0.14)))
     use("glass")
     # faceted five-panel canopy, flat plates rather than a bubble
     p.append(cube((0, 5.15, 2.16), (1.30, 1.95, 0.44), rot=(R(-6), 0, 0)))
@@ -1677,7 +1699,7 @@ AIR = [
     ("air_e1_us_bomber",        bomber,             "air_dark"),
     ("air_e4_us_stealthbomber", stealth_bomber,     "air_dark"),
     ("air_e2_us_sead",          sead,               "air_grey"),
-    ("air_e4_us_stealth",       stealth_strike,     "air_dark"),
+    ("air_e4_us_stealth",       stealth_strike,     "air_black"),
     ("aew_e3_us_aewc",          aewc,               "air_white"),
     ("aew_e3_uk_aewhelo",       aew_helo,           "air_grey"),
     ("ewa_e2_us_electronic",    electronic_attack,  "air_grey"),

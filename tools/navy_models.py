@@ -75,6 +75,18 @@ MATERIAL GROUPS — measured on the actual render, not assumed. The body camo
     rather than bare use() — a builder that forgets to switch back to "body"
     silently recolours everything built after it.
 
+    SUBMARINES INVERT IT, DELIBERATELY, SINCE PASS 4. A boat's casing is
+    `gunbore` and only its walkway, hatches and sail crown are `deck`, so a
+    surfaced submarine is a DARK lozenge carrying a few bright marks while
+    every surface ship is a LIGHT deck inside a dark hull. Two reasons: it is
+    what an anechoic-tiled casing actually looks like from a helicopter, and
+    docs/02 §8 makes ASW a pillar, so telling a surfaced boat from a corvette
+    at one glance is gameplay rather than styling. The consequence is that a
+    boat's exclusive feature has to be LIGHT ON BLACK — see the note at the
+    head of the submarine section, and the SSN's launch caps, which were
+    invisible in two consecutive passes for two different versions of this
+    mistake.
+
 ────────────────────────────────────────────────────────────────────────────
 WHAT DETAIL COSTS — MEASURED, AND NOT WHAT YOU WOULD GUESS
 ────────────────────────────────────────────────────────────────────────────
@@ -101,11 +113,28 @@ counting objects. Price list at LOD0, after the bevel, measured:
       kingpost                          1 040     torpedo_tubes n=3    1 428
       gantry                            1 040     breakwater             376
       clutter, one escort               ~3 000     team_patch             188
-      sub_hull SSN                      3 420     sail, 3 masts        1 892
-      stern_planes, either style          752     propulsor screw      1 888
-      casing                              188     propulsor pumpjet      856
+      sub_hull SSN v=24                 3 420     sail, 3 masts        2 268
+      sub_hull SSN v=18                 2 556     sail, with a step    2 456
+      casing, black + walkway             408     sub_fittings, each     476
+      stern_planes cross                  752     propulsor screw      1 512
+      stern_planes x, with tip fairings 1 128     propulsor pumpjet      856
+      sub_towed_array                     568
 
       railing(), 100 m of run          12 784  <- see the note at the bottom
+
+The escort fittings added by the detail pass, measured the same way:
+
+      director, 2 objects                 600     satcom, dome v=8       512
+      esm_array                           376     satcom, dome v=12    1 152
+      bridge_wing with a 25 mm            568     anchor_gear            852
+      chaff_launcher                      188     towed_array          1 232
+      deck_panel                          188     tube_sponson           376
+
+A SPHERE IS THE WORST VALUE IN THE FILE, and it is not obvious from the
+source. dome() bevels every one of its edges, so a single 1.4 m SATCOM ball
+at v=12 costs 1 152 triangles — more than the whole 333 m carrier hull — and
+at v=8 it costs 512 and is indistinguishable at the three pixels it occupies.
+Check the vertex count on every dome you add; ciws() and radome() already do.
 
 Two of those are the whole story. An OPEN lattice_mast costs three times a
 solid one because it is 27 separate members; pass solid=True unless the ship
@@ -116,28 +145,54 @@ TRIANGLE BUDGET at LOD0, and the headroom actually left, measured on the
 current build. The capitals are the ships with room; the escorts are the ships
 that are tight, which is the opposite of how it looks:
 
-      carrier      40 000    20 848    +19 152 of headroom
-      amphib       40 000    20 504    +19 496
-      oiler        40 000    21 260    +18 740
-      destroyer    32 000    30 632     +1 368
-      cruiser      44 000    41 232     +2 768   two 64-cell farms and two masts
-      frigate      28 000    26 116     +1 884
-      missileboat  18 000    17 276       +724
-      minehunter   18 000    16 604     +1 396
-      corvette     16 000    13 560     +2 440
-      patrol       14 000    11 416     +2 584
-      LCAC         12 000     7 308     +4 692
-      SSN          16 000    15 224       +776
-      SSK          10 000     8 896     +1 104
-      AIP          10 000     7 296     +2 704
-      midget        9 000     8 412       +588
+      carrier      40 000    32 844     +7 156 of headroom
+      amphib       40 000    28 168    +11 832
+      oiler        40 000    23 676    +16 324
+      destroyer    36 000    34 760     +1 240   detail pass, see below
+      cruiser      44 000    42 020     +1 980   two 64-cell farms and two masts
+      frigate      32 000    30 136     +1 864   detail pass, see below
+      missileboat  18 000    17 940        +60
+      minehunter   18 000    18 000         +0
+      corvette     16 000    15 628       +372
+      patrol       14 000    13 896       +104
+      LCAC         12 000    11 728       +272
+      SSN          17 000    15 868     +1 132
+      SSK          11 500    10 056     +1 444
+      AIP          10 000     7 980     +2 020
+      midget       10 000     9 104       +896
+
+The four submarine ceilings were raised in pass 4 and the reason is on the
+record. They had been set to just above what the pass-3 boats cost, which left
+the midget +588 — three boxes — at the same moment the project owner rejected
+the fleet for having no detail, so the constraint and the instruction could not
+both be satisfied. They now sit about 1 000 above measured, and the additions
+were part-paid by real savings rather than by the raise alone: sub_hull v 24→18
+(-864 on the SSN), a five-bladed screw at a sane diameter (-376), and the AIP's
+two flank panels that sat 1.08 m under the sea (-376).
 
 The escort ceilings were raised from a flat 26 000 because that number was
 guessed in the first pass and the ships had already blown through it — the
-cruiser measured 60 216 before vls() and ciws() were repriced. They are now
-set just above what each hull costs today, so an addition has to be paid for
-by a saving. If you need more than the headroom above, the money is in
-lattice_mast(solid=True) and in deleting clutter, not in shaving cylinders.
+cruiser measured 60 216 before vls() and ciws() were repriced. If you need
+more than the headroom above, the money is in lattice_mast(solid=True), in a
+lower vertex count on any dome, and in deleting clutter — not in shaving
+cylinder segments off things that are already at v=8.
+
+TWO CEILINGS MOVED IN THE ESCORT DETAIL PASS, AND HERE IS THE ARITHMETIC.
+Setting each ceiling "just above what the hull costs today" is a ratchet that
+forbids the ship from ever getting better, and the owner rejected the fleet
+that ratchet produced. The destroyer went 30 632 -> 34 760 and the frigate
+26 116 -> 30 136, both under the owner's stated ~40 000 for the largest object
+in the game. What the +4 100 bought on each is three illuminators, ESM
+outriggers, bridge wings, chaff, anchor gear and — on the frigate — the whole
+ASW fit: a second marked helicopter spot, the torpedo-tube sponsons and the
+towed-array winch.
+
+THE CRUISER DID NOT NEED A NEW CEILING and is the model for how to pay. It
+gained four illuminators, an SPS-49 slab, ESM, bridge wings, chaff, SATCOM and
+anchor gear for a NET of +788 triangles, because plating the fore mast gave
+back 3 572 and thinning the liferafts gave back 1 300. Two open lattices were
+costing 42 objects and 11 000 triangles — a quarter of the ship — on the two
+fittings this file's own zoom test says disappear first.
 
 ────────────────────────────────────────────────────────────────────────────
 ONE EXCLUSIVE IDENTIFYING FEATURE PER SHIP
@@ -162,21 +217,33 @@ smudge at a position.
   cruiser       a 5-inch turret at BOTH ends — the only stern main gun afloat
                 here — carried by twin fore-and-aft superstructure islands
   frigate       a single trainable arm launcher on the forecastle and NO VLS
-                anywhere; its gun sits on the deckhouse ROOF amidships
+                anywhere; its gun sits on the deckhouse ROOF amidships. Its
+                ASW fit is three more plan features nothing else has: TWO
+                marked helicopter spots on one flight deck, torpedo-tube
+                sponsons standing PROUD of the hull line amidships, and the
+                towed-array winch on the last four metres before the transom
   corvette      two inclined box canister packs amidships, athwartships
   missile boat  four heavy cylindrical AShM tubes on the deck EDGE, angled
                 outboard and overhanging the side
   patrol        a notched transom with a stern boat ramp and a RHIB in it
   carrier       the angled flight deck, four catapult tracks, four deck-edge
                 lifts
-  amphib        a full-length rectangular deck with painted landing spots and
-                an open stern well-dock gate
+  amphib        a full-length rectangular landing lane with painted spots and
+                the stern well-dock gate DOWN — a ramp lying out over the
+                water abaft the transom, because a vertical door has no plan
   oiler         a row of four replenishment kingposts with spanwire booms
-  minehunter    a stern A-frame gantry with the sweep sled sitting under it
-  LCAC          four ducted lift-fan shrouds on the after deck
-  SSK           the raised snorkel induction and exhaust masts abaft the sail
+  minehunter    a stern A-frame gantry with the sweep sled sitting under it,
+                over a WORKING DECK BUILT IN `gunbore` — the after 47% of the
+                hull is black, which is the only figure-ground inversion in
+                the small-craft band
+  LCAC          four ducted lift-fan shrouds, now VERTICAL and on the
+                ROOFS of the side boxes so they read in plan, over a dark
+                open cargo well that runs out through both ramps
+  SSK           the raised snorkel induction and exhaust masts abaft the sail,
+                on a light induction housing at 0.01 L — dead amidships
   SSN           twelve vertical-launch tube caps in the bow casing
-  AIP           an X-form stern — four canted planes, no cruciform rudder
+  AIP           an X-form stern — four canted planes, no cruciform rudder,
+                the two upper ones carrying light fairings above the water
   midget        two external stores cradles clamped to the casing beside the
                 sail
 
@@ -798,10 +865,10 @@ def railing(pts, z, h=1.05, t=0.10, stanchion=3.0, name="rail"):
 # a dark casing is nothing, which is how the SSN's twelve launch caps came to
 # be invisible twice running. Every boat's exclusive is now LIGHT ON BLACK:
 #
-#     SSN     twelve light launch-tube caps, two rows of six, at +0.24..+0.33L
-#     SSK     a light snorkel-induction housing abaft the sail, +0.05..+0.13L
-#     AIP     two light X-plane tips breaking the water at the transom, -0.41L
-#     midget  two light stores cradles OUTBOARD of the hull, at +0.13L
+#     SSN     twelve light launch-tube caps, two rows of six, +0.215..+0.308L
+#     SSK     a light snorkel-induction housing abaft the sail, -0.07..+0.05L
+#     AIP     two light X-plane fairings above the water, at -0.362L
+#     midget  two light stores cradles OUTBOARD of the hull, at +0.02L
 #
 # and no two of them sit at the same station, which is the rule in the module
 # docstring: at 1.1 px per metre a feature is not a shape, it is a mark at a
@@ -873,14 +940,22 @@ def sub_rfrac(f):
 
 
 def sub_crown(L, B, axis_z, y):
-    """Height of the top of the hull at station y. The casing tapers away aft
-    and the after spine follows this down to the rudder root; without it the
-    rudder stood in open sea with a gap of water between it and the boat and
-    read as a detached chip."""
-    return axis_z + (B / 2.0) * sub_rfrac((L * 0.5 - y) / L)
+    """Height of the top of the hull at station y."""
+    r = (B / 2.0) * sub_rfrac((L * 0.5 - y) / L)
+    return axis_z + r
 
 
-def _casing_plan(y0, y1, w, nose=0.17, tail=0.13):
+def sub_show_at(L, B, axis_z, y):
+    """How wide the hull shows at the waterline at station y — zero once the
+    tail has narrowed past the axis depth. This is what decides how far aft the
+    stern planes can stand and still look attached: at -0.415 L the SSN showed
+    a strip 0.0 m wide and the rudder read as a loose rectangle in open sea; at
+    -0.390 L it shows 5.6 m."""
+    r = (B / 2.0) * sub_rfrac((L * 0.5 - y) / L)
+    return 2.0 * math.sqrt(max(r * r - axis_z * axis_z, 0.0))
+
+
+def _casing_plan(y0, y1, w, nose=0.17, tail=0.24):
     """Casing outline: pointed forward, tapered aft, never a blunt rectangle.
 
     The pass-3 casing was cube((0, mid), (w, len, h)) — a plank with square
@@ -923,25 +998,6 @@ def sub_fittings(y_list, z, r=0.62, x=0.0, h=0.20, v=10, name="ftg"):
         return [cyl((x, y, z + h / 2.0), r, h, v=v) for y in y_list]
 
 
-def aft_spine(L, B, axis_z, y0, w, y1=None, name="spn"):
-    """The after casing, running from the main casing back to the rudder root
-    and following the hull crown down as it goes.
-
-    THIS IS THE FIX FOR THE DETACHED CHIP. The cruciform rudder stands at
-    -0.415L, where the hull has narrowed to about a third of its beam and shows
-    a strip of crown too thin to see, so on the plan sheet the rudder rendered
-    as a loose rectangle with open sea between it and the boat. A real boat has
-    casing over the after ballast tanks the whole way; with it the rudder grows
-    out of the hull.
-    """
-    y1 = -L * 0.408 if y1 is None else y1
-    z0 = sub_crown(L, B, axis_z, y0) - 0.06
-    z1 = sub_crown(L, B, axis_z, y1) - 0.02
-    with mat("gunbore"):
-        return [profile([(y0, z0), (y1, z1), (y1, z1 + 0.30), (y0, z0 + 0.34)],
-                        w, name)]
-
-
 def sail(y, l, h, w, z, planes=True, masts=3, step=0.0, cap=True, name="sail"):
     """Fin/sail, built in TIERS the way the superstructure of a surface ship is.
 
@@ -958,7 +1014,8 @@ def sail(y, l, h, w, z, planes=True, masts=3, step=0.0, cap=True, name="sail"):
         cap      a LIGHT `deck` plate on the crown. On the near-black casing
                  this is the one bright mark high on the boat, and its station
                  along the hull is what separates the four classes at the game
-                 camera — SSN 0.19L, SSK 0.17L, AIP 0.15L, midget 0.13L.
+                 camera — measured at y - 0.56 l, that is SSN 0.156 L,
+                 SSK 0.133 L, AIP 0.110 L, midget 0.101 L.
 
     `masts` raised periscopes/ESM in `gun`, and a gunbore bridge cockpit notch.
     """
@@ -999,7 +1056,7 @@ def sail(y, l, h, w, z, planes=True, masts=3, step=0.0, cap=True, name="sail"):
 
 
 def stern_planes(L, B, axis_z, style="cross", tip=None, chord=None,
-                 tipcap=False, name="sp"):
+                 tipcap=False, station=None, name="sp"):
     """Stern control surfaces. `tip` is the TIP RADIUS from the axis, not a
     span, because the span form was being read as a diameter and the planes
     came out at twice life size — the AIP's X planes reached 0.61 of a span of
@@ -1027,18 +1084,47 @@ def stern_planes(L, B, axis_z, style="cross", tip=None, chord=None,
     chord = chord if chord is not None else L * 0.055
     root = B * 0.26
     ln, ctr = tip - root, (tip + root) / 2.0
-    y = -L * 0.415
+    # -0.390 L, not -0.415 L. At 0.415 the hull has narrowed to a strip too
+    # thin to see and the rudder rendered as a loose rectangle with open sea
+    # between it and the boat — the "detached chip" of the pass-3 report. Two
+    # and a half metres further forward the hull still shows about 0.69 of its
+    # radius and the rudder grows out of something.
+    #
+    # The X form has to come further forward still, and the arithmetic says why.
+    # A plane canted at 45 degrees breaks the surface at radius (freeboard's
+    # depth)/cos 45 — on the AIP at x = 2.20 m — so it is only ever attached to
+    # what the hull SHOWS at its own station. At -0.390 L the AIP shows 1.9 m
+    # and the planes floated with 1.3 m of sea inboard of them; at -0.362 L it
+    # shows 3.1 m and the gap is 0.65 m, which is ten pixels on the plan sheet
+    # and none at the game camera.
+    y = station if station is not None else (
+        -L * 0.362 if style == "x" else -L * 0.390)
     use("body")
     if style == "x":
         for a in (45, 135, 225, 315):
             out.append(cube((math.cos(R(a)) * ctr, y, axis_z + math.sin(R(a)) * ctr),
                             (ln, chord, 0.42), rot=(0, R(-a), 0)))
         if tipcap:
+            # An X plane is body camo, and the part of it that is above the
+            # sea is the OUTER half — so what the plan sheet gets is a camo
+            # patch on a blue sea, which is exactly the case the module
+            # docstring says does not read. The fix is a light fairing lying
+            # along the whole above-water length of each UPPER plane, from just
+            # outside the point where it breaks the surface out to the tip.
+            #
+            # IT MUST OVERLAP THE PLANE, NOT PERCH ON THE TIP. The first cut
+            # sat at 0.88 of the tip radius and 0.34 of the span wide, which on
+            # the AIP left it 3.2 m clear of everything and rendered as two
+            # light boxes floating in open water beside the boat. At 0.79 and
+            # 0.48 it covers the plane's visible band and the remaining metre
+            # of sea between it and the narrow stern is what an X stern really
+            # looks like.
             with mat("deck"):
+                d = tip * 0.707
                 for a in (45, 135):
-                    out.append(cube((math.cos(R(a)) * tip * 0.86, y,
-                                     axis_z + math.sin(R(a)) * tip * 0.86 + 0.16),
-                                    (ln * 0.44, chord * 0.80, 0.22)))
+                    out.append(cube((math.cos(R(a)) * tip * 0.79, y,
+                                     axis_z + d * 0.79 + 0.10),
+                                    (d * 0.48, chord * 0.80, 0.50)))
     else:
         for s in (-1, 1):
             out.append(cube((s * ctr, y, axis_z), (ln, chord, 0.42)))
@@ -1053,8 +1139,14 @@ def stern_planes(L, B, axis_z, style="cross", tip=None, chord=None,
     return out
 
 
-def towed_array(L, B, axis_z, y0, y1, side=1, name="tas"):
-    """The towed-array fairing along ONE side of the hull, and its reel housing.
+def sub_towed_array(L, B, axis_z, y0, y1, side=1, name="tas"):
+    """The towed-array fairing along ONE side of a submarine, and its reel.
+
+    NAMED sub_ BECAUSE THE ESCORTS OWN towed_array(). A surface ship's array is
+    a winch and a chute on the transom; a boat's is a raised tube down the
+    flank, and the two are different shapes on different hulls. Two functions,
+    two names — the first version of this collided with the escort builder and
+    the SSN build died on the argument list.
 
     docs/02 §8 makes ASW a pillar and the array is the boat's own half of it.
     It is also the only ASYMMETRIC feature in the fleet: one raised line down
@@ -1062,12 +1154,16 @@ def towed_array(L, B, axis_z, y0, y1, side=1, name="tas"):
     three-quarter-sheet feature and is budgeted as one — two objects.
     """
     out = []
+    # It has to sit ABOVE the waterline chord or it is 2 objects nobody can
+    # see: pass 4's first cut put it at axis + 0.46 r, which on the SSN is
+    # 0.86 m under the sea. At 0.72 r it lies on the flank just inboard of the
+    # visible edge and shows as one raised line down one side.
     r = (B / 2.0) * 0.985
     with mat("gunbore"):
-        out.append(cyl((side * r * 0.86, (y0 + y1) / 2.0, axis_z + r * 0.46),
-                       B * 0.045, y0 - y1, rot=(R(90), 0, 0), v=8))
-        out.append(cube((side * r * 0.80, y1 - B * 0.14, axis_z + r * 0.48),
-                        (B * 0.16, B * 0.30, B * 0.16)))
+        out.append(cyl((side * r * 0.74, (y0 + y1) / 2.0, axis_z + r * 0.72),
+                       B * 0.036, y0 - y1, rot=(R(90), 0, 0), v=8))
+        out.append(cube((side * r * 0.70, y1 - B * 0.09, axis_z + r * 0.76),
+                        (B * 0.11, B * 0.20, B * 0.09)))
     return out
 
 
@@ -1086,11 +1182,172 @@ def propulsor(L, B, axis_z, kind="screw", name="prop"):
         else:
             out.append(cyl((0, y, axis_z), B * 0.13, B * 0.22,
                            rot=(R(90), 0, 0), v=12, taper=0.5))
+            # Blade tips at 0.28 B, i.e. a screw 0.56 B across. The pass-3
+            # blade was a 4.44 m box centred at 0.26 B, so it reached 0.48 B —
+            # a 9.7 m screw on a 10.1 m hull — and because a submarine's axis
+            # here sits only (B/2 - freeboard) below the sea, the top blade
+            # came 1.70 m OUT OF THE WATER and rendered as a pale chip astern.
             for k in range(5):
                 a = 2.0 * math.pi * k / 5.0
-                out.append(cube((B * 0.26 * math.sin(a), y,
-                                 axis_z + B * 0.26 * math.cos(a)),
-                                (0.10, B * 0.16, B * 0.44), rot=(0, a, 0)))
+                out.append(cube((B * 0.17 * math.sin(a), y,
+                                 axis_z + B * 0.17 * math.cos(a)),
+                                (0.10, B * 0.16, B * 0.22), rot=(0, a, 0)))
+    return out
+
+
+# ══ escort fittings ════════════════════════════════════════════════
+# Added by the escort detail pass, and called ONLY by the destroyer, the
+# cruiser and the frigate. They exist because those three ships were spending
+# 250 triangles apiece on 1 m liferafts while every deckhouse roof in the
+# group was a bare slab, which is the wrong way round: a roof is a surface the
+# game camera looks straight down on and a liferaft is one pixel.
+#
+# Every one of these is four objects or fewer, and every one is either a rung
+# on a docs/02 sensor ladder or a material step on a surface that was blank.
+
+
+def director(x, y, z, r=1.30, tilt=15.0, aft=False, name="dir"):
+    """Fire-control illuminator: a pedestal and a canted dish.
+
+    docs/02 section 8.6 — a semi-active missile cannot be guided to the target
+    without one of these pointed at it, so the COUNT is the ship's simultaneous
+    engagement capacity and it is gameplay, not decoration. Burke IIA carries
+    three, Ticonderoga four, Perry one. The dish is `deck`, the lightest group
+    afloat, so it reads as a bright disc on a dark roof — which is exactly how
+    a director reads on the real ship.
+
+    Two objects. `aft` swings the dish to point over the stern.
+    """
+    s = -1.0 if aft else 1.0
+    out = []
+    with mat("gun"):
+        out.append(cyl((x, y, z + 0.85), r * 0.50, 1.70, v=8))
+    with mat("deck"):
+        out.append(cyl((x, y + s * 0.34, z + 2.05), r, 0.50,
+                       rot=(R(s * (tilt - 90.0)), 0, 0), v=14, taper=0.60))
+    return out
+
+
+def esm_array(x, y, z, l=2.80, h=2.40, name="esm"):
+    """ESM/ECM outrigger — SLQ-32 scale — on a stub sponson at the bridge.
+
+    docs/02 makes jamming a pillar. A ship that can see an emitter and a ship
+    that can burn one down have to look different, and the only honest place
+    to say so is the pair of boxes carried out past the bridge face where the
+    real ones sit. Two objects: a body bracket and a near-black array face,
+    and `x` picks the side.
+    """
+    s = 1.0 if x > 0 else -1.0
+    out = []
+    use("body")
+    out.append(cube((x, y, z + h * 0.50), (1.15, l, h)))
+    with mat("gunbore"):
+        out.append(cube((x + s * 0.62, y, z + h * 0.56),
+                        (0.24, l * 0.80, h * 0.70)))
+    use("body")
+    return out
+
+
+def bridge_wing(x, y, z, l=3.6, w=2.8, gun=False, name="bw"):
+    """The open bridge wing that overhangs the ship's side, and optionally the
+    light 25 mm mount on the end of it. One or two objects, and it is what
+    stops a bridge tier reading as a shoebox."""
+    s = 1.0 if x > 0 else -1.0
+    out = []
+    with mat("deck"):
+        out.append(cube((x, y, z + 0.13), (w, l, 0.26)))
+    if gun:
+        with mat("gun"):
+            out.append(cyl((x + s * w * 0.22, y, z + 0.75), 0.42, 1.20, v=8))
+    return out
+
+
+def chaff_launcher(x, y, z, yaw=0.0, elev=45.0, name="chaff"):
+    """Mk 36 SRBOC decoy mortar: six barrels in a trainable box, canted up and
+    outboard. One object, and decoys are a docs/02 counter-measure rung."""
+    with mat("gun"):
+        return [cube((x, y, z + 0.72), (1.35, 1.10, 1.45),
+                     rot=(R(-elev), 0, R(yaw)))]
+
+
+def deck_panel(x, y, z, w, l, group="gunbore", h=0.20, name="pnl"):
+    """One flat contrasting rectangle on a weather deck — a hatch, an ammo
+    handling square, a sonobuoy stowage, a VERTREP spot.
+
+    Measured: a plain box in `gunbore` costs 188 triangles and is the only
+    kind of detail in this file that still reads at 1.1 px per metre, because
+    it is a material step and not a shape. Twelve liferafts cost sixteen times
+    as much and read at none — which is why the three escorts now carry fewer
+    rafts and more panels.
+    """
+    with mat(group):
+        return [cube((x, y, z + h * 0.5), (w, l, h))]
+
+
+def anchor_gear(y, z, B, name="anc"):
+    """Windlass, and the chain runs from it to the hawse. Three small dark
+    objects on what is otherwise the emptiest deck on any escort — the
+    forecastle — and they cost less than one liferaft each."""
+    out = []
+    with mat("gun"):
+        out.append(cyl((0.0, y, z + 0.55), 0.90, 1.10, v=10))
+    with mat("gunbore"):
+        for s in (-1, 1):
+            out.append(cube((s * B * 0.135, y - 3.4, z + 0.11),
+                            (1.25, 6.6, 0.22)))
+    return out
+
+
+def satcom(x, y, z, r=1.35, name="sat"):
+    """A SATCOM radome: one light dot high on a dark structure.
+
+    v=8, NOT the dome() default of 24 and not even 12. Measured after the LOD0
+    bevel: v=12 costs 1 152 triangles and v=8 costs 512, for a 1.4 m ball that
+    is three pixels across at the game camera. A sphere is the worst value in
+    the file because the bevel fires on every one of its edges — two of these
+    at v=12 cost more than the whole 155 m destroyer hull."""
+    with mat("deck"):
+        return [dome((x, y, z + r * 0.22), r, r, r * 0.92, v=8)]
+
+
+def tube_sponson(x, y, z, w=4.6, l=7.4, name="spn"):
+    """A platform carried outboard of the hull line for the ASW torpedo tubes.
+
+    The frigate's, and only the frigate's. In plan it is a light plate and a
+    black shadow panel standing PROUD of the hull outline at one station
+    amidships — the hull visibly gets wider there — and no other escort's
+    outline does anything but taper. That is a position feature, which is the
+    only kind that survives the zoom test.
+    """
+    s = 1.0 if x > 0 else -1.0
+    out = []
+    with mat("deck"):
+        out.append(cube((x, y, z + 0.14), (w, l, 0.28)))
+    with mat("gunbore"):
+        out.append(cube((x + s * w * 0.10, y, z - 0.55), (w * 0.80, l * 0.86,
+                                                          1.10)))
+    return out
+
+
+def towed_array(y, z, w=8.6, name="ta"):
+    """Towed-array handling at the transom: the winch drum athwartships, the
+    cable chute cut dark into the deck, and the fairlead sheaves.
+
+    docs/02 section 8 makes passive towed-array search the ASW pillar, and it
+    is the one piece of ASW equipment big enough to see from the game camera.
+    Four objects, all of them on the last four metres of the ship, where no
+    other escort has anything at all.
+    """
+    out = []
+    use("body")
+    out.append(cube((0.0, y + 1.10, z + 1.15), (w * 0.52, 2.20, 2.30)))
+    with mat("gunbore"):
+        out.append(cyl((0.0, y + 1.10, z + 1.55), 1.05, w * 0.66,
+                       rot=(0, R(90), 0), v=14))
+        out.append(cube((0.0, y - 1.30, z + 0.12), (w * 0.34, 2.60, 0.24)))
+    with mat("deck"):
+        out.append(cube((0.0, y - 0.30, z + 0.75), (w, 0.70, 1.50)))
+    use("body")
     return out
 
 
@@ -1100,45 +1357,103 @@ def destroyer_aaw():
     freeboard amidships and 2.4 m of sheer to the forecastle.
 
     EXCLUSIVE FEATURE: four canted planar arrays on ONE pyramidal forward
-    deckhouse, plus twin centreline funnels. The cruiser splits its arrays
-    fore and aft and the frigate has none, so the cluster is unambiguous.
+    deckhouse, plus twin close-coupled centreline funnels. The cruiser splits
+    its arrays fore and aft and the frigate has none, so the cluster is
+    unambiguous.
 
-    The layered-defence ship of docs/02 section 8.6: 96 strike cells in two
-    farms, two CIWS, a 5-inch mount, twin hangars and a helipad.
+    DECK SIGNATURE, which is the part that survives the zoom test: a SMALL
+    32-cell farm on the forecastle and a LARGE 64-cell farm amidships-aft.
+    Asymmetric, and neither of them at an extremity — that is what separates
+    it from the cruiser, whose two equal farms sit at the very ends.
+
+    THREE PLACEMENT BUGS FIXED IN THIS PASS, all of them found by rendering
+    the ship alone from the beam instead of trusting the source:
+
+      * THE MAST WAS FLOATING. It was placed at y = 0.015L with its base at
+        the height the three-tier superstructure reached at y = 0.11L, and
+        those are 16 m apart, so the whole 15 m mast hung in clear air nine
+        metres above the deckhouse roof with sky under it. It now stands on
+        the SPY deckhouse roof, abaft the pilothouse, where a Burke's does.
+      * THE FORWARD CIWS WAS INSIDE THE PILOTHOUSE. Same cause: a height
+        taken from `top` and a station taken from a different tier.
+      * THE OWNERSHIP PATCH WAS UNDER THE AFT VLS COAMING. CONVENTIONS.md
+        requires one patch visible from directly above; this one was covered
+        by a 9.3 m slab of near-black. It is now on the hangar roof, which is
+        the largest uninterrupted horizontal surface on the ship.
+
+    Also: the hangar was 26 m at -0.300L and the flight deck 20 m at -0.425L,
+    which overlapped by 3.6 m, so the forward fifth of the flight deck was
+    inside the hangar. Both were re-stationed off the transom instead of off
+    round fractions of L.
+
+    The layered-defence ship of docs/02 section 8.6: 96 cells in two farms,
+    three illuminators, two CIWS, a 5-inch mount, twin hangars and a helipad.
     """
     L, B, FB, SH = 155.3, 20.1, 5.9, 2.4
     p, fb = ship_hull(L, B, FB, bow=0.30, sheer=SH)
-    sup, top = superstructure(L * 0.11, fb,
-                              ((48.0, 16.8, 6.6), (32.0, 14.0, 4.8, 2.5),
-                               (19.0, 10.6, 4.2, 3.6)), taper=0.92)
-    p += sup
-    # the four faces: two forward on the front corners, two aft on the back
-    for s in (-1, 1):
-        p += planar_array(s * 6.8, L * 0.205, fb + 9.6, 4.8, 4.6, 26, s * 32)
-        p += planar_array(s * 6.6, L * 0.045, fb + 9.2, 4.6, 4.4, 26, -s * 148)
-    p += lattice_mast(0, L * 0.015, top, 15.0, foot=4.2, head=1.4, solid=True,
-                      yards=((0.42, 11.0), (0.70, 7.0)), radome=1.9)
+
+    # ── the pyramidal forward deckhouse ─────────────────────────────
+    # 01 level -> SPY deckhouse -> pilothouse. The arrays go on the middle
+    # tier's four corners, which is what makes the mass read as one pyramid
+    # with faces on it rather than as two boxes.
+    sup, top = superstructure(L * 0.105, fb,
+                              ((50.0, 16.8, 6.4), (34.0, 14.4, 4.8, 2.0),
+                               (21.0, 11.2, 4.4, 4.0)), taper=0.92)
+    p += sup                                        # top = fb + 15.6
+    z_01, z_spy, z_bridge = fb + 6.4, fb + 11.2, fb + 15.6
+
+    for s in (-1, 1):                               # the exclusive: four faces
+        p += planar_array(s * 6.5, 30.0, z_spy - 2.3, 5.0, 4.6, 26, s * 32)
+        p += planar_array(s * 6.5, 6.5, z_spy - 2.3, 5.0, 4.6, 26, -s * 148)
+
+    # mast on the SPY deckhouse roof, abaft the pilothouse — see the note
+    p += lattice_mast(0, 6.0, z_spy, 22.0, foot=4.6, head=1.5, solid=True,
+                      yards=((0.40, 12.0), (0.66, 7.6)), radome=2.0)
+
+    # ── the after deckhouse, which is what the funnels stand on ──────
+    # Stationed off the aft VLS coaming, not off a round fraction of L: at
+    # 30 m and -0.070L its after face landed at -23.0 and buried 2.6 m of the
+    # 9.3 m farm, which is the same class of bug as the hangar overlap.
+    p.append(deckhouse(-L * 0.058, 28.0, 13.0, 5.2, fb))
+    z_aft = fb + 5.2
     p += funnel(0, L * 0.005, fb + 2.6, 9.0, 7.6, 8.2, rake=8)
     p += funnel(0, -L * 0.113, fb + 2.6, 9.0, 7.6, 8.2, rake=8)
-    p += vls(0, L * 0.315, fb + SH, 4, 8)              # 32 cells, forecastle
-    # 64 cells aft. Measured in plan: at -0.235L the 9.3 m coaming ran from
-    # -31.8 to -41.1 and the hangar from -33.6 to -59.6, so 7.6 m of the farm —
-    # 82% of it — was inside the hangar and the ship's loudest overhead feature
-    # did not render at all. The farm moved forward to clear the hangar and the
-    # after funnel moved forward to clear the farm.
-    p += vls(0, -L * 0.180, fb, 8, 8)
-    p += gun_mount(L * 0.393, fb + SH, r=2.05, barrel_l=6.6)
+    for s in (-1, 1):
+        p += satcom(s * 4.6, -19.5, z_aft, 1.45)
+
+    # ── aviation, re-stationed off the transom ──────────────────────
+    p += hangar(-L * 0.296, 22.0, 13.6, 6.4, fb, doors=2)   # -57.0 .. -35.0
+    p += helipad(-L * 0.431, 13.2, 20.0, fb)                # -77.0 .. -57.0
+
+    # ── sensors and directors: three Mk 99, which is the AAW capacity ──
+    p += director(0, 24.0, z_bridge, 1.30)
+    p += director(0, 13.5, z_bridge, 1.30)
+    p += director(0, -37.5, fb + 6.4, 1.30, aft=True)        # hangar roof
+    for s in (-1, 1):
+        p += esm_array(s * 7.9, 24.0, z_spy)
+        p += bridge_wing(s * 7.0, 27.0, z_bridge, gun=True)
+        p += chaff_launcher(s * 7.6, 14.0, z_01, yaw=s * 30)
+
+    # ── armament ─────────────────────────────────────────────────────
+    p += vls(0, L * 0.315, fb + SH, 4, 8)               # 32 cells, forecastle
+    p += vls(0, -L * 0.180, fb, 8, 8)                   # 64 cells, aft of the
+    p += gun_mount(L * 0.393, fb + SH, r=2.05, barrel_l=6.6)   # after house
     p += breakwater(L * 0.345, B * 0.72, fb + SH)
-    p += ciws(0, L * 0.145, top - 4.2, 1.10)
-    p += ciws(0, -L * 0.300, fb + 6.4, 1.10, aft=True)
-    p += hangar(-L * 0.300, 26.0, 13.6, 6.4, fb, doors=2)
-    p += helipad(-L * 0.425, 13.2, 20.0, fb)
+    p += anchor_gear(L * 0.438, fb + SH, B)
+    p += ciws(0, 20.0, z_bridge, 1.10)                  # on the pilothouse
+    p += ciws(0, -L * 0.310, fb + 6.4, 1.10, aft=True)  # on the hangar
     for s in (-1, 1):
         p += boat_bay(s * B * 0.47, -L * 0.045, fb)
-        p += torpedo_tubes(s * B * 0.30, -L * 0.115, fb + 0.4, yaw=s * 55)
-    p += clutter(hull_planform(L, B, w=0.90), fb, spacing=13.0)
-    p.append(team_patch(-L * 0.175, fb, 4.4, 5.2))
-    return p, ship_meta(L, B, fb, top + 15.0, gun_y=L * 0.40, gun_z=fb + SH + 2.6)
+        p += torpedo_tubes(s * B * 0.30, -L * 0.150, fb + 0.4, yaw=s * 55)
+
+    # Liferafts thinned from 13 m spacing to 34 m. Sixteen of them cost 3 008
+    # triangles and every one is a 1 m box that vanishes at the game camera;
+    # the five that survive still break the deck edge, and the 2 900 saved
+    # bought the three illuminators, the ESM outriggers and the anchor gear.
+    p += clutter(hull_planform(L, B, w=0.90), fb, spacing=34.0)
+    p.append(team_patch(-L * 0.275, fb + 6.4, 4.4, 5.2))     # hangar roof
+    return p, ship_meta(L, B, fb, z_spy + 22.0, gun_y=L * 0.40,
+                        gun_z=fb + SH + 2.6)
 
 
 def cruiser():
@@ -1149,8 +1464,26 @@ def cruiser():
     superstructure islands that carry its two array faces makes the hull read
     symmetric from overhead, which no other escort does.
 
+    Against the destroyer the fact that survives the zoom test is that the
+    cruiser's two dark deck patches sit at the EXTREME ends and are EQUAL in
+    size, where the destroyer's are unequal and inboard.
+
     Longer and 3.3 m narrower than the destroyer — L/B 10.3 against 7.7 — so
     even before the armament the planform is a different animal.
+
+    FIXED THIS PASS, all three found on a beam render of the ship alone:
+    BOTH MASTS WERE FLOATING (the fore mast by 8.6 m, the main by 4.4 m, each
+    for the same reason as the destroyer's — a height from `top` and a station
+    from a different tier); the forward CIWS was buried inside the pilothouse;
+    and the ownership patch at -0.100L sat inside the after superstructure's
+    footprint and could not be seen from any angle.
+
+    WHAT SEPARATES IT FROM THE DESTROYER AT CLOSE RANGE: the cruiser keeps an
+    OPEN lattice fore mast and carries a rotating SPS-49 air-search slab,
+    because it is a 1980s design; the Burke has a solid plated pyramid and no
+    rotating antenna at all. Four illuminators against the Burke's three is
+    the doctrinal difference — this is the ship that can hold four engagements
+    at once, and docs/02 section 8.6 makes that a number, not a look.
     """
     L, B, FB, SH = 172.8, 16.8, 5.6, 2.2
     p, fb = ship_hull(L, B, FB, bow=0.30, transom=0.82, sheer=SH)
@@ -1161,31 +1494,57 @@ def cruiser():
                                ((34.0, 13.2, 6.2), (18.0, 10.0, 4.4, -1.5)),
                                taper=0.90, glass=False, name="aftsup")
     p += fwd + aft
+    z_01, z_spy, z_bridge = fb + 7.0, fb + 11.6, fb + 15.6
+    z_a01, z_amid = fb + 6.2, fb + 10.6
+
     for s in (-1, 1):
-        p += planar_array(s * 5.6, L * 0.185, fb + 9.8, 4.4, 4.2, 24, s * 30)
-        p += planar_array(s * 5.4, -L * 0.245, fb + 9.0, 4.4, 4.2, 24,
-                          s * 150)
-    p += lattice_mast(0, L * 0.020, ftop, 16.0, foot=3.0, head=1.0, bays=4,
+        p += planar_array(s * 5.6, 29.5, fb + 9.8, 4.4, 4.2, 24, s * 30)
+        p += planar_array(s * 5.4, -L * 0.245, fb + 9.0, 4.4, 4.2, 24, s * 150)
+
+    # Fore mast is a PLATED tower on the SPY deckhouse roof abaft the
+    # pilothouse, which is what CG-52 carries; the main mast on the after
+    # island is the open lattice, and the SPS-49 slab stands beside it.
+    #
+    # MEASURED, AND IT IS WHY THE FORE MAST IS PLATED. Two open lattices cost
+    # 42 objects and 11 000 triangles — a quarter of this ship — on the two
+    # fittings the file's own zoom test says disappear first. Plating the
+    # taller one gave back 4 700 and paid for four illuminators, the ESM
+    # outriggers, the air-search slab and the anchor gear.
+    p += lattice_mast(0, 7.5, z_spy, 18.0, foot=3.4, head=1.1, solid=True,
                       yards=((0.50, 12.0), (0.78, 7.4)), radome=1.7)
-    p += lattice_mast(0, -L * 0.250, atop, 10.5, foot=2.4, head=0.9, bays=3,
+    p += lattice_mast(0, -33.5, z_amid, 12.5, foot=2.4, head=0.9, bays=2,
                       yards=((0.58, 8.0),), name="mainmast")
-    for s in (-1, 1):                                   # paired funnels
+    p += air_search(0, -27.5, z_amid, 7.2, 2.8)
+
+    for s in (-1, 1):                                   # staggered funnels
         p += funnel(s * 4.6, -L * 0.045 - s * L * 0.055, fb + 2.4, 8.6, 6.2,
                     7.8, rake=9, name=f"fnl{s}")
+
+    # four illuminators — two forward, two aft. This is the number.
+    p += director(0, 24.0, z_bridge, 1.25)
+    p += director(0, 29.0, z_spy, 1.25)
+    for s in (-1, 1):
+        p += director(s * 4.0, -38.0, z_amid, 1.25, aft=True)
+        p += esm_array(s * 7.4, 22.0, z_01)
+        p += bridge_wing(s * 6.0, 25.0, z_bridge, gun=True)
+        p += chaff_launcher(s * 6.2, 10.0, z_01, yaw=s * 30)
+        p += satcom(s * 4.2, -3.2, z_01, 1.30)
+
     p += vls(0, L * 0.305, fb + SH, 8, 8)
     p += vls(0, -L * 0.355, fb, 8, 8)
     p += gun_mount(L * 0.386, fb + SH, r=1.95, barrel_l=6.4)
     p += gun_mount(-L * 0.300, fb, r=1.95, barrel_l=6.4, aft=True)
     p += breakwater(L * 0.340, B * 0.70, fb + SH)
-    p += ciws(0, L * 0.140, ftop - 4.4, 1.05)
-    p += ciws(0, -L * 0.130, fb + 6.2, 1.05, aft=True)
+    p += anchor_gear(L * 0.435, fb + SH, B)
+    p += ciws(0, 15.0, z_bridge, 1.05)
+    p += ciws(0, -L * 0.130, z_a01, 1.05, aft=True)
     p += helipad(-L * 0.440, 11.6, 16.0, fb)
     for s in (-1, 1):
         p += boat_bay(s * B * 0.47, -L * 0.010, fb, l=6.8)
         p += torpedo_tubes(s * B * 0.30, -L * 0.090, fb + 0.4, yaw=s * 55)
-    p += clutter(hull_planform(L, B, transom=0.82, w=0.90), fb, spacing=12.0)
-    p.append(team_patch(-L * 0.100, fb, 4.0, 4.8))
-    return p, ship_meta(L, B, fb, ftop + 16.0, gun_y=L * 0.39,
+    p += clutter(hull_planform(L, B, transom=0.82, w=0.90), fb, spacing=34.0)
+    p.append(team_patch(-10.3, fb, 4.0, 6.0))       # open deck between islands
+    return p, ship_meta(L, B, fb, z_spy + 18.0, gun_y=L * 0.39,
                         gun_z=fb + SH + 2.5)
 
 
@@ -1200,37 +1559,88 @@ def frigate_asw():
     and a cell grid behind it, this ship has an arm forward and a bare
     forecastle, and the eye lands on the empty deck.
 
-    6.4 m narrower than the destroyer over nearly the same length, and the
-    towed array plus a two-helicopter hangar are its actual weapons
-    (docs/02 section 8.5).
+    THE ASW FIT, WHICH IS THE POINT OF THIS SHIP AND HAS TO BE VISIBLE FROM
+    DIRECTLY ABOVE (docs/02 section 8). Three things carry it, and all three
+    are deck-plan features in a contrasting material, which is the only kind
+    that survives the zoom test:
+
+      TWO marked helicopter spots on one flight deck. The destroyer and the
+      cruiser have one circle each; this ship hangars two LAMPS airframes and
+      shows two, and a pair of circles is the loudest thing on the after
+      third of any escort in the roster.
+
+      TORPEDO-TUBE SPONSONS standing PROUD of the hull line amidships. In
+      plan the hull visibly gets WIDER at one station — a light plate with a
+      black shadow under it, outboard of the deck edge — and every other
+      escort's outline does nothing but taper from amidships to the transom.
+
+      TOWED-ARRAY HANDLING on the last four metres before the transom: the
+      winch drum athwartships, the cable chute cut dark into the deck. No
+      other escort has anything abaft its flight deck.
+
+    FIXED THIS PASS: the mast floated 4.2 m above the deckhouse (same bug as
+    both other escorts); the air-search slab was standing inside the funnel;
+    and the 30 m hangar at -0.275L overlapped the 24 m flight deck at -0.415L
+    by 7.7 m, so a third of the flight deck was inside the hangar and did not
+    render, while the deck's after edge overhung the transom by 0.25 m. Both
+    are now stationed off the transom.
+
+    6.4 m narrower than the destroyer over nearly the same length.
     """
     L, B, FB, SH = 138.1, 13.7, 4.6, 2.0
     p, fb = ship_hull(L, B, FB, bow=0.32, transom=0.78, sheer=SH)
     sup, top = superstructure(-L * 0.010, fb,
-                              ((52.0, 11.6, 5.8), (24.0, 9.2, 4.2, 8.0)),
-                              taper=0.92)
+                              ((52.0, 11.6, 5.8), (24.0, 9.2, 4.2, 8.0),
+                               (13.0, 7.0, 3.2, 10.0)), taper=0.92)
     p += sup
+    z_01, z_02, z_bridge = fb + 5.8, fb + 10.0, fb + 13.2
+
     p += arm_launcher(0, L * 0.330, fb + SH)            # Mk13, the exclusive
-    p += gun_mount(-L * 0.055, fb + 5.8, r=1.35, barrel_l=4.6)   # gun on the roof
-    p += lattice_mast(0, -L * 0.090, top, 13.5, foot=2.6, head=0.9, bays=4,
-                      yards=((0.52, 9.4), (0.80, 6.0)), radome=1.5)
-    p += air_search(0, -L * 0.150, top - 4.2, 7.0, 2.8)
+    p += gun_mount(-L * 0.055, z_01, r=1.35, barrel_l=4.6)   # gun on the roof
+    # foot widened from 2.6 to 3.6 and a platform added: at 2.6 m over 18 m
+    # of height this read as a stick, and rule 3 of the brief is that a ship
+    # with a stick mast reads as a barge.
+    p += lattice_mast(0, -1.0, z_02, 18.0, foot=3.6, head=1.2, bays=3,
+                      yards=((0.52, 9.4), (0.80, 6.0)), radome=1.5,
+                      platform=2.6)
+    p += air_search(0, -10.0, z_01, 7.0, 2.8)           # clear of the funnel
     p += funnel(0, -L * 0.135, fb + 2.2, 8.0, 5.6, 7.0, rake=10)
-    p += ciws(0, -L * 0.365, fb + 6.0, 1.05, aft=True)
-    p += hangar(-L * 0.275, 30.0, 12.2, 6.0, fb, doors=2)
-    p += helipad(-L * 0.415, 12.4, 24.0, fb)
+    p += ciws(0, -L * 0.330, fb + 6.0, 1.05, aft=True)
+
+    # aviation, stationed off the transom (-69.05) instead of off L
+    p += hangar(-L * 0.245, 21.0, 12.2, 6.0, fb, doors=2)   # -44.3 .. -23.3
+    p += helipad(-L * 0.410, 12.4, 22.0, fb)                # -67.6 .. -45.6
+    p += director(0, -27.0, fb + 6.0, 1.50, aft=True)       # Mk 92 STIR
+    p += deck_panel(0, -34.0, fb + 6.0, 4.4, 5.0, group="gunbore")
+
+    # the second marked spot. helipad() lays the black deck and one circle;
+    # this is the other one, and it is the frigate's loudest plan feature.
+    with mat("deck"):
+        p.append(cyl((0, -61.5, fb + 0.30), 3.95, 0.10, v=24))
+    with mat("gunbore"):
+        p.append(cyl((0, -61.5, fb + 0.37), 3.10, 0.10, v=24))
+    with mat("deck"):
+        p.append(cube((0, -55.0, fb + 0.30), (0.55, 5.6, 0.10)))
     with mat("gunbore"):                                # RAST haul-down track
-        p.append(cube((0, -L * 0.415, fb + 0.30), (0.7, 22.0, 0.16)))
-    with mat("deck"):                                   # towed array fairlead
-        p.append(cube((0, -L * 0.487, fb + 0.5), (7.6, 4.6, 1.0)))
+        p.append(cube((0, -56.6, fb + 0.30), (0.7, 20.0, 0.16)))
+
+    p += towed_array(-L * 0.492, fb, 8.6)               # -67.9, at the transom
+
     for s in (-1, 1):
+        p += tube_sponson(s * (B * 0.50 + 1.9), -L * 0.060, fb)
+        p += torpedo_tubes(s * (B * 0.50 + 0.6), -L * 0.060, fb + 0.4,
+                           yaw=s * 62)
+        p += esm_array(s * 5.9, 12.0, z_02)
+        p += bridge_wing(s * 5.4, 15.0, z_bridge, gun=True)
+        p += chaff_launcher(s * 5.4, 4.0, z_01, yaw=s * 30)
         p += boat_bay(s * B * 0.47, L * 0.075, fb, l=6.4)
-        p += torpedo_tubes(s * B * 0.28, -L * 0.060, fb + 0.4, yaw=s * 60)
+
     p += breakwater(L * 0.395, B * 0.68, fb + SH)
+    p += anchor_gear(L * 0.440, fb + SH, B)
     p += clutter(hull_planform(L, B, bow=0.32, transom=0.78, w=0.90), fb,
-                 spacing=11.0)
-    p.append(team_patch(L * 0.170, fb + SH, 3.6, 4.4))
-    return p, ship_meta(L, B, fb, top + 13.5, gun_y=-L * 0.02, gun_z=fb + 7.4)
+                 spacing=30.0)
+    p.append(team_patch(L * 0.240, fb + SH, 3.6, 5.4))      # bare forecastle
+    return p, ship_meta(L, B, fb, z_02 + 18.0, gun_y=-L * 0.02, gun_z=fb + 7.4)
 
 
 def corvette():
@@ -1279,14 +1689,16 @@ def corvette():
     use("body")                                         # funnel casing
     p.append(deckhouse(-L * 0.150, 12.0, 6.6, 2.2, fb, 0.92, "cv_cas"))
     p += funnel(0, -L * 0.155, fb + 2.2, 6.0, 4.4, 5.2, rake=10, uptakes=1)
+    with mat("gunbore"):                                # the missile deck
+        p.append(cube((0, -L * 0.095, fb + 0.30), (B * 0.92, 8.8, 0.44)))
     for s in (-1, 1):                                   # the exclusive
-        p += canisters(s * 3.9, -L * 0.095, fb + 0.5, n=2, l=6.2, w=1.5,
-                       h=1.5, elev=16, yaw=s * 12, name=f"can{s}")
+        p += canisters(s * 3.85, -L * 0.095, fb + 0.7, n=2, l=6.4, w=1.9,
+                       h=1.7, elev=16, yaw=s * 12, name=f"can{s}")
     p += gun_mount(L * 0.335, fb + SH, r=1.45, barrel_l=4.2)
     p += breakwater(L * 0.240, B * 0.66, fb + SH)
     for s, y in ((-1, L * 0.290), (1, L * 0.290), (1, -L * 0.130)):
         with mat("gunbore"):                            # deck hatches
-            p.append(cube((s * B * 0.235, y,
+            p.append(cube((s * (B * 0.235 if y > 0 else B * 0.370), y,
                            fb + (SH if y > L * 0.045 else 0.0) + 0.15),
                           (2.0, 2.8, 0.30)))
     with mat("deck"):                                   # boat / UAV house
@@ -1296,12 +1708,12 @@ def corvette():
     with mat("deck"):                                   # RAM box, fore and aft
         p.append(cube((0, L * 0.205, fb + 5.30), (3.2, 2.4, 1.8),
                       rot=(R(-22), 0, 0)))
-        p.append(cube((0, -L * 0.300, fb + 4.20), (3.0, 2.2, 1.7),
+        p.append(cube((0, -L * 0.219, fb + 3.75), (3.0, 2.2, 1.7),
                       rot=(R(20), 0, 0)))
     p += helipad(-L * 0.375, 9.4, 12.4, fb)
     p += clutter(hull_planform(L, B, transom=0.80, w=0.88), fb, spacing=12.5,
                  size=(0.9, 1.6, 0.75))
-    p.append(team_patch(-L * 0.170, fb, 3.0, 3.6))
+    p.append(team_patch(-L * 0.269, fb + 2.90, 3.0, 3.6))
     use("body")
     return p, ship_meta(L, B, fb, top + 8.4, gun_y=L * 0.34, gun_z=fb + SH + 1.9)
 
@@ -1327,7 +1739,7 @@ def missile_boat():
       and no other hull in the roster has a dark mark ON its transom, so the
       boat now terminates in something instead of trailing off.
 
-      SAVED. clutter() at 13 m instead of 8 m, and the lattice at two bays
+      SAVED. clutter() at 15 m instead of 8 m, and the lattice at two bays
       instead of three. It is still an OPEN lattice, because this is a 1980s
       Soviet hull and the see-through mast is half of why it does not look like
       the corvette, which carries a solid pyramid.
@@ -1343,7 +1755,7 @@ def missile_boat():
         for s in (-1, 1):
             p.append(cube((s * 2.95, L * 0.075 + 2.6, fb + 7.05),
                           (2.0, 2.6, 0.44)))
-    p += lattice_mast(0, L * 0.052, top, 7.0, foot=1.8, head=0.7, bays=2,
+    p += lattice_mast(0, L * 0.105, top, 7.0, foot=1.8, head=0.7, bays=2,
                       yards=((0.55, 5.0),), radome=1.1)
     for s in (-1, 1):                                   # the exclusive
         p += missile_tubes(s * (B * 0.42), -L * 0.090, fb + 0.9, n=2, l=7.4,
@@ -1351,14 +1763,14 @@ def missile_boat():
     p += gun_mount(L * 0.335, fb + 1.1, r=1.05, barrel_l=3.0)
     p += breakwater(L * 0.245, B * 0.62, fb + 1.1, h=0.95)
     with mat("deck"):                                   # AK-630 gun tub
-        p.append(cyl((0, -L * 0.355, fb + 0.55), 2.05, 1.10, v=12))
+        p.append(cyl((0, -L * 0.355, fb + 0.55), 2.05, 1.10, v=10))
     p += ciws(0, -L * 0.355, fb + 1.1, 0.85, aft=True)
     with mat("gunbore"):                                # turbine uptakes, transom
         for s in (-1, 1):
             p.append(cube((s * B * 0.21, -L * 0.5015, fb - 0.95),
                           (2.5, 0.72, 1.7)))
     p += clutter(hull_planform(L, B, bow=0.34, transom=0.84, w=0.86), fb,
-                 spacing=13.0, size=(0.8, 1.4, 0.7))
+                 spacing=15.0, size=(0.8, 1.4, 0.7))
     p.append(team_patch(-L * 0.235, fb, 2.4, 3.0))
     use("body")
     return p, ship_meta(L, B, fb, top + 7.0, gun_y=L * 0.34, gun_z=fb + 2.1)
@@ -1371,15 +1783,40 @@ def patrol_vessel():
     EXCLUSIVE FEATURE: a notched transom with a stern boat ramp and a RHIB
     sitting in it. It is the only hull in the roster whose stern is cut open,
     and at any zoom the notch breaks the rectangle of the after deck.
+
+    DETAIL PASS, DELIBERATELY THE LIGHTEST OF THE FIVE. This boat's job in the
+    roster is to be the bare one — if it grows as much furniture as the
+    corvette then the corvette stops meaning anything. So it gets structure,
+    not weapons:
+
+      A pilothouse tier and bridge wings, so the profile steps three times over
+      a 55 m hull and reads as tall-for-its-length, which is exactly what a
+      Cyclone looks like from abeam.
+      FOUR .50-cal / Mk38 gun tubs — light `deck` rings at the bridge-wing
+      corners and either side of the after deck. A Cyclone is a gun boat and
+      the tubs are the only thing on its weather deck.
+      Two dark side exhaust ports amidships: a Cyclone has no funnel at all,
+      which is why the waist looked unfinished, and a pair of dark rectangles
+      low on the hull side is what is actually there.
+      A breakwater, and a platform on the mast for the surface-search set.
+
+    Paid for with clutter() at 12.5 m instead of 8 m and the mast at two bays
+    instead of three; the boat had +2 584 and lands at 13 896. It is still the
+    emptiest deck in the roster and that is the point.
     """
     L, B, FB = 54.6, 7.6, 2.9
     p, fb = ship_hull(L, B, FB, bow=0.30, transom=0.90)
     sup, top = superstructure(L * 0.055, fb,
-                              ((19.0, 6.4, 4.4), (9.5, 4.8, 3.0, 1.0)),
+                              ((19.0, 6.4, 4.0), (11.0, 5.2, 2.8, 0.8),
+                               (5.4, 3.8, 2.2, 1.9)),
                               taper=0.86)
     p += sup
-    p += lattice_mast(0, -L * 0.030, top, 6.6, foot=1.6, head=0.6, bays=3,
-                      yards=((0.56, 4.4),), radome=1.0)
+    with mat("deck"):                                   # bridge wings
+        for s in (-1, 1):
+            p.append(cube((s * 2.65, L * 0.055 + 2.4, fb + 6.95),
+                          (1.9, 2.4, 0.42)))
+    p += lattice_mast(0, -L * 0.022, fb + 6.8, 6.2, foot=1.6, head=0.6, bays=2,
+                      yards=((0.56, 4.4),), radome=1.0, platform=1.15)
     with mat("gunbore"):                                # the exclusive: the notch
         p.append(cube((0, -L * 0.455, fb - 0.6), (B * 0.52, L * 0.14, 2.6),
                       rot=(R(-9), 0, 0)))
@@ -1389,13 +1826,23 @@ def patrol_vessel():
                     2.30, "pc_rhib")
         p.append(o)
     p += gun_mount(L * 0.330, fb, r=1.00, barrel_l=2.6)
+    p += breakwater(L * 0.245, B * 0.60, fb, h=0.85)
+    with mat("deck"):                                   # four gun tubs
+        for x, y, z in ((-2.65, L * 0.070, fb + 7.16), (2.65, L * 0.070, fb + 7.16),
+                        (-B * 0.30, -L * 0.185, fb), (B * 0.30, -L * 0.185, fb)):
+            p.append(cyl((x, y, z + 0.45), 1.25, 0.90, v=12))
     with mat("gun"):
         for s in (-1, 1):
-            p.append(cyl((s * B * 0.30, -L * 0.145, fb + 0.9), 0.42, 1.5, v=10))
-    p += clutter(hull_planform(L, B, transom=0.90, w=0.84), fb, spacing=8.0,
+            p.append(cyl((s * B * 0.30, -L * 0.185, fb + 1.35), 0.42, 1.5, v=10))
+    with mat("gunbore"):                                # side exhaust ports
+        for s in (-1, 1):
+            p.append(cube((s * B * 0.485, -L * 0.075, fb - 1.15),
+                          (0.60, 3.4, 1.15)))
+    p += clutter(hull_planform(L, B, transom=0.90, w=0.84), fb, spacing=12.5,
                  size=(0.75, 1.3, 0.65))
-    p.append(team_patch(-L * 0.250, fb, 2.2, 2.8))
-    return p, ship_meta(L, B, fb, top + 6.6, gun_y=L * 0.33, gun_z=fb + 1.3)
+    p.append(team_patch(-L * 0.290, fb, 2.2, 2.8))
+    use("body")
+    return p, ship_meta(L, B, fb, fb + 13.0, gun_y=L * 0.33, gun_z=fb + 1.3)
 
 
 # ══ submarines ═════════════════════════════════════════════════════
@@ -1415,18 +1862,16 @@ def sub_diesel():
     L, B, FB = 62.0, 6.2, 1.20            # published draught 5.5 m to the keel
     assert sub_show_width(B, FB) > B * 0.52
     p, axis, deck = sub_hull(L, B, FB, name="ssk")
-    p += casing(L * 0.32, -L * 0.32, B * 0.50, deck - 0.10)
+    p += casing(L * 0.32, -L * 0.34, B * 0.50, deck - 0.10)
     top = deck - 0.10 + 0.42                                    # casing crown
     p += sail(L * 0.20, 7.4, 3.6, B * 0.36, deck, planes=True, masts=2, step=1.1)
-    p += sub_fittings([L * 0.285, -L * 0.115, -L * 0.245], top, r=0.56)
-    with mat("deck"):                                   # the exclusive, part 1
-        p.append(cube((0.0, L * 0.012, top + 0.30), (B * 0.40, L * 0.110, 0.60)))
-        p.append(cube((0.0, L * 0.055, top + 0.62), (B * 0.26, L * 0.030, 0.70)))
-    with mat("gun"):                                    # the exclusive, part 2
-        p.append(cyl((0.9, L * 0.045, top + 3.6), 0.24, 7.2, rot=(R(8), 0, 0), v=8))
-        p.append(cyl((-0.9, L * 0.035, top + 3.1), 0.20, 6.2, rot=(R(8), 0, 0), v=8))
-        p.append(cube((0.9, L * 0.075, top + 6.9), (0.6, 1.1, 0.5)))
-    p += aft_spine(L, B, axis, -L * 0.32, B * 0.30)
+    p += sub_fittings([L * 0.250, -L * 0.125, -L * 0.250], top, r=0.50)
+    with mat("deck"):                                     # the exclusive, part 1
+        p.append(cube((0.0, -L * 0.010, top + 0.28), (B * 0.38, L * 0.120, 0.56)))
+    with mat("gun"):                                      # the exclusive, part 2
+        p.append(cyl((0.9, L * 0.020, top + 3.6), 0.24, 7.2, rot=(R(8), 0, 0), v=8))
+        p.append(cyl((-0.9, L * 0.005, top + 3.1), 0.20, 6.2, rot=(R(8), 0, 0), v=8))
+        p.append(cube((0.9, L * 0.050, top + 6.9), (0.6, 1.1, 0.5)))
     p += stern_planes(L, B, axis, "cross")
     p += propulsor(L, B, axis, "screw")
     p.append(team_patch(-L * 0.055, top, 1.6, 2.4))
@@ -1459,7 +1904,7 @@ def sub_nuclear():
     L, B, FB = 110.3, 10.1, 1.90          # published draught 9.4 m to the keel
     assert sub_show_width(B, FB) > B * 0.44
     p, axis, deck = sub_hull(L, B, FB, name="ssn")
-    p += casing(L * 0.40, -L * 0.30, B * 0.44, deck - 0.12, walk=0.42)
+    p += casing(L * 0.40, -L * 0.32, B * 0.44, deck - 0.12, walk=0.40)
     top = deck - 0.12 + 0.42                                    # casing crown
     p += sail(L * 0.215, 11.6, 5.8, B * 0.32, deck, planes=True, masts=3)
     with mat("deck"):                                           # the exclusive
@@ -1467,9 +1912,8 @@ def sub_nuclear():
             for k in range(6):
                 p.append(cyl((s * 1.50, L * 0.308 - k * 1.86, top + 0.11),
                              0.62, 0.22, v=10))
-    p += sub_fittings([L * 0.355, -L * 0.020, -L * 0.155, -L * 0.255], top, r=0.70)
-    p += towed_array(L, B, axis, L * 0.20, -L * 0.28, side=1)
-    p += aft_spine(L, B, axis, -L * 0.30, B * 0.26)
+    p += sub_fittings([L * 0.335, -L * 0.020, -L * 0.155, -L * 0.255], top, r=0.70)
+    p += sub_towed_array(L, B, axis, L * 0.10, -L * 0.25, side=1)
     p += stern_planes(L, B, axis, "cross")
     p += propulsor(L, B, axis, "screw")
     p.append(team_patch(-L * 0.085, top, 2.2, 3.2))
@@ -1500,12 +1944,12 @@ def sub_aip():
     L, B, FB = 57.2, 7.0, 1.30            # published draught 6.0 m to the keel
     assert sub_show_width(B, FB) > B * 0.44
     p, axis, deck = sub_hull(L, B, FB, name="aip")
-    p += casing(L * 0.30, -L * 0.28, B * 0.44, deck - 0.10)
+    p += casing(L * 0.30, -L * 0.30, B * 0.44, deck - 0.10)
     top = deck - 0.10 + 0.42                                    # casing crown
     p += sail(L * 0.175, 6.6, 3.8, B * 0.30, deck, planes=False, masts=3)
-    p += sub_fittings([L * 0.250, -L * 0.185], top, r=0.58)
-    p += aft_spine(L, B, axis, -L * 0.28, B * 0.28)
-    p += stern_planes(L, B, axis, "x", tipcap=True)     # the exclusive
+    p += sub_fittings([L * 0.235, -L * 0.190], top, r=0.58)
+    p += stern_planes(L, B, axis, "x", tip=B * 0.72, chord=L * 0.048,
+                      tipcap=True)                                  # exclusive
     p += propulsor(L, B, axis, "pumpjet")
     p.append(team_patch(-L * 0.075, top, 1.6, 2.4))
     return p, ship_meta(L, B, deck, deck + 3.8 + 3.4, gun_y=L * 0.2,
@@ -1527,7 +1971,7 @@ def sub_midget():
     L, B, FB = 34.0, 3.8, 0.80            # published draught 3.2 m to the keel
     assert sub_show_width(B, FB) > B * 0.50
     p, axis, deck = sub_hull(L, B, FB, v=16, name="mid")
-    p += casing(L * 0.26, -L * 0.28, B * 0.50, deck - 0.06, walk=0.40)
+    p += casing(L * 0.26, -L * 0.30, B * 0.50, deck - 0.06, walk=0.38)
     top = deck - 0.06 + 0.42                                    # casing crown
     p += sail(L * 0.150, 3.0, 1.9, B * 0.34, deck, planes=False, masts=2)
     p += sub_fittings([L * 0.215, -L * 0.215], top, r=0.34, h=0.16, v=8)
@@ -1537,7 +1981,6 @@ def sub_midget():
                          rot=(R(90), 0, 0), v=10))
             p.append(cube((s * B * 0.44, L * 0.12, deck - 0.22), (0.55, 0.30, 0.75)))
             p.append(cube((s * B * 0.44, -L * 0.10, deck - 0.22), (0.55, 0.30, 0.75)))
-    p += aft_spine(L, B, axis, -L * 0.28, B * 0.32)
     p += stern_planes(L, B, axis, "cross")
     p += propulsor(L, B, axis, "screw")
     p.append(team_patch(-L * 0.055, top, 0.9, 1.5))
@@ -1546,6 +1989,76 @@ def sub_midget():
 
 
 # ══ aviation, amphibious, fleet train ══════════════════════════════
+# ══ capital-ship deck painting ═════════════════════════════════════
+# Three helpers used only by carrier(), amphibious_assault() and
+# fleet_oiler(). A capital ship's problem is the opposite of an escort's: it
+# has ACRES of deck and almost nothing standing on it, so the empty area is
+# not empty grey, it is 5 000 m2 of `body` camo checker. The fix is paint and
+# openings, not more boxes — see the note at the top on why detail inside the
+# `body` group does not read.
+def _stripe(x0, y0, x1, y1, z, w=1.20, t=0.16, group="deck", name="stripe"):
+    """One painted deck line between two deck points, as a flat bar.
+
+    The cheapest read in the file: one box, 188 triangles after the LOD0
+    bevel, in a material that is not the deck's. A 1.3 m line is 7 px on the
+    plan sheet and survives to the 130 px zoom copy as a change in the deck's
+    average tone, which is exactly what a real flight deck's markings do.
+
+    ON A LIGHT DECK, DO NOT GO BELOW ABOUT 1.2 m WIDE, and the reason is not
+    resolution. The LOD0 pipeline bakes an AO texture, and a 0.6 m bar lying
+    flat on a deck is all crevice — it bakes dark, so the first cut of the
+    carrier's tie-down grid came out as dark scratches on a light camo deck
+    instead of paint, while the 2.6 m catapult tracks in the same pass read
+    correctly light. Width, not the material's own brightness, separated them.
+    On the BLACK `gunbore` areas — the angled deck, the amphib's landing lane
+    — the constraint does not apply: the same AO darkening is invisible
+    against near-black, and the 0.75 m arrestor wires and the 0.90 m lane
+    centreline both read cleanly as light lines. Measured on both sheets."""
+    dx, dy = x1 - x0, y1 - y0
+    ln = math.hypot(dx, dy)
+    with mat(group):
+        return cube(((x0 + x1) / 2.0, (y0 + y1) / 2.0, z + t / 2.0),
+                    (w, ln, t), rot=(0, 0, math.atan2(-dx, dy)))
+
+
+def _deck_lift(x, y, z, w, l, name="lift"):
+    """A deck-edge aircraft lift: a light platform inside a dark well.
+
+    The platform on its own is a light rectangle on a camo deck and half of it
+    dissolves into the checker at any distance. The dark coaming round it is
+    what turns it into a hard-edged notch in the deck plan, and it is what the
+    real thing looks like — the well surround is unpainted deck."""
+    out = []
+    with mat("gunbore"):
+        out.append(cube((x, y, z + 0.10), (w + 2.6, l + 2.6, 0.46)))
+    with mat("deck"):
+        out.append(cube((x, y, z + 0.44), (w, l, 1.00)))
+    return out
+
+
+def _sponson(x_edge, y, z, out_w=5.6, l=12.0, brace=True, name="spn"):
+    """A deck-edge sponson: a platform hung off the ship's side below deck.
+
+    Every capital ship carries a row of them and no escort does, because an
+    escort's deck edge IS its hull side. They earn their triangles in PLAN for
+    a reason that has nothing to do with what stands on them: a 257-333 m
+    dead-straight deck edge is the least ship-like line in the roster, and
+    eight sponsons turn it into a dotted one."""
+    out = []
+    s = 1.0 if x_edge > 0 else -1.0
+    with mat("deck"):
+        out.append(cube((x_edge + s * out_w * 0.34, y, z + 0.35),
+                        (out_w, l, 0.70)))
+    if brace:
+        use("body")
+        for k in (-1, 1):
+            out.append(strut((x_edge, y + k * l * 0.33, z - 3.6),
+                             (x_edge + s * out_w * 0.66, y + k * l * 0.33,
+                              z + 0.10), 0.52))
+        use("body")
+    return out
+
+
 def carrier():
     """Nimitz CVN-68 — 332.8 m hull, 40.8 m at the waterline, 76.8 m across
     the flight deck, draught 11.3 m. The flight deck stands 19.6 m above the
@@ -1553,120 +2066,395 @@ def carrier():
     carrier towers over an escort whose deck is at 5.9 m.
 
     EXCLUSIVE FEATURE: the angled landing deck, four catapult tracks and four
-    deck-edge lifts. Both the angle and the lifts read from directly above,
-    which is the only view an RTS gets, and the amphib deliberately has
-    neither.
+    deck-edge lifts.
+
+    PASS 3 — WHAT WAS WRONG AND WHAT IT COST.
+
+      The angled deck was a SLIVER. It was a quad whose two ends were 3 m and
+      9 m apart in x, i.e. a tapering wedge about 6 m wide, on a ship whose
+      real landing area is 24 m wide and 240 m long. On the plan sheet it read
+      as a scratch. It is now a proper constant-width band, 24 m across, canted
+      9.1 degrees, laid out off ONE parameterised axis (A0, A1, AX) so the
+      wires, the foul lines and the two waist catapults cannot drift off it the
+      way three hand-typed polygons do.
+
+      The deck was EMPTY. Two-thirds of 24 000 m2 of flight deck carried
+      nothing, and because the deck is built in `body` that is not empty grey,
+      it is empty camo checker — the exact frequency the top of this file warns
+      about. A real flight deck is not empty either: it is covered in paint.
+      Paint costs 188 triangles a line here and it is in a different material
+      group, which is the only thing that reads. The deck now carries the
+      landing centreline, two foul lines, four cross-deck wires, four catapult
+      tracks with their shuttle slots, a deck-edge safety line round the whole
+      starboard side and bow, and tie-down bands in both parking areas.
+
+      The lifts were bare platforms. Each now sits in a dark well, so it is a
+      light rectangle with a hard dark border instead of a light rectangle
+      fading into checker.
+
+      The deck edge was a 333 m straight line. Eight sponsons now break it, and
+      the three CIWS and two Sea Sparrow boxes stand on them where they belong
+      instead of floating on the deck.
+
+      There was a FUNNEL. On a nuclear carrier. Removed — Nimitz has no
+      uptakes and no stack; the island is radar, exhaust-free, and taller than
+      it was. The top-silhouette break that the funnel was doing is now done by
+      a five-tier island and an 18 m masthead, which is what actually breaks a
+      carrier's outline.
+
+      The flight deck did not cover the bow. The hull's stem stood 2 m proud
+      of the deck plate and rendered as a grey spike ahead of the ship. The
+      deck now runs to L*0.502 and overhangs it, as the real bow does.
     """
     L, B, DECK_W, FD = 332.8, 40.8, 76.8, 19.6
+    HDW = DECK_W * 0.5
     p, fb = ship_hull(L, B, FD, bow=0.22, transom=0.94, deck=False)
     use("body")
-    p.append(plate([(-DECK_W * 0.30, L * 0.492), (DECK_W * 0.34, L * 0.300),
-                    (DECK_W * 0.50, -L * 0.100), (DECK_W * 0.50, -L * 0.500),
-                    (-DECK_W * 0.50, -L * 0.500), (-DECK_W * 0.50, L * 0.100),
-                    (-DECK_W * 0.42, L * 0.340)], 1.8, fb + 0.9, "flightdeck"))
+    FDECK = [(-HDW * 0.62, L * 0.452), (-HDW * 0.40, L * 0.502),
+             (HDW * 0.14, L * 0.502), (HDW * 0.54, L * 0.404),
+             (HDW * 0.82, L * 0.238), (HDW * 1.00, L * 0.030),
+             (HDW * 1.00, -L * 0.500), (-HDW * 1.00, -L * 0.500),
+             (-HDW * 1.00, -L * 0.040), (-HDW * 0.88, L * 0.196),
+             (-HDW * 0.74, L * 0.352)]
+    p.append(plate(FDECK, 1.8, fb + 0.9, "flightdeck"))
     fdz = fb + 1.8
-    with mat("gunbore"):                                # angled landing area
-        p.append(plate([(-DECK_W * 0.46, -L * 0.445), (-DECK_W * 0.05, L * 0.300),
-                        (-DECK_W * 0.17, L * 0.330), (-DECK_W * 0.50, -L * 0.425)],
-                       0.16, fdz + 0.08, "angledeck"))
-    with mat("deck"):                                   # four catapult tracks
-        for (x0, y0, x1, y1) in ((-DECK_W * 0.30, L * 0.44, -DECK_W * 0.22, L * 0.06),
-                                 (-DECK_W * 0.12, L * 0.44, -DECK_W * 0.05, L * 0.06),
-                                 (-DECK_W * 0.44, -L * 0.40, -DECK_W * 0.20, L * 0.16),
-                                 (-DECK_W * 0.33, -L * 0.42, -DECK_W * 0.09, L * 0.14)):
-            p.append(strut((x0, y0, fdz + 0.10), (x1, y1, fdz + 0.10), 0.55))
-        for k in range(4):                              # arrestor wires
-            p.append(cube((-DECK_W * 0.24, -L * 0.290 + k * 6.4, fdz + 0.10),
-                          (DECK_W * 0.44, 0.42, 0.10), rot=(0, 0, R(9))))
-    with mat("gunbore"):                                # jet blast deflectors
-        for (bx, by) in ((-DECK_W * 0.26, L * 0.395), (-DECK_W * 0.08, L * 0.395),
-                         (-DECK_W * 0.40, -L * 0.330)):
-            p.append(cube((bx, by, fdz + 0.9), (11.0, 1.1, 1.8), rot=(R(-32), 0, 0)))
-    isl_x = DECK_W * 0.375
+
+    isl_x = HDW * 0.800                     # starboard, hard against the edge
+
+    # ── the angled deck, laid out off one axis ─────────────────────
+    # A0 is the landing centreline where it meets the round-down, A1 where it
+    # runs out forward; 38.5 m of offset over 239 m is the real 9.1 degrees.
+    A0, A1, HW = (-25.5, -L * 0.487), (12.5, L * 0.232), 12.0
+    dl = math.hypot(A1[0] - A0[0], A1[1] - A0[1])
+    ux, uy = (A1[0] - A0[0]) / dl, (A1[1] - A0[1]) / dl
+    nx, ny = uy, -ux                       # unit normal, positive to starboard
+
+    def AX(d, off=0.0):
+        """A point d metres up the landing axis and off metres to starboard."""
+        return (A0[0] + ux * d + nx * off, A0[1] + uy * d + ny * off)
+
+    # The aft edge stops at -1.5 m, not -4.0. It is a canted edge, so its
+    # starboard corner runs further aft than its port one, and at -4.0 that
+    # corner stood 1.5 m past the transom — a black chip floating off the
+    # stern in plan. Measured on the export: y now ends at exactly -166.400.
+    with mat("gunbore"):
+        p.append(plate([AX(-1.5, -HW), AX(dl + 5.0, -HW),
+                        AX(dl + 5.0, HW), AX(-1.5, HW)],
+                       0.20, fdz + 0.02, "angledeck"))
+    # ONE height for every painted line on the ship. The first cut of this
+    # pass laid them at fdz + 0.34 on a deck whose top is fdz, so each line
+    # floated a third of a metre in the air and rendered as a light bar with
+    # its own shadow printed beside it. PAINT_Z clears the angled deck's top
+    # by 0.16 m and stands 0.10 m over the bare deck, which is a fifth of a
+    # pixel on the plan sheet and nothing at the game camera.
+    PAINT_Z = fdz + 0.10
+    p.append(_stripe(*AX(10.0), *AX(dl - 8.0), PAINT_Z, 1.10, 0.18))  # centre
+    for off in (-(HW - 1.5), HW - 1.5):                               # foul
+        p.append(_stripe(*AX(4.0, off), *AX(dl + 2.0, off),
+                         PAINT_Z, 0.90, 0.18))
+    for d in (46.0, 58.5, 71.0, 83.5):                                # wires
+        p.append(_stripe(*AX(d, -HW + 0.6), *AX(d, HW - 0.6),
+                         PAINT_Z, 0.75, 0.18))
+    p.append(_stripe(*AX(0.4, -HW + 0.4), *AX(0.4, HW - 0.4),
+                     PAINT_Z, 1.60, 0.18))                            # ramp
+
+    # ── four catapults: two on the bow, two on the waist ───────────
+    CATS = (((-25.0, L * 0.185), (-20.6, L * 0.470)),
+            ((-6.6, L * 0.185), (-2.6, L * 0.470)),
+            (AX(70.0, -16.0), AX(166.0, -16.0)),
+            (AX(70.0, -3.0), AX(166.0, -3.0)))
+    for (a, b) in CATS:
+        p.append(_stripe(a[0], a[1], b[0], b[1], PAINT_Z, 2.60, 0.18))
+        p.append(_stripe(a[0], a[1], b[0], b[1], PAINT_Z + 0.14, 0.70, 0.18,
+                         group="gunbore"))
+        with mat("gunbore"):                            # jet blast deflector
+            ang = math.atan2(-(b[0] - a[0]), b[1] - a[1])
+            p.append(cube((a[0] - (b[0] - a[0]) * 0.045,
+                           a[1] - (b[1] - a[1]) * 0.045, fdz + 1.20),
+                          (15.5, 1.5, 2.40), rot=(R(-30), 0, ang)))
+
+    # ── paint the parking areas, CLIPPED TO THE DECK ────────────────
+    # First cut hand-typed the band ends as fractions of the half-width, and
+    # on a deck whose starboard edge sweeps in from 1.00 to 0.54 of HDW over
+    # the forward third, a band that fits amidships hangs 8 m over open water
+    # at the bow. It rendered as five dark strokes lying on the sea. Both ends
+    # of every band are now solved against FDECK and against the angled deck's
+    # own edge lines, so a band exists only where there is deck to paint it on.
+    def deck_x(y):
+        """Port and starboard deck edge at this station, out of FDECK."""
+        xs = []
+        for i in range(len(FDECK)):
+            (x0, y0), (x1, y1) = FDECK[i], FDECK[(i + 1) % len(FDECK)]
+            if (y0 - y) * (y1 - y) < 0.0:
+                xs.append(x0 + (x1 - x0) * (y - y0) / (y1 - y0))
+        return (min(xs), max(xs)) if len(xs) >= 2 else (0.0, 0.0)
+
+    def ang_x(y, off):
+        """x where an angled-deck edge crosses this station, or None."""
+        e0, e1 = AX(-1.5, off), AX(dl + 5.0, off)
+        if not min(e0[1], e1[1]) <= y <= max(e0[1], e1[1]):
+            return None
+        return e0[0] + (e1[0] - e0[0]) * (y - e0[1]) / (e1[1] - e0[1])
+
+    for k in range(23):
+        yy = -L * 0.446 + k * 13.6
+        px_, sx_ = deck_x(yy)
+        if sx_ - px_ < 14.0:
+            continue
+        a, b = ang_x(yy, HW), ang_x(yy, -HW)
+        lo = max(px_ + 3.2, a + 3.0 if a is not None else -1e9)
+        hi = sx_ - 3.2
+        if -34.0 < yy < 4.0 and hi > isl_x - 7.0:       # keep off the island
+            hi = isl_x - 8.0
+        if hi - lo > 7.0:
+            p.append(_stripe(lo, yy, hi, yy, PAINT_Z, 1.30, 0.18))
+        lo2, hi2 = px_ + 3.2, min(sx_ - 3.2,
+                                  b - 3.0 if b is not None else 1e9)
+        if hi2 - lo2 > 7.0:
+            p.append(_stripe(lo2, yy, hi2, yy, PAINT_Z, 1.30, 0.18))
+    cx_ = sum(x for x, _ in FDECK) / len(FDECK)         # deck-edge safety line
+    cy_ = sum(y for _, y in FDECK) / len(FDECK)
+    for i in range(len(FDECK)):
+        (x0, y0), (x1, y1) = FDECK[i], FDECK[(i + 1) % len(FDECK)]
+        if y0 < -L * 0.47 and y1 < -L * 0.47:
+            continue                                    # not across the stern
+        ex, ey = x1 - x0, y1 - y0
+        el = math.hypot(ex, ey)
+        if el < 8.0:
+            continue
+        ix, iy = -ey / el, ex / el
+        if (cx_ - (x0 + x1) / 2.0) * ix + (cy_ - (y0 + y1) / 2.0) * iy < 0.0:
+            ix, iy = -ix, -iy
+        p.append(_stripe(x0 + ix * 3.0, y0 + iy * 3.0,
+                         x1 + ix * 3.0, y1 + iy * 3.0, PAINT_Z, 1.70, 0.18))
+
+    # ── island. No funnel: this ship is nuclear. ───────────────────
     sup, top = superstructure(-L * 0.045, fdz,
-                              ((34.0, 10.6, 8.0), (24.0, 9.0, 5.0, 1.0),
-                               (14.0, 7.4, 4.4, 1.6)), taper=0.94, x=isl_x,
+                              ((30.0, 11.0, 7.2), (25.0, 9.8, 5.0, 0.6),
+                               (19.0, 8.6, 4.6, 1.4), (13.5, 7.2, 4.2, 2.2),
+                               (9.0, 5.6, 3.6, 2.6)), taper=0.94, x=isl_x,
                               name="island")
     p += sup
-    p += funnel(isl_x, -L * 0.085, top - 6.0, 12.0, 8.2, 9.0, rake=6, uptakes=2)
-    p += lattice_mast(isl_x, -L * 0.050, top, 17.0, foot=3.2, head=1.0, bays=4,
-                      yards=((0.46, 12.0), (0.76, 7.6)), radome=2.2)
+    p.append(deckhouse(-L * 0.088, 9.0, 6.0, 4.4, fdz + 7.2, 0.90, "prifly",
+                       x=isl_x - 3.2))                  # pri-fly, hung aft
+    p += lattice_mast(isl_x, -L * 0.052, top, 18.0, foot=3.0, head=1.0,
+                      bays=4, yards=((0.42, 13.0), (0.72, 8.0)), radome=2.2,
+                      solid=True)
     for s in (-1, 1):
-        p += planar_array(isl_x - s * 4.6, -L * 0.045, top - 8.0, 4.2, 4.0,
+        p += planar_array(isl_x - s * 4.7, -L * 0.045, top - 9.0, 4.4, 4.2,
                           22, 90 + s * 40)
-    p += ciws(isl_x, -L * 0.115, fdz + 1.2, 1.15, aft=True)
-    p += ciws(-DECK_W * 0.46, -L * 0.470, fdz + 1.2, 1.15, aft=True)
-    p += ciws(DECK_W * 0.44, L * 0.300, fdz + 1.2, 1.15)
-    # Four deck-edge lifts. Sat on the deck EDGE line in the first cut, which
-    # put half of each 10.5 m platform over open water: they rendered as light
-    # rafts alongside the ship rather than as part of it. A raised lift is
-    # flush with the deck, so they are pulled inboard to overhang by 1.9 m,
-    # which is enough to notch the deck outline without detaching.
-    with mat("deck"):
-        LW = 10.5
-        for (lx, ly) in ((1, L * 0.180), (1, -L * 0.150),
-                         (1, -L * 0.330), (-1, L * 0.075)):
-            p.append(cube((lx * (DECK_W * 0.50 - LW * 0.5 + 1.9), ly,
-                           fdz - 0.25), (LW, 21.0, 1.1)))
+    p += air_search(isl_x, -L * 0.010, top - 4.4, 8.2, 3.2)
+    p += radome(isl_x - 3.6, -L * 0.070, top - 5.6, 2.0)
+    p += radome(isl_x + 3.4, -L * 0.070, top - 5.6, 2.0)
+
+    # ── deck-edge sponsons, and the guns that stand on them ────────
+    # Two things are solved here rather than typed, and both were bugs first.
+    #   The flight deck overhangs the 40.8 m hull by 18 m a side, so a sponson
+    #   hung at hull height floats in mid-air with nothing under it. They go
+    #   directly under the deck slab, which is where the real ones are.
+    #   The deck edge is only at HDW abaft L*0.030 — forward of that it sweeps
+    #   in to 0.54 of HDW. A sponson typed at s*HDW therefore sat 7 m clear of
+    #   the bow and rendered as a grey box floating on the sea beside the ship.
+    #   Every edge fitting below asks deck_x() where the edge actually is.
+    def edge(s, y):
+        return deck_x(y)[1] if s > 0 else deck_x(y)[0]
+
+    for (s, y) in ((1, L * 0.312), (1, L * 0.056), (1, -L * 0.212),
+                   (1, -L * 0.436), (-1, L * 0.150), (-1, -L * 0.086),
+                   (-1, -L * 0.296), (-1, -L * 0.472)):
+        p += _sponson(edge(s, y), y, fdz - 1.5, out_w=5.8, l=13.0, brace=False)
+    p += ciws(edge(1, L * 0.312) + 2.6, L * 0.312, fdz - 0.80, 1.15)
+    p += ciws(edge(-1, -L * 0.472) - 2.6, -L * 0.472, fdz - 0.80, 1.15,
+              aft=True)
+    p += ciws(isl_x, -L * 0.118, fdz + 1.2, 1.15, aft=True)
+    with mat("gunbore"):                                # Sea Sparrow boxes
+        for (s, y) in ((1, -L * 0.436), (-1, L * 0.150)):
+            p.append(cube((edge(s, y) + s * 2.6, y, fdz + 0.15),
+                          (3.6, 4.4, 1.9), rot=(R(-24), 0, 0)))
+
+    # ── four deck-edge lifts, each in a dark well ──────────────────
+    # They sat exactly on the deck edge line in pass 1, which put half of each
+    # 10.5 m platform over open water and rendered them as light rafts
+    # alongside the ship. A raised lift is flush with the deck, so each is
+    # pulled inboard to overhang by 1.9 m — off the edge WHERE IT IS at that
+    # station, not off HDW, which the forward starboard lift is 5 m inboard of.
+    for (sx, ly) in ((1, L * 0.180), (1, -L * 0.150),
+                     (1, -L * 0.330), (-1, L * 0.075)):
+        p += _deck_lift(edge(sx, ly) - sx * (5.25 - 1.9), ly,
+                        fdz - 0.75, 10.5, 21.0)
+
     with mat("gunbore"):                                # hangar-side openings
         for s in (-1, 1):
             for k in range(3):
                 p.append(cube((s * B * 0.50, L * 0.16 - k * L * 0.16, fb - 5.0),
                               (0.9, 22.0, 6.4)))
-    p.append(team_patch(-L * 0.470, fdz, 9.0, 11.0, x=-DECK_W * 0.20))
-    return p, ship_meta(L, DECK_W, fdz, top + 17.0, gun_y=0.0, gun_z=fdz + 2.0)
+    # +0.22: the ownership patch has to sit ABOVE PAINT_Z or the tie-down
+    # band that crosses it prints a dark line through the middle of the
+    # faction colour, which is what the amphib's did on the first render.
+    p.append(team_patch(-L * 0.462, fdz + 0.22, 9.0, 11.0, x=HDW * 0.62))
+    return p, ship_meta(L, DECK_W, fdz, top + 18.0, gun_y=0.0, gun_z=fdz + 2.0)
 
 
 def amphibious_assault():
     """Wasp LHD-1 — 257.3 m hull, 32.3 m at the waterline, 42.7 m across the
     flight deck, draught 8.1 m, flight deck 19.0 m above the sea.
 
-    EXCLUSIVE FEATURE: a full-length RECTANGULAR deck with painted landing
-    spots down the port side and an OPEN STERN WELL-DOCK GATE. No angle, no
-    catapults, no waist — which is exactly how you tell it from the carrier
-    from directly above, and the well dock is where the landing craft comes
-    from, so it is gameplay.
+    EXCLUSIVE FEATURE: a full-length RECTANGULAR landing lane with painted
+    spots down the port side, and an OPEN STERN WELL DOCK with the gate down.
+    No angle, no catapults, no waist — which is exactly how you tell it from
+    the carrier from directly above.
+
+    PASS 3 — THE TWO THINGS THAT WERE WEAK.
+
+      The six spots read, but nothing tied them together, so the amphib's plan
+      was six dots on 11 000 m2 of camo checker and the "no angle" claim was
+      being carried by an absence. It is now carried by a PRESENCE: a straight
+      dark lane 16 m wide runs the full 226 m of the deck with the six spots
+      painted in it as light rings. Set beside the carrier's canted band the
+      separating fact is now a positive one and it survives the zoom copy —
+      one dark stripe parallel to the hull against one dark stripe crossing it
+      at nine degrees.
+
+      The well dock was the weakest feature on the capital sheet, and the
+      reason is that it was built as an opening in the TRANSOM, which is a
+      vertical surface, and the sheet that matters looks straight down. A
+      vertical rectangle has no plan. So the gate is now DOWN: a 20 m ramp
+      lying out over the water 16 m abaft the transom, in `deck` against the
+      sea, flanked by the two body-coloured gate walls. It is the only hull in
+      the roster with anything projecting past its stern except the
+      minehunter's A-frame, and unlike a vertical door it is visible from
+      exactly the angle the game uses. That is also the gameplay statement —
+      it is where nav_e1_us_landingcraft comes from (docs/12).
     """
     L, B, DECK_W, FD = 257.3, 32.3, 42.7, 19.0
+    HDW = DECK_W * 0.5
     p, fb = ship_hull(L, B, FD, bow=0.24, transom=0.94, deck=False)
     use("body")
-    p.append(plate([(-DECK_W * 0.34, L * 0.480), (DECK_W * 0.34, L * 0.480),
-                    (DECK_W * 0.50, L * 0.300), (DECK_W * 0.50, -L * 0.500),
-                    (-DECK_W * 0.50, -L * 0.500), (-DECK_W * 0.50, L * 0.300)],
-                   1.6, fb + 0.8, "deck"))
+    FDECK = [(-HDW * 0.68, L * 0.480), (HDW * 0.68, L * 0.480),
+             (HDW * 1.00, L * 0.300), (HDW * 1.00, -L * 0.500),
+             (-HDW * 1.00, -L * 0.500), (-HDW * 1.00, L * 0.300)]
+    p.append(plate(FDECK, 1.6, fb + 0.8, "deck"))
     fdz = fb + 1.6
-    with mat("gunbore"):                                # nine landing spots
-        for k in range(6):
-            p.append(cyl((-DECK_W * 0.17, L * 0.340 - k * L * 0.132, fdz + 0.10),
-                         4.9, 0.16, v=20))
-    with mat("deck"):
-        for k in range(6):
-            p.append(cyl((-DECK_W * 0.17, L * 0.340 - k * L * 0.132, fdz + 0.16),
-                         3.7, 0.10, v=20))
-    isl_x = DECK_W * 0.345
+
+    isl_x = HDW * 0.760                     # starboard, hard against the edge
+
+    # ── the exclusive, part one: one STRAIGHT lane, six painted spots ──
+    # PAINT_Z: one height for every marking, 0.16 m proud of the lane and
+    # 0.10 m over the bare deck. See the note in carrier() — laying paint at
+    # +0.34 on a deck whose top is fdz floats every line and gives it a shadow.
+    LANE_X, LANE_W = -HDW * 0.330, 16.0
+    PAINT_Z = fdz + 0.10
+    with mat("gunbore"):
+        p.append(cube((LANE_X, -L * 0.031, fdz + 0.02),
+                      (LANE_W, L * 0.878, 0.20)))
+    for k in range(6):
+        sy = L * 0.340 - k * L * 0.132
+        with mat("deck"):
+            p.append(cyl((LANE_X, sy, fdz + 0.20), 4.90, 0.22, v=20))
+        with mat("gunbore"):
+            p.append(cyl((LANE_X, sy, fdz + 0.30), 3.70, 0.18, v=20))
+        p.append(_stripe(LANE_X, sy + 6.0, LANE_X, sy + 9.4,
+                         PAINT_Z, 0.70, 0.18))
+    p.append(_stripe(LANE_X, L * 0.400, LANE_X, -L * 0.452,
+                     PAINT_Z, 0.90, 0.18))                       # lane centre
+    for s in (-1, 1):                                            # lane edges
+        p.append(_stripe(LANE_X + s * (LANE_W * 0.5 - 1.1), L * 0.418,
+                         LANE_X + s * (LANE_W * 0.5 - 1.1), -L * 0.470,
+                         PAINT_Z, 0.80, 0.18))
+
+    # ── vehicle park paint to starboard, CLIPPED TO THE DECK ───────
+    def deck_x(y):
+        xs = []
+        for i in range(len(FDECK)):
+            (x0, y0), (x1, y1) = FDECK[i], FDECK[(i + 1) % len(FDECK)]
+            if (y0 - y) * (y1 - y) < 0.0:
+                xs.append(x0 + (x1 - x0) * (y - y0) / (y1 - y0))
+        return (min(xs), max(xs)) if len(xs) >= 2 else (0.0, 0.0)
+
+    for k in range(19):
+        yy = -L * 0.452 + k * 13.4
+        px_, sx_ = deck_x(yy)
+        lo, hi = LANE_X + LANE_W * 0.5 + 2.2, sx_ - 3.0
+        if -34.0 < yy < 12.0 and hi > isl_x - 7.0:      # keep off the island
+            hi = isl_x - 8.0
+        if hi - lo > 7.0:
+            p.append(_stripe(lo, yy, hi, yy, PAINT_Z, 1.30, 0.18))
+        lo2, hi2 = px_ + 3.0, LANE_X - LANE_W * 0.5 - 2.2
+        if hi2 - lo2 > 7.0:
+            p.append(_stripe(lo2, yy, hi2, yy, PAINT_Z, 1.30, 0.18))
+    cx_ = sum(x for x, _ in FDECK) / len(FDECK)         # deck-edge safety line
+    cy_ = sum(y for _, y in FDECK) / len(FDECK)
+    for i in range(len(FDECK)):
+        (x0, y0), (x1, y1) = FDECK[i], FDECK[(i + 1) % len(FDECK)]
+        if y0 < -L * 0.47 and y1 < -L * 0.47:
+            continue
+        ex, ey = x1 - x0, y1 - y0
+        el = math.hypot(ex, ey)
+        if el < 8.0:
+            continue
+        ix, iy = -ey / el, ex / el
+        if (cx_ - (x0 + x1) / 2.0) * ix + (cy_ - (y0 + y1) / 2.0) * iy < 0.0:
+            ix, iy = -ix, -iy
+        p.append(_stripe(x0 + ix * 3.0, y0 + iy * 3.0,
+                         x1 + ix * 3.0, y1 + iy * 3.0, PAINT_Z, 1.70, 0.18))
+
+    # ── island: longer and taller, twin stacks (this ship is not nuclear) ──
     sup, top = superstructure(-L * 0.030, fdz,
-                              ((46.0, 9.8, 7.4), (30.0, 8.4, 4.6, 1.2),
-                               (16.0, 6.8, 4.0, 1.8)), taper=0.94, x=isl_x,
-                              name="island")
+                              ((50.0, 10.4, 7.2), (38.0, 9.2, 4.8, 1.0),
+                               (26.0, 8.0, 4.4, 2.0), (16.0, 6.6, 4.0, 3.0)),
+                              taper=0.94, x=isl_x, name="island")
     p += sup
     for k in (-1, 1):
-        p += funnel(isl_x, -L * 0.010 + k * L * 0.055, top - 5.4, 11.0, 7.0,
-                    8.0, rake=6, name=f"fnl{k}")
-    p += lattice_mast(isl_x, -L * 0.062, top, 14.0, foot=2.8, head=1.0,
-                      bays=4, yards=((0.50, 10.0), (0.78, 6.4)), radome=1.9)
-    p += air_search(isl_x, -L * 0.098, top - 4.0, 7.4, 3.0)
-    p += ciws(isl_x, -L * 0.120, fdz + 1.2, 1.15, aft=True)
-    p += ciws(-DECK_W * 0.47, -L * 0.470, fdz + 1.2, 1.15, aft=True)
-    with mat("gunbore"):                                # the exclusive: the gate
-        p.append(cube((0, -L * 0.492, fb - FD * 0.42), (B * 0.66, 3.4, FD * 0.44)))
-        p.append(cube((0, -L * 0.455, fb - FD * 0.60), (B * 0.60, L * 0.09, 1.2)))
-    with mat("deck"):                                   # deck-edge lifts
-        LW = 9.5                                        # inboard: see carrier()
-        for (sx, ly) in ((-1, -L * 0.300), (1, -L * 0.130)):
-            p.append(cube((sx * (DECK_W * 0.50 - LW * 0.5 + 1.7), ly,
-                           fdz - 0.25), (LW, 18.0, 1.1)))
-    p.append(team_patch(-L * 0.460, fdz, 7.0, 8.4, x=DECK_W * 0.12))
-    return p, ship_meta(L, DECK_W, fdz, top + 14.0, gun_y=0.0, gun_z=fdz + 2.0)
+        p += funnel(isl_x, -L * 0.010 + k * L * 0.058, top - 6.4, 11.0, 7.2,
+                    9.0, rake=6, name=f"fnl{k}")
+    p += lattice_mast(isl_x, -L * 0.070, top, 15.0, foot=2.8, head=1.0,
+                      bays=4, yards=((0.48, 10.5), (0.76, 6.6)), radome=1.9,
+                      solid=True)
+    p += air_search(isl_x, -L * 0.104, top - 4.2, 7.4, 3.0)
+    p += radome(isl_x - 3.2, -L * 0.128, top - 5.2, 1.7)
+    p.append(deckhouse(-L * 0.072, 8.0, 5.4, 4.0, fdz + 7.2, 0.90, "prifly",
+                       x=isl_x - 3.0))
+
+    # ── the exclusive, part two: the stern gate DOWN ───────────────
+    GW = B * 0.62
+    with mat("gunbore"):                                # the well-dock mouth
+        p.append(cube((0, -L * 0.494, fb - FD * 0.44), (GW + 1.2, 3.6,
+                                                        FD * 0.50)))
+        p.append(cube((0, -L * 0.452, fb - FD * 0.62), (GW * 0.94, L * 0.10,
+                                                        1.4)))
+    with mat("deck"):                                   # the ramp, lying out
+        p.append(profile([(-L * 0.492, fb - FD * 0.46),
+                          (-L * 0.492, fb - FD * 0.46 - 1.2),
+                          (-L * 0.562, 0.10), (-L * 0.562, 1.30)],
+                         GW, "wellramp"))
+    use("body")
+
+    # ── deck-edge sponsons and the guns that stand on them ─────────
+    # Under the deck slab, not at hull height, and hung off the edge WHERE IT
+    # IS — this deck chamfers in to 0.68 of HDW over the forward 18 m, and the
+    # port sponson at L*0.316 stands in that chamfer. See the note in
+    # carrier(), where typing s*HDW put a sponson on open water.
+    def edge(s, y):
+        return deck_x(y)[1] if s > 0 else deck_x(y)[0]
+
+    for (s, y) in ((1, L * 0.246), (1, -L * 0.056), (1, -L * 0.392),
+                   (-1, L * 0.316), (-1, L * 0.010), (-1, -L * 0.402)):
+        p += _sponson(edge(s, y), y, fdz - 1.4, out_w=5.2, l=11.0, brace=False)
+    p += ciws(edge(1, L * 0.246) + 2.4, L * 0.246, fdz - 0.70, 1.15)
+    p += ciws(edge(-1, -L * 0.402) - 2.4, -L * 0.402, fdz - 0.70, 1.15,
+              aft=True)
+    p += ciws(isl_x, -L * 0.126, fdz + 1.2, 1.15, aft=True)
+    with mat("gunbore"):                                # RAM / Sea Sparrow
+        for (s, y) in ((-1, L * 0.316), (1, -L * 0.392)):
+            p.append(cube((edge(s, y) + s * 2.4, y, fdz + 0.20),
+                          (3.4, 4.0, 1.8), rot=(R(-24), 0, 0)))
+
+    # ── two deck-edge lifts, each in a dark well (see carrier()) ───
+    for (sx, ly) in ((-1, -L * 0.300), (1, -L * 0.130)):
+        p += _deck_lift(edge(sx, ly) - sx * (4.75 - 1.7), ly,
+                        fdz - 0.75, 9.5, 18.0)
+    p.append(team_patch(-L * 0.458, fdz + 0.22, 7.0, 8.4, x=HDW * 0.56))
+    return p, ship_meta(L, DECK_W, fdz, top + 15.0, gun_y=0.0, gun_z=fdz + 2.0)
 
 
 def landing_craft():
@@ -1676,7 +2464,45 @@ def landing_craft():
     does sit on the surface, so the skirt base is at z = 0 and the buoyancy
     boxes start 1.5 m up. Everything else in the roster floats in the sea.
 
-    EXCLUSIVE FEATURE: four ducted lift-fan shrouds on the after deck.
+    EXCLUSIVE FEATURE: four ducted lift-fan shrouds — two a side, standing
+    VERTICALLY on the roofs of the buoyancy boxes, plus the two big shrouded
+    propulsors at the stern. Nothing else in the roster shows a circle from
+    directly above, and four of them in a rectangle is the whole read.
+
+    DETAIL PASS, AND IT HAD BY FAR THE MOST ROOM (+4 692) BECAUSE IT WAS THE
+    LEAST FINISHED THING IN THE FILE. It was a slab, two side boxes, two raked
+    plates and four tubes, and from overhead it read as a grey brick.
+
+      THE CARGO WELL IS THE SHIP. An LCAC seen from above is a DARK open box
+      between two light side structures, and it was previously a LIGHT deck
+      cube between two dark ones — exactly inverted. The well floor is now
+      `gunbore` with light `deck` tie-down ribs across it, the same slab-and-
+      ribs trick vls() uses, and light coaming rails down both sides. That one
+      change is what makes a 27 m object identifiable at the small-craft zoom:
+      it is the only hull in the roster that is dark down the middle and light
+      down the sides.
+
+      BOTH RAMPS ACTUALLY OPEN. The bow and stern ramps were body-coloured
+      plates flush with the ends, indistinguishable from the hull. Each is now
+      a light `deck` ramp lying down over a `gunbore` opening, so the dark well
+      runs out through both ends of the craft and the two ramps are the widest
+      light bars on it.
+
+      A CAB, NOT A WINDOW. The starboard control cab is now a stepped two-tier
+      house with wrapped glass and a mast, and the port operator's cab is
+      built as its smaller mirror. Real LCACs are asymmetric that way and it
+      is the cheapest thing that stops the craft reading as a symmetrical
+      brick.
+
+      FOUR LIFT-FAN INTAKES ON TOP. The four ducts stay — they are the stated
+      exclusive — but they were fore-and-aft tubes buried in the side boxes,
+      i.e. invisible from the one camera that matters. Four dark intake wells
+      with light rims now sit on the ROOFS of the side boxes, two a side, and
+      they read in plan as four circles. The fore-and-aft ducts remain at the
+      stern, where they are the propulsors, with the shroud flipped to `deck`
+      so it stands off the dark side box instead of matching it.
+
+    THE WATERLINE EXCEPTION IS UNCHANGED: skirt base at z = 0.
     """
     L, B = 26.8, 14.3
     p = []
@@ -1687,31 +2513,62 @@ def landing_craft():
                     (B * 0.50, L * 0.20), (B * 0.50, -L * 0.44),
                     (-B * 0.50, -L * 0.44), (-B * 0.50, L * 0.20)],
                    1.6, 2.25, "lc_hull"))
-    with mat("deck"):                                   # cargo deck
-        p.append(cube((0, L * 0.02, 3.10), (B * 0.56, L * 0.62, 0.24)))
-    use("body")
-    p.append(cube((0, L * 0.455, 3.4), (B * 0.60, 2.6, 2.6), rot=(R(-34), 0, 0)))
-    p.append(cube((0, -L * 0.455, 3.4), (B * 0.56, 2.4, 2.4), rot=(R(34), 0, 0)))
     for s in (-1, 1):                                   # side buoyancy boxes
-        p.append(deckhouse(L * 0.02, L * 0.74, 3.0, 3.0, 3.05, 0.94,
+        p.append(deckhouse(L * 0.02, L * 0.74, 3.0, 2.6, 3.05, 0.94,
                            f"lc_side{s}", s * B * 0.365))
+    with mat("gunbore"):                                # the open cargo well
+        p.append(cube((0, 0.0, 3.16), (B * 0.52, L * 0.98, 0.36)))
+    with mat("deck"):                                   # tie-down ribs
+        for k in range(3):
+            p.append(cube((0, L * (0.30 - 0.28 * k), 3.36),
+                          (B * 0.52, 0.34, 0.16)))
+        for s in (-1, 1):                               # well coamings
+            p.append(cube((s * B * 0.281, 0, 3.60), (0.62, L * 0.98, 1.10)))
+    with mat("deck"):                                   # bow and stern ramps
+        p.append(cube((0, L * 0.475, 3.10), (B * 0.50, 3.6, 0.40),
+                      rot=(R(-26), 0, 0)))
+        p.append(cube((0, -L * 0.475, 3.10), (B * 0.46, 3.4, 0.40),
+                      rot=(R(24), 0, 0)))
+    use("body")                                         # ramp side cheeks
+    for s in (-1, 1):
+        p.append(cube((s * B * 0.275, L * 0.425, 3.60), (0.55, 3.6, 1.60)))
+    with mat("deck"):                                   # starboard control cab
+        p.append(cube((B * 0.365, L * 0.235, 6.40), (3.1, 4.4, 1.50)))
+        p.append(cube((B * 0.365, L * 0.245, 7.65), (2.5, 3.4, 1.00)))
     with mat("glass"):
-        p.append(cube((B * 0.365, L * 0.28, 5.5), (2.4, 2.6, 1.0)))
-    with mat("gun"):                                    # the exclusive: 4 fans
+        p.append(cube((B * 0.365, L * 0.303, 7.72), (2.2, 0.30, 0.66)))
         for s in (-1, 1):
+            p.append(cube((B * 0.365 + s * 1.16, L * 0.205, 7.72),
+                          (0.28, 1.9, 0.62)))
+    with mat("deck"):                                   # port operator's cab
+        p.append(cube((-B * 0.365, L * 0.255, 6.30), (2.7, 3.2, 1.30)))
+    with mat("glass"):
+        p.append(cube((-B * 0.365, L * 0.302, 6.45), (2.0, 0.30, 0.60)))
+    use("body")                                         # cab mast
+    p.append(cyl((B * 0.365, L * 0.075, 8.9), 0.22, 3.4, v=8))
+    with mat("gun"):
+        p.append(cube((B * 0.365, L * 0.075, 10.2), (2.6, 0.30, 0.26)))
+    with mat("deck"):                                   # the exclusive, seen in PLAN:
+        for s in (-1, 1):                               # four lift-fan intakes
             for k in range(2):
-                p.append(cyl((s * B * 0.365, -L * 0.10 - k * L * 0.24, 4.9),
-                             1.85, 2.10, rot=(R(90), 0, 0), v=16))
-                p.append(cyl((s * B * 0.365, -L * 0.10 - k * L * 0.24, 4.9),
-                             1.45, 2.30, rot=(R(90), 0, 0), v=12))
+                p.append(cyl((s * B * 0.365, L * (0.055 - 0.235 * k), 6.10),
+                             1.58, 0.90, v=14))
     with mat("gunbore"):
         for s in (-1, 1):
             for k in range(2):
-                p.append(cyl((s * B * 0.365, -L * 0.10 - k * L * 0.24 - 1.2, 4.9),
-                             1.30, 0.20, rot=(R(90), 0, 0), v=12))
-    p.append(team_patch(L * 0.02, 3.20, 2.6, 3.2))
+                p.append(cyl((s * B * 0.365, L * (0.055 - 0.235 * k), 6.14),
+                             1.14, 0.72, v=14))
+    with mat("deck"):                                   # stern propulsor shrouds
+        for s in (-1, 1):
+            p.append(cyl((s * B * 0.365, -L * 0.395, 5.05), 1.95, 2.30,
+                         rot=(R(90), 0, 0), v=16))
+    with mat("gunbore"):
+        for s in (-1, 1):
+            p.append(cyl((s * B * 0.365, -L * 0.395, 5.05), 1.52, 2.50,
+                         rot=(R(90), 0, 0), v=12))
+    p.append(team_patch(-L * 0.320, 3.36, 2.6, 3.2))
     use("body")
-    return p, ship_meta(L, B, 2.9, 6.6, gun_y=0.0, gun_z=4.9)
+    return p, ship_meta(L, B, 3.4, 10.6, gun_y=0.0, gun_z=5.0)
 
 
 def fleet_oiler():
@@ -1723,33 +2580,97 @@ def fleet_oiler():
     booms. They are the only masts in the fleet that are NOT on the
     centreline, and four tall verticals in a line down a long flat deck is
     unmistakable from any angle.
+
+    PASS 3 — THE OILER READ BEST OF THE THREE CAPITALS AND WAS STILL THE
+    EMPTIEST SHIP IN THE FILE, FOR A REASON WORTH WRITING DOWN.
+
+      The oiler is the file's one INVERTED ship. Every escort is a dark camo
+      hull with a light deck laid inside it, so the escort's deck features are
+      built dark and read as holes. The oiler's deck plate covers almost the
+      whole hull, so the oiler is a LIGHT ship, and a light deck fitting on it
+      is invisible. Everything added here is therefore dark — `gunbore` cargo
+      hatches, a `body` pipe gallery, `body` rig houses — which is the exact
+      opposite of what the carrier and the amphib needed twenty lines up.
+
+      The second thing, and it was silently eating the old deck fittings:
+      ship_hull(sheer=2.6) raises EVERYTHING forward of L*0.045 by 2.6 m, and
+      that is 45% of this hull. The five light tank-top discs of pass 2 sat at
+      fb + 0.80 and the forecastle deck over them is at fb + 2.82, so four of
+      the five were buried inside the forecastle and rendered as nothing —
+      the same class of bug as the destroyer's VLS farm inside its hangar.
+      There are now two deck levels in this function and every fitting states
+      which one it stands on. FCY and fcz are the break and the raised deck.
+
+      The rigs themselves were four bare poles. Each of the four now has a
+      transfer station round its foot: a dark rig house inboard, a light
+      sponson hung outboard past the hull line, and a fuel line running in to
+      the centreline gallery. That puts four notches in the hull outline at
+      exactly the stations the kingposts stand at, which ties the exclusive
+      feature to the silhouette instead of leaving it 17 m up in the air where
+      the plan view cannot see it.
     """
     L, B, FB = 206.5, 29.7, 8.0
     p, fb = ship_hull(L, B, FB, bow=0.24, transom=0.90, sheer=2.6)
+    FCY = L * 0.045                     # the forecastle break, from ship_hull
+    fcz = fb + 2.82                     # the raised forecastle deck surface
+    EDGE = B * 0.47                     # where the weather deck runs out
+
     sup, top = superstructure(-L * 0.360, fb,
                               ((34.0, 20.0, 7.0), (28.0, 17.0, 3.6),
                                (20.0, 13.0, 3.4), (13.0, 9.6, 3.2)),
                               taper=0.94)
     p += sup
+    with mat("deck"):                                   # bridge wings
+        for s in (-1, 1):
+            p.append(cube((s * 11.6, -L * 0.348, top - 3.0),
+                          (9.0, 4.6, 0.55)))
+            p.append(strut((s * 6.4, -L * 0.348, top - 5.6),
+                           (s * 15.0, -L * 0.348, top - 3.2), 0.42))
     p += funnel(0, -L * 0.435, top - 8.0, 13.0, 10.0, 11.0, rake=8)
     p += lattice_mast(0, -L * 0.395, top, 11.0, foot=2.8, head=1.0, bays=3,
-                      yards=((0.55, 9.0),), radome=1.6)
-    for s in (-1, 1):                                   # the exclusive
-        for y in (L * 0.175, -L * 0.055):
-            p += kingpost(s * 4.4, y, fb, 17.0, boom=12.0, side=s,
+                      yards=((0.55, 9.0),), radome=1.6, solid=True)
+
+    # ── the exclusive: four kingposts, each with a transfer station ──
+    # The forward pair stands on the forecastle, the after pair on the cargo
+    # deck 2.6 m lower — which is where those decks actually are on this hull.
+    for s in (-1, 1):
+        for (y, base) in ((L * 0.150, fcz), (-L * 0.075, fb)):
+            p += kingpost(s * 4.9, y, base, 17.0, boom=12.0, side=s,
                           name=f"kp{s}{y:.0f}")
-    with mat("deck"):                                   # tank tops and hatches
-        p.append(cube((0, L * 0.075, fb + 0.28), (B * 0.80, L * 0.50, 0.56)))
-        for k in range(5):
-            p.append(cyl((0, L * 0.275 - k * L * 0.105, fb + 0.80), 2.3, 0.72,
-                         v=16))
+            use("body")                                 # rig house, inboard
+            p.append(cube((s * 11.4, y, base + 1.85), (4.4, 7.4, 3.70)))
+            p += _sponson(s * EDGE, y, base - 0.6, out_w=5.0, l=9.0,
+                          brace=False)
+            with mat("gun"):                            # fuel line to the rig
+                p.append(cube((s * 10.0, y, base + 1.05), (6.4, 1.05, 1.05)))
+
+    # ── cargo deck: dark hatches and a dark pipe gallery on a light deck ──
+    with mat("gunbore"):
+        for k in range(5):                              # forecastle tank tops
+            p.append(cube((0.0, 20.0 + k * 14.0, fcz + 0.34),
+                          (7.4, 7.2, 0.68)))
+        for k in range(2):                              # cargo deck hatches
+            p.append(cube((0.0, -6.0 - k * 14.0, fb + 0.34),
+                          (7.4, 7.2, 0.68)))
+    use("body")                                         # cargo pipe galleries
+    for s in (-1, 1):
+        p.append(cube((s * 7.6, 45.0, fcz + 1.00), (3.0, 66.0, 2.00)))
+        p.append(cube((s * 7.6, -23.5, fb + 1.00), (3.0, 63.0, 2.00)))
+        p.append(cube((s * 7.6, FCY + 0.6, fb + 1.55), (3.0, 6.4, 3.10)))
+
     p += helipad(-L * 0.205, 15.0, 19.0, fb)
+    p.append(_stripe(-9.0, -L * 0.205, 9.0, -L * 0.205, fb + 0.30, 0.70, 0.18))
     for s in (-1, 1):
         p += boat_bay(s * B * 0.47, -L * 0.300, fb, l=8.4, h=3.2)
-    p += breakwater(L * 0.400, B * 0.60, fb + 2.6)
+    p += breakwater(L * 0.400, B * 0.60, fcz)
+    with mat("gunbore"):                                # anchor gear forward
+        for s in (-1, 1):
+            p.append(cube((s * 3.2, L * 0.452, fcz + 0.30), (2.4, 4.4, 0.60)))
+    with mat("gun"):
+        p.append(cyl((0, L * 0.428, fcz + 0.85), 1.55, 1.70, v=14))
     p += clutter(hull_planform(L, B, bow=0.24, transom=0.90, w=0.92), fb,
                  spacing=15.0, size=(1.2, 2.2, 0.95))
-    p.append(team_patch(L * 0.310, fb, 5.0, 6.0))
+    p.append(team_patch(-L * 0.140, fb, 5.0, 6.0))
     return p, ship_meta(L, B, fb, top + 11.0, gun_y=0.0, gun_z=fb + 1.0)
 
 
@@ -1760,36 +2681,86 @@ def mine_warfare():
     EXCLUSIVE FEATURE: a stern A-frame gantry with the sweep sled sitting
     under it on an open working deck. Nothing else has a frame standing over
     the transom, and the big empty after deck is itself a read.
+
+    DETAIL PASS. The A-frame was already there and it does read at the small
+    zoom, but everything under it was light-on-light: a `deck` working deck
+    laid on a `deck` weather deck, which is one material painted on itself and
+    therefore invisible. Three changes, and the first is the whole pass:
+
+      THE WORKING DECK IS NOW DARK. The after 40% of the hull is a `gunbore`
+      plate cut from the same hull_planform curve, so from directly overhead
+      the minehunter is a short fat light hull whose back half is BLACK. That
+      is a figure-ground inversion no other small craft has — the corvette's
+      dark patch is a 12 m helipad, this one is 27 m and runs to the transom —
+      and it cost 330 triangles, replacing a 188-triangle cube that did
+      nothing. Everything that works on that deck was flipped to light so it
+      now reads AGAINST the black instead of vanishing into grey: the mine
+      rails, the sweep sled and the acoustic floats.
+
+      TWO SWEEP-CABLE REELS. Big athwartships drums on the after deck, which
+      is what an Avenger actually has and what a warship never does. Light
+      drums on the black deck; they read at the small-craft zoom as a pair of
+      bars across the dark rectangle.
+
+      A QUARTER CRANE for the neutralisation vehicle, offset to starboard —
+      the only off-centreline boom in the small-craft band.
+
+    HULL. bow 0.28 -> 0.24, a bluffer entry. The brief asked for a hull that
+    reads tubby and the Avenger is genuinely a full-bodied 68.3 x 11.9 wooden
+    hull (L/B 5.7 against the corvette's 6.7); the fine 0.28 entry was flattering
+    it into a warship. Length, beam and freeboard are unchanged.
+
+    PAID FOR by clutter() at 14 m instead of 9 m and the mast at two bays
+    instead of three; the ship lands exactly on its 18 000 ceiling.
     """
     L, B, FB = 68.3, 11.9, 3.6
-    p, fb = ship_hull(L, B, FB, bow=0.28, transom=0.88, sheer=1.2)
-    sup, top = superstructure(L * 0.195, fb,
-                              ((21.0, 9.0, 5.4), (11.0, 6.8, 3.4, 1.0)),
-                              taper=0.88)
+    p, fb = ship_hull(L, B, FB, bow=0.24, transom=0.88, sheer=1.2)
+    sup, _top = superstructure(L * 0.195, fb,
+                               ((21.0, 9.0, 4.6), (13.0, 7.4, 3.0, 0.8),
+                                (7.0, 5.4, 2.6, 2.2)),
+                               taper=0.88)
     p += sup
-    p += lattice_mast(0, L * 0.105, top, 8.4, foot=2.2, head=0.8, bays=3,
+    p += lattice_mast(0, L * 0.140, fb + 7.6, 8.0, foot=2.2, head=0.8, bays=2,
                       yards=((0.52, 6.2),), radome=1.2)
-    p += funnel(0, L * 0.040, fb + 1.8, 5.6, 4.2, 5.0, rake=12, uptakes=1)
-    with mat("deck"):                                   # open working deck
-        p.append(cube((0, -L * 0.215, fb + 0.24), (B * 0.80, L * 0.40, 0.48)))
+    p += funnel(0, -L * 0.005, fb, 5.6, 4.2, 5.6, rake=12, uptakes=1)
+    wd = [(x, y) for (x, y) in hull_planform(L, B, bow=0.24, transom=0.88,
+                                             w=0.90) if y < -L * 0.030]
+    with mat("gunbore"):                                # the dark working deck
+        p.append(plate([(wd[0][0], -L * 0.030)] + wd + [(wd[-1][0], -L * 0.030)],
+                       0.30, fb + 0.15, "mcm_work"))
     p += gantry(-L * 0.450, fb, B * 0.72, 5.4, depth=3.4)   # the exclusive
-    with mat("gun"):                                    # the sweep sled
-        p.append(cube((0, -L * 0.395, fb + 1.1), (4.2, 5.0, 1.8)))
+    with mat("deck"):                                   # the sweep sled
+        p.append(cube((0, -L * 0.395, fb + 1.2), (4.2, 5.0, 1.8)))
         for s in (-1, 1):
-            p.append(cyl((s * 1.5, -L * 0.395, fb + 2.3), 0.55, 4.6,
+            p.append(cyl((s * 1.5, -L * 0.395, fb + 2.4), 0.55, 4.6,
                          rot=(R(90), 0, 0), v=10))
-    with mat("gunbore"):                                # mine rails
+    with mat("deck"):                                   # mine rails, light on black
         for s in (-1, 1):
-            p.append(cube((s * B * 0.26, -L * 0.230, fb + 0.55), (0.55, L * 0.34,
-                                                                  0.20)))
+            p.append(cube((s * B * 0.30, -L * 0.245, fb + 0.45),
+                          (0.95, L * 0.36, 0.30)))
+    with mat("deck"):                                   # two sweep-cable reels
+        for y in (-L * 0.135, -L * 0.235):
+            p.append(cyl((0, y, fb + 2.05), 1.85, B * 0.52,
+                         rot=(0, R(90), 0), v=12))
+    with mat("gunbore"):                                # reel end flanges
+        for y in (-L * 0.135, -L * 0.235):
+            for s in (-1, 1):
+                p.append(cube((s * B * 0.265, y, fb + 2.05), (0.40, 4.1, 4.1)))
+    use("body")                                         # quarter crane, starboard
+    p.append(cyl((B * 0.34, -L * 0.075, fb + 2.6), 0.60, 5.2, v=10, taper=0.7))
     with mat("gun"):
-        for k in range(3):
-            p.append(cyl((0, -L * 0.090 - k * 4.2, fb + 1.05), 1.05, 1.5, v=14))
+        p.append(cube((B * 0.34 - 3.4, -L * 0.075, fb + 4.6), (7.0, 0.50, 0.50)))
+        p.append(strut((B * 0.34, -L * 0.075, fb + 1.4),
+                       (B * 0.34 - 6.3, -L * 0.075, fb + 4.4), 0.26))
+    with mat("deck"):                                   # acoustic floats, abreast
+        for x in (-2.4, 0.0, 2.4):
+            p.append(cyl((x, -L * 0.300, fb + 1.05), 1.05, 1.5, v=12))
     p += gun_mount(L * 0.400, fb + 1.2, r=1.00, barrel_l=2.4)
-    p += clutter(hull_planform(L, B, bow=0.28, transom=0.88, w=0.88), fb,
-                 spacing=9.0, size=(0.9, 1.6, 0.75))
-    p.append(team_patch(-L * 0.060, fb, 2.8, 3.4))
-    return p, ship_meta(L, B, fb, top + 8.4, gun_y=L * 0.40, gun_z=fb + 2.4)
+    p += clutter(hull_planform(L, B, bow=0.24, transom=0.88, w=0.88), fb,
+                 spacing=14.0, size=(0.9, 1.6, 0.75))
+    p.append(team_patch(-L * 0.085, fb + 0.20, 2.8, 2.8))
+    use("body")
+    return p, ship_meta(L, B, fb, fb + 15.6, gun_y=L * 0.40, gun_z=fb + 2.4)
 
 
 # ══════════════════════════════════════════════════════════════════

@@ -186,12 +186,29 @@ func _initialize() -> void:
 	_c("a match reaches a winner", ends, end_detail, 3)
 
 	# ── 10. the bridge to something a person can look at ───────────
+	# LOAD it, do not merely look for the file.
+	#
+	# This check used to be `ResourceLoader.exists(path)` and it reported "ok"
+	# while game/scripts/skirmish.gd had a PARSE ERROR and the game could not
+	# start at all -- a variable redeclared in the same scope, so the script
+	# never compiled. A gate that confirms a file is present has confirmed
+	# nothing about whether a person can play.
 	var bridged := false
 	var bridge_detail := "nothing outside game/sim touches SimWorld"
-	for f in ["res://scripts/skirmish.gd", "res://scenes/skirmish.tscn"]:
-		if _has(f):
-			bridged = true
-			bridge_detail = "found " + f
+	if not _has("res://scenes/skirmish.tscn"):
+		bridge_detail = "res://scenes/skirmish.tscn missing"
+	else:
+		var packed := load("res://scenes/skirmish.tscn") as PackedScene
+		if packed == null:
+			bridge_detail = "skirmish.tscn exists but will not load"
+		else:
+			var inst := packed.instantiate()
+			if inst == null:
+				bridge_detail = "skirmish.tscn loaded but will not instantiate"
+			else:
+				bridged = true
+				bridge_detail = "scene loads and instantiates"
+				inst.queue_free()
 	_c("there is a scene a person can launch", bridged, bridge_detail, 3)
 
 	_report()

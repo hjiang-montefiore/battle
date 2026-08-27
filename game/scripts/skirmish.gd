@@ -134,9 +134,9 @@ func _capture() -> void:
 		_rig.position = Vector3(cx, _match.terrain.ground_under(cx, cz), cz)
 	_rig.set("_dist", 700.0)
 	_rig.call("_apply")
-	for i in _match.own_units(_me):
-		if _match.world.entities.is_structure[i] == 0:
-			_selected.append(i)
+	for unit in _match.own_units(_me):
+		if _match.world.entities.is_structure[unit] == 0:
+			_selected.append(unit)
 	_sync_proxies()
 	_project_tracks()
 	_refresh_panels(true)

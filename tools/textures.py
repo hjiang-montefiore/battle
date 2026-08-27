@@ -129,6 +129,14 @@ SCHEMES = {
                    (1.01, (0.30, 0.32, 0.35))], 131, 3),
     "air_white": ([(0.50, (0.66, 0.67, 0.68)),
                    (1.01, (0.74, 0.75, 0.76))], 141, 3),
+    # the stealth tier. The F-117A is painted matt black (FS 36081) and it is
+    # the only aircraft in the roster that is: from the fixed overhead camera
+    # tone is the cue that survives when the outline does not, and an F-117
+    # sits inside an F-15's bounding box at 94% nesting, so it has to win on
+    # something other than planform. Two bands 0.055 -> 0.090 against
+    # air_dark's 0.22 -> 0.30 and air_grey's 0.42 -> 0.52.
+    "air_black": ([(0.50, (0.055, 0.058, 0.065)),
+                   (1.01, (0.088, 0.092, 0.102))], 151, 3),
     # ground
     "terrain": ([(0.42, (0.32, 0.33, 0.24)),
                  (0.74, (0.38, 0.38, 0.28)),
