@@ -1921,6 +1921,53 @@ def sub_nuclear():
                         gun_z=deck + 1.0)
 
 
+def sub_ssbn():
+    """Ballistic missile submarine: OHIO class, 170.7 x 13.0 m, draught 11.8 m.
+
+    The last role in the entire roster with no model at all. docs/12 has listed
+    an SSBN from the beginning; nothing was ever built for it, so the strategic
+    deterrent rendered as a grey placeholder block.
+
+    EXCLUSIVE FEATURE, and deliberately the same trick as the 688i's:
+    TWENTY-FOUR missile tube caps in two rows of twelve. The attack boat beside
+    it carries twelve, in two rows of six, FORWARD of the sail. This one
+    carries double that number AFT of the sail, running 50 m down the back of
+    the boat. At any zoom where you can count hatches you can tell them apart;
+    at any zoom where you cannot, this boat is still half again as long --
+    170.7 m against 110.3.
+
+    That length is the silhouette: it is the longest submarine in the roster by
+    60 m, and docs/11's quieting ladder makes it the hardest thing in the game
+    to find. A player who is looking at one has already lost the ASW fight.
+
+    Same contrast reasoning as sub_nuclear(): the caps are LIGHT `deck` on a
+    near-black casing, because that boat was made invisible twice by putting
+    dark fittings on a dark spine and the lesson is written down there.
+    """
+    L, B, FB = 170.7, 13.0, 2.10          # published draught 11.8 m to the keel
+    assert sub_show_width(B, FB) > B * 0.44
+    p, axis, deck = sub_hull(L, B, FB, name="ssbn")
+    p += casing(L * 0.40, -L * 0.34, B * 0.44, deck - 0.12, walk=0.44)
+    top = deck - 0.12 + 0.42                                    # casing crown
+    p += sail(L * 0.255, 13.0, 6.6, B * 0.30, deck, planes=True, masts=3)
+
+    # The Sherwood Forest: two rows of twelve at 4.60 m pitch, starting aft of
+    # the sail's trailing edge (L*0.255 - 13.0 = 30.5 m) so no cap is buried
+    # under the fin, and stopping well clear of the stern taper.
+    with mat("deck"):
+        for s in (-1, 1):
+            for k in range(12):
+                p.append(cyl((s * 2.20, 24.0 - k * 4.60, top + 0.12),
+                             1.18, 0.24, v=12))
+    p += sub_fittings([L * 0.345, L * 0.155, -L * 0.315], top, r=0.72)
+    p += sub_towed_array(L, B, axis, L * 0.10, -L * 0.28, side=1)
+    p += stern_planes(L, B, axis, "cross")
+    p += propulsor(L, B, axis, "screw")
+    p.append(team_patch(-L * 0.375, top, 2.4, 3.4))
+    return p, ship_meta(L, B, deck, deck + 6.6 + 3.6, gun_y=L * 0.2,
+                        gun_z=deck + 1.0)
+
+
 def sub_aip():
     """Type 212A — 57.2 x 7.0 m, published draught 6.0 m; 1.30 m of hull
     proud when surfaced, showing 5.44 m wide in plan.
@@ -2927,6 +2974,8 @@ H.texture_features(
                    center=(s * 14.3 * 0.47, 0.5, 4.1), normal=(s, 0, 0),
                    size=2.2) for s in (-1, 1)])
 #         name                L      B    deck  number  sail y/h/w (+l)
+_sub_tex("sub_e3_us_ssbn",    170.7, 13.0, 2.10, "726", 43.5, 6.6, 3.9,
+         sail_l=13.0)
 _sub_tex("sub_e2_us_nuclear", 110.3, 10.1, 1.90, "688", 23.7, 5.8, 3.2,
          num_size=2.4, sail_l=11.6)
 _sub_tex("sub_e1_us_diesel",   62.0,  6.2, 1.20, "209", 12.4, 3.6, 2.2,
@@ -3174,6 +3223,7 @@ NAVY = [
     # panel speckle that read as stone masonry at a ship's 9 m camo tile.
     ("sub_e1_us_diesel",     sub_diesel,          "sub_dark"),
     ("sub_e2_us_nuclear",    sub_nuclear,         "sub_dark"),
+    ("sub_e3_us_ssbn",       sub_ssbn,            "sub_dark"),
     ("sub_e7_de_aip",        sub_aip,             "sub_dark"),
     ("sub_e1_kp_midget",     sub_midget,          "sub_dark"),
     ("nav_e1_us_carrier",    carrier,             "navy_haze"),

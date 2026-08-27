@@ -1447,6 +1447,88 @@ def stealth_strike():
 
 
 # ── enablers ───────────────────────────────────────────────────────
+def transport():
+    """Tactical airlifter: LOCKHEED C-130H HERCULES.
+
+    29.79 x 40.41 m, wing 162.1 m2, aspect ratio 10.1, four turboprops.
+
+    docs/12 has listed a transport aircraft since the roster existed and the
+    art pipeline never built one, so the role has been rendering as a grey
+    placeholder block the whole time. It was the only aircraft role left in
+    that state once the other twenty were wired up.
+
+    What identifies it from above, in the order the eye gets it:
+
+      1. THE WING IS STRAIGHT. Every other four-engined aircraft in this
+         roster -- B-52, E-3, KC-135 -- is swept 35 deg or more, so a
+         straight high-aspect wing with four propeller discs on it cannot be
+         confused with any of them. The P-3 is the only other prop aircraft
+         here and is 10 m shorter in span.
+      2. four discs 4.11 m across, standing well proud of the leading edge.
+      3. the fuselage is a BOX, not a tube: 4.12 m wide by 3.84 m deep at
+         sq 0.80, and near enough constant for 13.5 m of its length, because
+         its entire job is to hold a rectangular cargo bay. A C-130 drawn as
+         a circular section is drawn as an airliner.
+      4. the REAR RAMP upsweep -- 1.86 m over the last 6 m. It is what lets
+         vehicles drive out of the back, it is why the aeroplane looks like
+         it is sitting nose-down, and it is the strongest profile cue in the
+         class. loft() can state it because zc is free per station.
+    """
+    L, SPAN = 29.79, 40.41
+    p = [loft([(14.89, 0.12, 0.14, 0.10),
+               (14.30, 0.62, 0.72, 0.14),
+               (13.40, 1.20, 1.30, 0.16, 0.92),
+               (12.10, 1.68, 1.66, 0.10, 0.86),
+               (10.20, 1.96, 1.84, 0.04, 0.82),
+               (7.80, 2.06, 1.92, 0.00, 0.80),
+               (0.00, 2.06, 1.92, 0.00, 0.80),
+               (-5.70, 2.06, 1.92, 0.00, 0.80),
+               (-8.90, 1.98, 1.86, 0.12, 0.82),
+               (-11.40, 1.68, 1.56, 0.64, 0.86),
+               (-13.10, 1.16, 1.10, 1.22, 0.90),
+               (-14.40, 0.62, 0.60, 1.70),
+               (-14.90, 0.36, 0.36, 1.86)], v=22, name="c130_fus")]
+
+    # High wing, sitting ON the fuselage rather than through it, which is the
+    # other half of "vehicles drive out of the back": the cargo floor is clear.
+    p += wings(3.20, SPAN, 4.90, 2.50, 0.55, 0.62, 2.10, "w")
+    p += wings(-10.60, 16.05, 3.40, 1.90, 0.70, 0.44, 1.55, "h")
+    # Root chord 5.60 from -8.90, so the fin ENDS at -14.50 and the tailcone
+    # at -14.90 is still the aftmost thing on the aeroplane. At 6.60 from
+    # -9.40 it ran to -16.00 and made the aircraft 30.89 m against a
+    # published 29.79 -- a fin overhanging the tail by a metre.
+    p.append(fin(-8.90, 5.20, 5.60, 2.70, 3.20, 0.44, z=1.75))
+
+    use("deck")
+    for s in (-1, 1):
+        for x, le in ((4.60, 3.08), (8.55, 2.97)):
+            # Turboprop nacelle: CLOSED at the front, because a spinner and a
+            # propeller live there. turbofan() would be wrong -- an open cowl
+            # with a dark fan face is a jet, and putting four of them here
+            # would make this a four-JET transport, a different aeroplane.
+            nac = loft([(le + 2.10, 0.30, 0.34, 1.80),
+                        (le + 1.40, 0.52, 0.56, 1.80),
+                        (le - 0.60, 0.56, 0.60, 1.78),
+                        (le - 2.40, 0.48, 0.50, 1.76),
+                        (le - 3.30, 0.34, 0.34, 1.74)], v=14,
+                       name="c130_nac_%d_%d" % (s, int(x)))
+            nac.location.x = s * x
+            p.append(nac)
+            p += _prop(s * x, le + 2.30, 1.80, 4.11, blades=4, phase=12.0,
+                       chord=0.30, pitch=36.0)
+        # Main-gear blister fairings down the fuselage sides. On a C-130 the
+        # gear retracts into these rather than into the wing, so they are a
+        # real part of the plan view and not a detail.
+        p.append(cube((s * 2.10, -0.90, -0.90), (0.86, 7.20, 1.50)))
+    use("body")
+    p.append(dome((0, 12.30, 1.34), 1.10, 2.30, 0.62, v=18))     # flight deck
+    use("glass")
+    p.append(dome((0, 12.45, 1.40), 1.02, 2.14, 0.58, v=18))
+    use("body")
+    return p, dict(top=2.4, hull_l=L, hull_w=SPAN, turret_top=4.0,
+                   gun_z=1.0, gun_y=L * 0.30)
+
+
 def aewc():
     """Boeing E-3B Sentry, on the 707-320B airframe: 44.42 m span, 46.61 m
     long, wing area 283.4 m^2 (AR 6.96), leading edge swept 35 deg.
@@ -2306,6 +2388,7 @@ AIR = [
     ("tkr_e2_us_tanker",        tanker,             "air_white"),
     ("isr_e1_us_recon",         isr,                "air_dark"),
     ("mpa_e1_us_maritime",      maritime_patrol,    "air_white"),
+    ("air_e1_us_transport",     transport,          "air_camo"),
     ("hel_e3_us_attack",        attack_helo,        "helo_drab"),
     ("hel_e2_us_transport",     transport_helo,     "helo_drab"),
     ("hel_e2_us_asw",           asw_helo,           "air_grey"),
@@ -2532,6 +2615,16 @@ H.texture_features(          # KC-135: white top, blue markings
                 strength=0.85)],
     insignia=(_wingstars(10.0, -3.1, -0.30, 1.9, _BLUE, dz=0.06)
               + _sidestars(1.3, 6.6, 0.0, 1.35, _BLUE)))
+
+H.texture_features(          # C-130: tactical camo, low-vis markings
+    "air_e1_us_transport", size_class="aircraft", ao_ground="under",
+    groups=("body", "deck"), group_base={"deck": "camo"}, camo_scale=3.4,
+    panels=dict(spacing=1.9, strength=0.42, jitter=0.06, seams=0.45),
+    weathering=dict(edge_wear=dict(strength=0.35)),
+    tints=[dict(center=(0.0, 13.6, 0.0), radius=0.8, rgb=_RADOME_GREY,
+                strength=0.75)],
+    insignia=(_wingstars(7.6, 1.4, -0.28, 1.7, _LOWVIS, dz=0.06)
+              + _sidestars(1.2, -3.4, 0.4, 1.25, _LOWVIS)))
 
 H.texture_features(          # U-2: near-black, whisper-quiet markings
     "isr_e1_us_recon", size_class="aircraft", ao_ground="under",

@@ -162,8 +162,18 @@ func _suite_lineage_models() -> void:
 		not kp_tank.model_stem.contains("_us"), kp_tank.model_stem)
 
 	# A role with no art row at all resolves to "", the UI's blockout case.
+	#
+	# This used to use the oiler as its example, which stopped working the day
+	# the oiler got a model: every one of the 88 roles now resolves, so there
+	# is no longer a real role that demonstrates the fallback. Asserting it
+	# through an unknown key tests the same branch and cannot go stale the
+	# next time a gap is filled -- which is the point, because filling gaps is
+	# supposed to be a thing that keeps happening.
+	_ok("an unknown role resolves to the blockout",
+		SimFactionData.model_stem_for("not_a_real_role", RU, 4) == "")
 	var oiler := SimRoster.make("oiler", 4, RU)
-	_ok("a role without art resolves to the blockout", oiler.model_stem == "")
+	_ok("and the oiler, which used to be that example, now has art",
+		oiler.model_stem != "", oiler.model_stem)
 
 	# The stem must be a GLB actually on disk (resolution is checked against
 	# the directory listing, never assumed).

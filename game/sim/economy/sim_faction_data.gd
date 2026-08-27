@@ -129,6 +129,41 @@ const BASE_STEMS := {
 	"recon_uav": "uav_e5_us_recon",
 	"armed_uav": "uav_e6_us_armed",
 	"loitering_munition": "uav_e7_us_loiter",
+	"transport_aircraft": "air_e1_us_transport",
+
+	# SUBSURFACE. Five boats of art, five roles, and only the generic
+	# "submarine" row existed -- so every specific class drew a block.
+	"ssk": "sub_e1_us_diesel", "ssn": "sub_e2_us_nuclear",
+	"aip_sub": "sub_e7_de_aip", "midget_sub": "sub_e1_kp_midget",
+	"ssbn": "sub_e3_us_ssbn",
+
+	# The three auxiliaries the naval pass left out. They are not combatants,
+	# which is presumably why they were missed, but an oiler is what the fuel
+	# pillar is ABOUT and a mine warfare vessel is a whole doctrine.
+	"landing_craft": "nav_e1_us_landingcraft",
+	"mine_warfare": "nav_e1_us_minewarfare",
+	"oiler": "nav_e1_us_oiler",
+
+	# STRUCTURES. Nineteen buildings, nineteen models, not one row. Every
+	# base in the game -- the HQ you lose by losing, the airbase every
+	# aircraft above launches from, the refinery the economy runs on -- has
+	# been a grey block this whole time.
+	"hq": "bld_e4_us_hq", "power_plant": "bld_e4_us_power_plant",
+	"refinery": "bld_e4_us_refinery", "oil_derrick": "bld_e4_us_oil_derrick",
+	"barracks": "bld_e4_us_barracks",
+	"light_factory": "bld_e4_us_light_factory",
+	"heavy_factory": "bld_e4_us_heavy_factory",
+	"airbase": "bld_e4_us_airbase", "helipad": "bld_e4_us_helipad",
+	"naval_yard": "bld_e1_us_naval_yard",
+	"repair_depot": "bld_e4_us_repair_depot",
+	"supply_depot": "bld_e4_us_supply_depot",
+	"research_facility": "bld_e4_us_research_facility",
+	"bunker": "bld_e4_us_bunker",
+	"hardened_shelter": "bld_e4_us_hardened_shelter",
+	"fixed_radar": "bld_e4_us_fixed_radar",
+	"fixed_sam": "bld_e4_us_fixed_sam",
+	"ew_station": "bld_e4_us_ew_station",
+	"coastal_battery": "bld_e2_us_coastal_battery",
 }
 
 const UNITS_DIR := "res://assets/units"

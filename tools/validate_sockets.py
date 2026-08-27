@@ -127,7 +127,10 @@ ROLE_LIMITS = {
     # silos, bridges, airbases, radar arrays
     "str": ((16.0, 250), (2.5, 35), (1.9, 44)),
     # submarines
-    "sub": ((13.3, 168), (3.3, 24), (5.0, 28)),
+    # Ceiling raised from 168 for the Ohio SSBN at 170.7 m -- the longest
+    # submarine in the roster and 60 m longer than the SSN. 190 keeps the
+    # ~12 % headroom the other envelopes carry over their largest example.
+    "sub": ((13.3, 190), (3.3, 24), (5.0, 28)),
     # tanker
     "tkr": ((31, 67), (27, 58), (7.6, 17.2)),
     # unmanned
