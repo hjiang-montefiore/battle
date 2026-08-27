@@ -72,7 +72,10 @@ func solve(dt: float, tick: int = 0) -> void:
 	_jammers.clear()
 	_jnr_cache.clear()
 	for j in range(entities.count()):
-		if entities.is_alive(j) and entities.jammer_power[j] > 0.0:
+		# A jammer stowed in a transport's hold jams nothing (the carried-unit
+		# doctrine in sim_entities.gd: aboard = off the map).
+		if entities.is_alive(j) and not entities.is_aboard(j) \
+				and entities.jammer_power[j] > 0.0:
 			_jammers.append(j)
 
 	# Make sure every live faction has a table, in deterministic order.
@@ -86,6 +89,10 @@ func solve(dt: float, tick: int = 0) -> void:
 
 	for observer in range(entities.count()):
 		if not entities.is_alive(observer):
+			continue
+		# A unit aboard a transport does not sense: its sensors are stowed
+		# with it. It re-joins the picture the tick after it unloads.
+		if entities.is_aboard(observer):
 			continue
 		var obs_sensors: Array = entities.sensors.get(observer, [])
 		if obs_sensors.is_empty():
@@ -193,6 +200,10 @@ func _run_sensor(observer: int, sensor: SimSensorDef, table: SimTrackTable) -> v
 	_alt_cache = _sensor_altitude(observer, sensor)
 	for target in range(entities.count()):
 		if target == observer or not entities.is_alive(target):
+			continue
+		# A unit aboard a transport is not sensed -- it is off the map. Its
+		# existing tracks age out exactly as if it had gone silent.
+		if entities.is_aboard(target):
 			continue
 		if entities.faction[target] == own_faction:
 			continue   # own force is known, not detected

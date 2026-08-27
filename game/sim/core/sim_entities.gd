@@ -9,6 +9,13 @@ extends RefCounted
 ## Waypoints reserved per unit. See `path_x` below for why it is fixed.
 const MAX_PATH_POINTS := 32
 
+## Cargo slots reserved per unit, for the same reason MAX_PATH_POINTS is fixed:
+## a growable hold would allocate mid-fight and need a free list. 8 covers the
+## docs/12 transports (an APC carries a squad or two, a landing craft a
+## platoon); a hold that genuinely needs more is a stride bump here, not a new
+## data structure.
+const MAX_CARGO := 8
+
 # ── hot fields, swept every solve ────────────────────────────────────────────
 var pos_x := PackedFloat32Array()
 var pos_y := PackedFloat32Array()   ## metres above the surface -- drives horizon
@@ -113,6 +120,31 @@ var burn_combat_lpm := PackedFloat32Array()
 ## Buildings do not move and are captured or destroyed rather than killed.
 var is_structure := PackedInt32Array()
 
+# ── deployables, cargo and sorties (spine state) ─────────────────────────────
+## SimTypes.DeployState. Every unit has one; only deployable roles ever leave
+## MOBILE. Written by the deploy half of the transport system ONLY.
+var deploy_state := PackedInt32Array()
+## Seconds left in a DEPLOYING/UNDEPLOYING transition. Counted down by the
+## transport/deploy system in its slot; meaningless while MOBILE or DEPLOYED.
+var deploy_timer := PackedFloat32Array()
+## THE CARGO MODEL, both directions in O(1) and nothing hashed:
+##   carried_by[unit]  -> the transport it is aboard, -1 = on the map
+##   cargo_slots[t*MAX_CARGO + k], k < cargo_len[t] -> the units aboard t,
+##                                                     in boarding order
+## The two are kept consistent by board()/disembark()/kill() below, which are
+## the ONLY writers. See board() for what being aboard means.
+var carried_by := PackedInt32Array()
+var cargo_slots := PackedInt32Array()    ## stride MAX_CARGO, -1 = empty slot
+var cargo_len := PackedInt32Array()
+var cargo_capacity := PackedInt32Array() ## 0 = not a transport. Set at spawn
+## Where an aircraft recovers: a unit index (airbase, helipad, carrier,
+## amphib), -1 = none. Set at spawn by whoever spawns the aircraft; RE-set by
+## the sortie system when the field is lost and d_home recomputes to the next
+## nearest recovery point (docs/04, consequence 5).
+var home_base := PackedInt32Array()
+## SimTypes.SortieState. Written by the sortie system ONLY.
+var sortie_state := PackedInt32Array()
+
 ## index -> Array[SimSensorDef]
 var sensors: Dictionary = {}
 
@@ -197,6 +229,17 @@ func add(unit_name: String, p_faction: int, x: float, y: float, z: float,
 	burn_combat_lpm.append(0.0)
 	is_structure.append(0)
 
+	# deployables, cargo and sorties
+	deploy_state.append(SimTypes.DeployState.MOBILE)
+	deploy_timer.append(0.0)
+	carried_by.append(-1)
+	for _c in range(MAX_CARGO):
+		cargo_slots.append(-1)
+	cargo_len.append(0)
+	cargo_capacity.append(0)
+	home_base.append(-1)
+	sortie_state.append(SimTypes.SortieState.GROUNDED)
+
 	sensors[i] = unit_sensors
 	_count += 1
 	return i
@@ -223,6 +266,25 @@ func kill(i: int) -> void:
 	has_dest[i] = 0
 	path_len[i] = 0
 	path_cursor[i] = 0
+	# THE CARGO DIES WITH THE HULL. A carried unit is off the map with nowhere
+	# to bail out to, so a transport kill is a cargo kill -- recursively, for a
+	# loaded landing craft aboard an amphib. The hold is emptied FIRST so the
+	# recursion cannot re-enter it, and so a passenger's own kill() does not
+	# mutate a manifest that is mid-iteration.
+	if cargo_len[i] > 0:
+		var base := i * MAX_CARGO
+		var n := cargo_len[i]
+		cargo_len[i] = 0
+		for k in range(n):
+			var c := cargo_slots[base + k]
+			cargo_slots[base + k] = -1
+			if c >= 0 and alive[c] == 1:
+				kill(c)
+	# A dying passenger leaves its carrier's manifest; a passenger dying
+	# because the carrier is dying finds the manifest already emptied above.
+	if carried_by[i] >= 0:
+		_remove_cargo(carried_by[i], i)
+		carried_by[i] = -1
 
 
 func is_alive(i: int) -> bool:
@@ -295,9 +357,10 @@ func decay_transients(dt: float) -> void:
 				acoustic_transient_db[i] = 0.0
 
 
-## Is this unit radiating anything an ESM receiver could hear?
+## Is this unit radiating anything an ESM receiver could hear? A unit aboard a
+## transport is not: its sensors are stowed with it (see board()).
 func is_emitting(i: int) -> bool:
-	if emcon[i] == SimTypes.Emcon.SILENT:
+	if emcon[i] == SimTypes.Emcon.SILENT or carried_by[i] >= 0:
 		return false
 	if jammer_power[i] > 0.0:
 		return true
@@ -310,7 +373,7 @@ func is_emitting(i: int) -> bool:
 
 ## Total radiated power an ESM receiver sees, used for the one-way law.
 func emitted_power(i: int) -> float:
-	if emcon[i] == SimTypes.Emcon.SILENT:
+	if emcon[i] == SimTypes.Emcon.SILENT or carried_by[i] >= 0:
 		return 0.0
 	var p := 0.0
 	for s in sensors.get(i, []):
@@ -345,6 +408,15 @@ func emitted_power(i: int) -> float:
 #   owner .................... set at spawn; changed only on capture
 #   emcon, throttle, jammer_power, depth_m
 #                              orders / EW layer, as today
+#   deploy_state, deploy_timer
+#                              the transport/deploy system ONLY, in slot 3.5
+#   carried_by, cargo_slots, cargo_len
+#                              board() / disembark() / kill() ONLY -- called
+#                              from the transport slot, and kill() by SimDamage
+#   cargo_capacity ........... set once at spawn, by whoever spawns the unit
+#   home_base ................ set at spawn; re-set by the sortie system when
+#                              a recovery point is lost (docs/04)
+#   sortie_state ............. the sortie system ONLY, in slot 3.7
 #
 # Anything reading a field it does not own reads LAST TICK's value if it runs
 # before that owner's slot, and THIS tick's if it runs after. That is the whole
@@ -415,17 +487,28 @@ func lose_component(i: int, component: int) -> void:
 
 
 ## Can this unit shoot at all? A firepower kill and a catastrophic kill both
-## say no. Weapons must consult this before the docs/02 track-quality gate --
+## say no, and so does being aboard a transport -- cargo does not fight from
+## the hold. Whether a DEPLOYABLE may fire in its current deploy_state is the
+## deploy system's per-role knowledge and is deliberately NOT gated here: a
+## tank fires while MOBILE, towed artillery only while DEPLOYED.
+## Weapons must consult this before the docs/02 track-quality gate --
 ## "may I shoot?" has a mechanical half as well as an informational one.
 func can_fire(i: int) -> bool:
 	return alive[i] == 1 \
+		and carried_by[i] < 0 \
 		and not has_component_loss(i, SimTypes.Component.FIREPOWER) \
 		and not has_component_loss(i, SimTypes.Component.CATASTROPHIC)
 
 
-## Can this unit move under its own power? False when mobility-killed or dry.
+## Can this unit move under its own power? False when mobility-killed or dry,
+## when aboard a transport (the transport moves, the cargo rides), and in any
+## deploy state but MOBILE -- an emplaced battery must undeploy before it can
+## take a move order. SimMovement _halt()s a unit that fails this but KEEPS its
+## orders, so undeploying / unloading / refuelling lets the order resume.
 func can_move(i: int) -> bool:
 	return alive[i] == 1 and is_structure[i] == 0 \
+		and carried_by[i] < 0 \
+		and deploy_state[i] == SimTypes.DeployState.MOBILE \
 		and not has_component_loss(i, SimTypes.Component.MOBILITY) \
 		and max_speed_ms[i] > 0.0 \
 		and (fuel_capacity[i] <= 0.0 or fuel[i] > 0.0)
@@ -516,6 +599,154 @@ func set_mobility(i: int, p_max_speed_ms: float, p_accel_ms2: float,
 ## about which way a unit is facing.
 func heading_toward(i: int, x: float, z: float) -> float:
 	return atan2(x - pos_x[i], z - pos_z[i])
+
+
+# ── deployables, cargo and sorties ───────────────────────────────────────────
+#
+# WHAT BEING CARRIED MEANS -- the doctrine, in one place, implemented across
+# exactly four seams:
+#
+#   ALIVE, OFF THE MAP. carried_by[i] >= 0. The unit keeps its structure,
+#   components, fuel and orders; it is not a ghost, it is stowed.
+#
+#   NOT SENSED, AND NOT SENSING. The sensor solver skips a carried unit both
+#   as observer and as target, and is_emitting()/emitted_power() report
+#   nothing, so it feeds no track table and appears in none. Its OLD tracks
+#   age out exactly as if it had gone silent behind a hill.
+#
+#   NOT TARGETABLE. It produces no fresh tracks, so nothing can be ordered
+#   against it; a round already in flight toward it wastes itself
+#   (SimWorld._combat_slot discards arrivals on carried units). Killing the
+#   cargo means killing the transport.
+#
+#   NOT MOVING. can_move() and can_fire() are false; velocity is zeroed at
+#   boarding; its POSITION RIDES THE TRANSPORT -- SimWorld._integrate() snaps
+#   it to the carrier every tick, so an unload disgorges where the hull is.
+#
+#   IF THE TRANSPORT DIES, THE CARGO DIES. kill() cascades through the hold,
+#   nested holds included. No bail-out is modelled.
+#
+# board() and disembark() are STATE CHANGES, not orders: range checks, ramp
+# times and where the disgorged unit may legally stand belong to the transport
+# system that calls them from slot 3.5.
+
+## How many units a transport can hold. Clamped to the reserved stride; 0
+## (the default) means "not a transport".
+func set_cargo_capacity(i: int, capacity: int) -> void:
+	cargo_capacity[i] = clampi(capacity, 0, MAX_CARGO)
+
+
+func cargo_count(i: int) -> int:
+	return cargo_len[i]
+
+
+func cargo_space(i: int) -> int:
+	return cargo_capacity[i] - cargo_len[i]
+
+
+## The k-th unit aboard, in boarding order. -1 past the end.
+func cargo_at(i: int, k: int) -> int:
+	if k < 0 or k >= cargo_len[i]:
+		return -1
+	return cargo_slots[i * MAX_CARGO + k]
+
+
+## Everything aboard, in boarding order. A copy; mutating it changes nothing.
+func cargo_of(i: int) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var base := i * MAX_CARGO
+	for k in range(cargo_len[i]):
+		out.append(cargo_slots[base + k])
+	return out
+
+
+func is_aboard(i: int) -> bool:
+	return i >= 0 and i < _count and carried_by[i] >= 0
+
+
+## The hull actually on the map: a unit's outermost carrier, itself when it is
+## not aboard anything. Bounded walk, so a corrupted chain cannot hang a tick.
+func top_carrier(i: int) -> int:
+	var t := i
+	var guard := 0
+	while carried_by[t] >= 0 and guard < MAX_CARGO * 2:
+		t = carried_by[t]
+		guard += 1
+	return t
+
+
+## Put `unit` aboard `transport`. Validates STATE only -- both alive, the hold
+## has room, no self-load, no cycle (a transport cannot end up aboard its own
+## cargo). Proximity and boarding time are the transport system's to enforce
+## BEFORE calling this. Nesting is legal: a loaded landing craft may board an
+## amphib. Returns false when the state does not allow it.
+func board(transport: int, unit: int) -> bool:
+	if not is_alive(transport) or not is_alive(unit):
+		return false
+	if transport == unit or carried_by[unit] >= 0:
+		return false
+	if cargo_len[transport] >= cargo_capacity[transport]:
+		return false
+	# No cycles: walk up from the transport; finding `unit` above it means
+	# this load would swallow the carrier into its own cargo.
+	var t := transport
+	var guard := 0
+	while t >= 0 and guard < MAX_CARGO * 2:
+		if t == unit:
+			return false
+		t = carried_by[t]
+		guard += 1
+	cargo_slots[transport * MAX_CARGO + cargo_len[transport]] = unit
+	cargo_len[transport] += 1
+	carried_by[unit] = transport
+	# Off the map: stationary, destination and path dropped (the ORDER queue in
+	# SimMovement survives -- a queued move resumes after unloading). Writing
+	# these movement-owned fields here is sanctioned because slot 3.5 runs
+	# before the movement slot, which then sees a unit with nothing to do.
+	speed_ms[unit] = 0.0
+	vel_x[unit] = 0.0; vel_y[unit] = 0.0; vel_z[unit] = 0.0
+	clear_destination(unit)
+	return true
+
+
+## Take `unit` out of `transport` and place it at x/z. The caller chooses the
+## spot and is responsible for it being sane (passable, adjacent to the hull);
+## y is copied from the transport and the caller corrects it to the ground.
+## This position write is spawn-like placement, the same sanction
+## SimEconomy._place() has. Returns false when `unit` is not aboard `transport`.
+func disembark(transport: int, unit: int, x: float, z: float) -> bool:
+	if unit < 0 or unit >= _count or carried_by[unit] != transport:
+		return false
+	_remove_cargo(transport, unit)
+	carried_by[unit] = -1
+	set_position(unit, x, pos_y[transport], z)
+	return true
+
+
+## Drop one unit from a hold's manifest, preserving boarding order. Tolerant of
+## absence, because kill() empties a dying hold before its passengers die.
+func _remove_cargo(transport: int, unit: int) -> void:
+	var base := transport * MAX_CARGO
+	var n := cargo_len[transport]
+	var found := false
+	for k in range(n):
+		if found:
+			cargo_slots[base + k - 1] = cargo_slots[base + k]
+		elif cargo_slots[base + k] == unit:
+			found = true
+	if found:
+		cargo_slots[base + n - 1] = -1
+		cargo_len[transport] = n - 1
+
+
+## Where this aircraft recovers. -1 clears it -- a stranded aircraft is one
+## whose home_base is -1 or dead, and re-homing it is the sortie system's job.
+func set_home_base(i: int, base_unit: int) -> void:
+	home_base[i] = base_unit
+
+
+func home_base_of(i: int) -> int:
+	return home_base[i]
 
 
 # ── ownership and economy ────────────────────────────────────────────────────

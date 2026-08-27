@@ -29,11 +29,27 @@ const COL_ALLY := Color(0.45, 0.95, 0.60)
 const COL_SELECTED := Color(1.00, 0.95, 0.35)
 const COL_HOSTILE := Color(1.00, 0.36, 0.30)
 const COL_UNKNOWN := Color(0.95, 0.78, 0.30)
+## An emitting hostile close to our force: our ESM is being painted. Hotter
+## than plain hostile red so the tint reads as "this one is looking at you".
+const COL_ILLUM := Color(1.00, 0.58, 0.10)
+const COL_EMIT_RING := Color(1.00, 0.85, 0.25)
+const COL_SILENT_DOT := Color(0.45, 0.55, 0.62, 0.85)
 const COL_BAR_BG := Color(0.05, 0.05, 0.05, 0.75)
 const COL_PANEL := Color(0.04, 0.05, 0.06, 0.82)
+## Supply reach, painted on the ground -- the circle docs/04 reasons with.
+const COL_SUPPLY := Color(0.55, 0.88, 0.50, 0.75)
+## A full fuel tank. Distinct from the health greens so the two bars never
+## read as one stat.
+const COL_FUEL := Color(0.55, 0.75, 0.95)
+## Below this fraction of tank the fuel bar goes amber. The sim's own RTB
+## notion is combat_radius_m = 0.35 * range_remaining (get there, fight, get
+## back); a quarter tank is the point where that math says "go home now".
+## Presentation threshold only -- the sim never reads it.
+const FUEL_RESERVE_FRAC := 0.25
 
 # ── the simulation ───────────────────────────────────────────────────────────
 const GameAudioScript := preload("res://scripts/audio.gd")
+const MinimapScript := preload("res://scripts/minimap.gd")
 
 var _match: SimMatch
 var _audio: Node3D
@@ -69,9 +85,29 @@ var _placing_role := ""
 var _placing_problem := ""
 var _cursor_ground := Vector3.ZERO
 
+## Attack-move. A arms it; the next left click sends the selection there at
+## combat power, engaging what appears. Holding A while clicking works too.
+var _attack_move_armed := false
+
 ## Screen positions of the contacts we can currently see, rebuilt every frame
 ## so a right-click can be tested against them without a second projection.
 var _track_screen: Array = []          ## Array[{"id": int, "at": Vector2, ...}]
+
+## Picture MEMORY, presentation-side only: what the table said last frame, so
+## a change in the table -- a new contact, a lost one, a rung climbed -- can be
+## voiced and flashed. The sim keeps no such history because the sim does not
+## care; the player's ear does.
+var _known_tracks: Dictionary = {}     ## track id -> quality last frame
+var _track_flash: Dictionary = {}      ## track id -> when it appeared/upgraded (s)
+var _illuminating: Dictionary = {}     ## track id -> true while it paints us
+var _picture_primed := false           ## first frame seeds memory silently
+var _cue_contact_t := -10.0
+var _cue_lost_t := -10.0
+var _cue_rwr_t := -10.0
+
+## An emitting hostile inside this range of any own unit trips the RWR: close
+## enough that its radar almost certainly holds us, far enough to react.
+const ILLUM_WARN_M := 6000.0
 
 # ── HUD ──────────────────────────────────────────────────────────────────────
 var _overlay: Control
@@ -81,7 +117,14 @@ var _log_label: Label
 var _banner: Label
 var _build_box: VBoxContainer
 var _produce_box: VBoxContainer
+var _minimap: Control
 var _headless := false
+## Economy visibility: the amber refine-bottleneck line, the red capitulation
+## countdown, and the production-queue readout on the side panel.
+var _bottleneck_label: Label
+var _collapse_label: Label
+var _queue_label: Label
+var _queue_bar: ProgressBar
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -322,6 +365,7 @@ func _process(dt: float) -> void:
 	_sync_proxies()
 	_prune_selection()
 	_project_tracks()
+	_picture_tick()
 	_update_hud(dt)
 	if _overlay:
 		_overlay.queue_redraw()
@@ -515,6 +559,69 @@ func _project_tracks() -> void:
 			"at": cam.unproject_position(at3), "track": tr})
 
 
+## Compare the table against last frame's memory and voice the DIFFERENCE.
+## contact_new / track_lost / radar_warning are information, not ambience --
+## they fire on transitions, never on state, so holding forty contacts is
+## silent and gaining one is not. Reads the table and own-force state only.
+func _picture_tick() -> void:
+	if _match == null:
+		return
+	var table := _match.picture_for(_me)
+	var now_s := Time.get_ticks_msec() / 1000.0
+	var e := _match.world.entities
+	var own := _match.own_units(_me)
+	var seen: Dictionary = {}
+	for id in table.track_ids():
+		var tr := table.get_track(id)
+		if tr == null or tr.quality == SimTypes.TrackQuality.NONE:
+			continue
+		seen[id] = tr.quality
+
+		# ILLUMINATION. We may not read the enemy's table, but our own ESM
+		# hears their radar: an EMITTING hostile track close to our force is
+		# the honest RWR condition, and it is all SimTrack fields.
+		var threat := false
+		if tr.emitting and not tr.bearing_only:
+			for u in own:
+				var dx: float = e.pos_x[u] - tr.pos_x
+				var dz: float = e.pos_z[u] - tr.pos_z
+				if dx * dx + dz * dz < ILLUM_WARN_M * ILLUM_WARN_M:
+					threat = true
+					break
+		if threat:
+			if not _illuminating.has(id) and _picture_primed \
+					and now_s - _cue_rwr_t > 5.0:
+				_cue_rwr_t = now_s
+				if _audio != null:
+					_audio.flat("radar_warning", -3.0)
+			_illuminating[id] = true
+		else:
+			_illuminating.erase(id)
+
+		# TRANSITIONS. A new id is a new contact; a higher rung is an upgrade.
+		# Both flash; only the new contact speaks.
+		var prev: int = _known_tracks.get(id, -1)
+		if prev < 0:
+			_track_flash[id] = now_s
+			if _picture_primed and now_s - _cue_contact_t > 1.0:
+				_cue_contact_t = now_s
+				if _audio != null:
+					_audio.flat("contact_new", -8.0)
+		elif tr.quality > prev:
+			_track_flash[id] = now_s
+
+	for id in _known_tracks.keys():
+		if not seen.has(id):
+			_illuminating.erase(id)
+			_track_flash.erase(id)
+			if _picture_primed and now_s - _cue_lost_t > 1.0:
+				_cue_lost_t = now_s
+				if _audio != null:
+					_audio.flat("track_lost", -10.0)
+	_known_tracks = seen
+	_picture_primed = true
+
+
 func _track_at(screen: Vector2) -> int:
 	var best := -1
 	var best_d := TRACK_PICK_PX
@@ -554,6 +661,19 @@ func _unhandled_input(ev: InputEvent) -> void:
 			if _placing_role != "":
 				_try_place(_ground_point(mb.position))
 				return
+			# Attack-move: armed by A, or A held at the click -- the same
+			# gesture either way, one formation order at combat power.
+			if (_attack_move_armed or Input.is_key_pressed(KEY_A)) \
+					and not _selected.is_empty():
+				_attack_move_armed = false
+				_order_move_to(_ground_point(mb.position), true)
+				return
+			_attack_move_armed = false
+			if mb.double_click:
+				# Double-click: everything visible of the same role.
+				_dragging = false
+				_select_same_role(mb.position, Input.is_key_pressed(KEY_SHIFT))
+				return
 			_drag_from = mb.position
 			_dragging = true
 		elif _dragging:
@@ -566,6 +686,10 @@ func _unhandled_input(ev: InputEvent) -> void:
 		if _placing_role != "":
 			_placing_role = ""
 			_refresh_panels()
+			return
+		if _attack_move_armed:
+			_attack_move_armed = false
+			_flash("attack-move cancelled")
 			return
 		# Right-click with a FACTORY selected sets its rally point -- the Red
 		# Alert gesture. Units already in the selection still get move orders.
@@ -589,8 +713,17 @@ func _key(k: InputEventKey) -> void:
 			if _placing_role != "":
 				_placing_role = ""
 				_refresh_panels()
+			elif _attack_move_armed:
+				_attack_move_armed = false
+				_flash("attack-move cancelled")
 			else:
 				_selected.clear()
+		KEY_A:
+			# Arm attack-move for the next left click. A also pans the camera
+			# (WASD); a tap is a negligible nudge, and A+click never notices.
+			if not _selected.is_empty():
+				_attack_move_armed = true
+				_flash("ATTACK MOVE -- click the objective")
 		KEY_S:
 			for i in _selected:
 				_match.world.commands.stop(_me, i)
@@ -639,12 +772,29 @@ func _key(k: InputEventKey) -> void:
 		KEY_E:
 			pass    # camera rotate, handled by the rig
 		KEY_R:
-			# Radiate / go silent, docs/02 §7.1's one keypress.
+			# Radiate / go silent, docs/02 §7.1's one keypress. The flash is
+			# the immediate feedback; the pulse ring / dim dot in the overlay
+			# is the persistent one.
+			var to_silent := 0
+			var to_radiate := 0
 			for i in _selected:
-				var now: int = _match.world.entities.emcon[i]
-				var next := SimTypes.Emcon.SILENT if now == SimTypes.Emcon.RADIATE \
+				var cur: int = _match.world.entities.emcon[i]
+				var next := SimTypes.Emcon.SILENT if cur == SimTypes.Emcon.RADIATE \
 					else SimTypes.Emcon.RADIATE
+				if next == SimTypes.Emcon.SILENT:
+					to_silent += 1
+				else:
+					to_radiate += 1
 				_match.world.commands.set_emcon(_me, i, next)
+			if to_silent + to_radiate > 0:
+				if to_radiate == 0:
+					_flash("EMCON: %d unit%s going SILENT" % [to_silent,
+						"" if to_silent == 1 else "s"])
+				elif to_silent == 0:
+					_flash("EMCON: %d unit%s RADIATING" % [to_radiate,
+						"" if to_radiate == 1 else "s"])
+				else:
+					_flash("EMCON: %d radiating, %d silent" % [to_radiate, to_silent])
 		KEY_SPACE:
 			_paused = not _paused
 		KEY_TAB:
@@ -722,6 +872,8 @@ func _pick(screen: Vector2, additive: bool) -> void:
 			best = i
 	if best >= 0 and not _selected.has(best):
 		_selected.append(best)
+		if _audio != null:
+			_audio.flat("ui_select", -8.0)
 
 
 func _box_select(a: Vector2, b: Vector2, additive: bool) -> void:
@@ -730,6 +882,7 @@ func _box_select(a: Vector2, b: Vector2, additive: bool) -> void:
 	var r := Rect2(Vector2(minf(a.x, b.x), minf(a.y, b.y)), (b - a).abs())
 	var cam: Camera3D = _rig.camera()
 	var e := _match.world.entities
+	var grabbed := 0
 	for i in _match.own_units(_me):
 		# A marquee grabs the mobile force, not the base. Dragging a box over
 		# your own town centre and then right-clicking should not try to drive
@@ -741,6 +894,48 @@ func _box_select(a: Vector2, b: Vector2, additive: bool) -> void:
 			continue
 		if r.has_point(cam.unproject_position(at)) and not _selected.has(i):
 			_selected.append(i)
+			grabbed += 1
+	if grabbed > 0 and _audio != null:
+		_audio.flat("ui_select", -8.0)
+
+
+## Double-click: select everything of the clicked unit's ROLE that is on the
+## screen right now. "Visible" is literal -- in front of the camera and inside
+## the viewport -- so it grabs the tanks you are looking at, not the two spares
+## idling at home. Own units only, from ground truth we are entitled to.
+func _select_same_role(screen: Vector2, additive: bool) -> void:
+	var cam: Camera3D = _rig.camera()
+	var e := _match.world.entities
+	var best := -1
+	var best_d := 40.0
+	for i in _match.own_units(_me):
+		var at := Vector3(e.pos_x[i], e.pos_y[i] + 2.0, e.pos_z[i])
+		if cam.is_position_behind(at):
+			continue
+		var d := cam.unproject_position(at).distance_to(screen)
+		if d < best_d:
+			best_d = d
+			best = i
+	if best < 0:
+		if not additive:
+			_selected.clear()
+		return
+	var role := _match.world.economy.role_of(best)
+	if not additive:
+		_selected.clear()
+	var view := Rect2(Vector2.ZERO, get_viewport().get_visible_rect().size)
+	for j in _match.own_units(_me):
+		if _match.world.economy.role_of(j) != role:
+			continue
+		var at2 := Vector3(e.pos_x[j], e.pos_y[j] + 2.0, e.pos_z[j])
+		if cam.is_position_behind(at2):
+			continue
+		if view.has_point(cam.unproject_position(at2)) and not _selected.has(j):
+			_selected.append(j)
+	_flash("selected %d x %s" % [_selected.size(), role])
+	if _audio != null:
+		_audio.flat("ui_select", -8.0)
+	_refresh_panels()
 
 
 ## Right click. On a contact it is an attack order naming that TRACK; on the
@@ -752,8 +947,19 @@ func _order(screen: Vector2) -> void:
 	if tid >= 0:
 		for i in _selected:
 			_match.world.commands.attack_track(_me, i, tid)
+		if _audio != null:
+			_audio.flat("ui_order", -6.0)
 		return
-	var p := _ground_point(screen)
+	_order_move_to(_ground_point(screen))
+
+
+## The ground half of an order, shared by a right-click in the world, a
+## right-click on the minimap, and the attack-move gesture: one formation
+## order through the command queue. `attack` routes it as ATTACK_MOVE --
+## advance at combat power, engaging what appears.
+func _order_move_to(p: Vector3, attack := false) -> void:
+	if _selected.is_empty():
+		return
 	var units := PackedInt32Array()
 	for i in _selected:
 		units.append(i)
@@ -762,7 +968,37 @@ func _order(screen: Vector2) -> void:
 	for k in range(units.size()):
 		var sx: float = slots[k * 2] if slots.size() > k * 2 + 1 else p.x
 		var sz: float = slots[k * 2 + 1] if slots.size() > k * 2 + 1 else p.z
-		_match.world.commands.move(_me, units[k], sx, sz)
+		if attack:
+			_match.world.commands.attack_move(_me, units[k], sx, sz)
+		else:
+			_match.world.commands.move(_me, units[k], sx, sz)
+	if attack:
+		_flash("attack-moving %d unit%s" % [units.size(),
+			"" if units.size() == 1 else "s"])
+	if _audio != null:
+		_audio.flat("ui_order", -6.0)
+
+
+# ── minimap ──────────────────────────────────────────────────────────────────
+
+## Left-click on the minimap: put the camera there, seated on the ground the
+## way every other camera move is.
+func _fly_to(world: Vector2) -> void:
+	if _rig == null:
+		return
+	_rig.position = Vector3(world.x,
+		_match.terrain.ground_under(world.x, world.y), world.y)
+	_rig.call("_apply")
+
+
+## Right-click on the minimap: a move order for the selection to that world
+## point, through the exact path a right-click in the world takes.
+func _minimap_order(world: Vector2) -> void:
+	if _selected.is_empty():
+		return
+	# _order_move_to voices ui_order itself.
+	_order_move_to(Vector3(world.x,
+		_match.terrain.ground_under(world.x, world.y), world.y))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -815,11 +1051,37 @@ func _build_hud() -> void:
 	layer.add_child(_overlay)
 
 	_stats = _label(layer, Vector2(12, 8), 14)
+
+	# The refine bottleneck, top centre and amber, shown only while it exists:
+	# crude being pumped that no refinery can turn into credits is money on the
+	# ground, and the top-bar income number alone cannot say WHY it is low.
+	_bottleneck_label = _label(layer, Vector2.ZERO, 14)
+	_bottleneck_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_anchor(_bottleneck_label, 0.5, 0.0, -300.0, 8.0, 300.0, 30.0)
+	_bottleneck_label.add_theme_color_override("font_color", COL_UNKNOWN)
+	_bottleneck_label.visible = false
+
+	# The capitulation countdown. SimVictory gives a collapsed player 120 s to
+	# rebuild; a countdown buried in the stats block is not a warning.
+	_collapse_label = _label(layer, Vector2.ZERO, 24)
+	_collapse_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_anchor(_collapse_label, 0.5, 0.0, -430.0, 40.0, 430.0, 104.0)
+	_collapse_label.add_theme_color_override("font_color", COL_HOSTILE)
+	_collapse_label.visible = false
+
+	# The minimap owns the bottom-left corner; it anchors itself in setup().
+	_minimap = MinimapScript.new()
+	layer.add_child(_minimap)
+	_minimap.setup(_match, _me, _my_team, _rig)
+	_minimap.fly_to.connect(_fly_to)
+	_minimap.order_at.connect(_minimap_order)
+
 	# Anchored by hand rather than with a preset: set_anchors_preset() rewrites
 	# the offsets, so a position assigned afterwards is silently discarded and
-	# the panel ends up off the bottom of the screen.
+	# the panel ends up off the bottom of the screen. Shifted right of the
+	# minimap's 220 px.
 	_selection_info = _label(layer, Vector2.ZERO, 13)
-	_anchor(_selection_info, 0.0, 1.0, 12.0, -212.0, 620.0, -10.0)
+	_anchor(_selection_info, 0.0, 1.0, 246.0, -212.0, 854.0, -10.0)
 
 	_log_label = _label(layer, Vector2.ZERO, 12)
 	_anchor(_log_label, 1.0, 1.0, -700.0, -128.0, -256.0, -10.0)
@@ -857,6 +1119,22 @@ func _build_hud() -> void:
 		b.add_theme_font_size_override("font_size", 11)
 		b.pressed.connect(_on_tab.bind(name))
 		_tab_bar.add_child(b)
+
+	# The queue readout: what the factories are doing RIGHT NOW. The tabs above
+	# carry per-tab queued counts; this is the most-advanced job's progress.
+	# Updated every frame in _update_hud -- text and value only, no rebuild, so
+	# it cannot eat a click the way rebuilding the buttons would.
+	_queue_label = Label.new()
+	_queue_label.add_theme_font_size_override("font_size", 11)
+	_queue_label.add_theme_color_override("font_color", Color(0.80, 0.84, 0.80))
+	_queue_label.visible = false
+	col.add_child(_queue_label)
+	_queue_bar = ProgressBar.new()
+	_queue_bar.custom_minimum_size = Vector2(0, 10)
+	_queue_bar.show_percentage = false
+	_queue_bar.max_value = 1.0
+	_queue_bar.visible = false
+	col.add_child(_queue_bar)
 
 	_build_box = VBoxContainer.new()
 	col.add_child(_build_box)
@@ -1046,27 +1324,76 @@ func _update_hud(dt := 0.0) -> void:
 	lines.append("BATTLE -- %s      t+%s%s" % [
 		_match.terrain.name, _clock(_match.world.elapsed_s),
 		"   [PAUSED]" if _paused else ("   x%.0f" % _speed if _speed > 1.5 else "")])
-	lines.append("%.0f cr    +%.0f/min  -%.0f upkeep    power %.0f/%.0f    epoch %d%s" % [
+	# The docs/04 chain made visible: crude pumped, capped by refine capacity.
+	# When the cap binds, the line says so and the amber marker appears.
+	var choked := p.refine_capacity < p.extraction_per_min - 0.01
+	var econ := "%.0f cr    +%.0f/min  -%.0f upkeep    power %.0f/%.0f    epoch %d%s" % [
 		p.credits, p.income_per_min, p.upkeep_per_min,
 		p.power_supply, p.power_draw, p.epoch,
-		"  (advancing %.0f%%)" % (p.advance_progress * 100.0) if p.is_advancing() else ""])
+		"  (advancing %.0f%%)" % (p.advance_progress * 100.0) if p.is_advancing() else ""]
+	if choked:
+		econ += "    refining %.0f/%.0f" % [p.refine_capacity, p.extraction_per_min]
+	lines.append(econ)
+	if _bottleneck_label != null:
+		_bottleneck_label.visible = choked
+		if choked:
+			_bottleneck_label.text = ("REFINING %.0f/%.0f cr/min -- crude exceeds "
+				+ "refinery capacity") % [p.refine_capacity, p.extraction_per_min]
 	lines.append("%d units   %d structures   %d contacts held" % [
 		st.combat_units + st.other_units if st else 0,
 		st.structures if st else 0, _match.picture_for(_me).count()])
-	if st != null and st.is_collapsing():
+	# The player's OWN collapse is their truth and gets the red banner below.
+	# The ENEMY's collapse state is deliberately NOT shown: SimVictory.standing()
+	# counts the enemy's live production and supply structures from ground truth,
+	# which is exactly the information the track table exists to withhold. When
+	# they actually capitulate, the victory banner announces it -- that event is
+	# public; the countdown to it is not.
+	var collapsing := st != null and st.is_collapsing() and not _match.is_finished()
+	if collapsing:
 		lines.append("!! YOUR WAR MACHINE IS DESTROYED -- %.0f s to rebuild "
 			% st.seconds_left() + "production or supply")
-	var enemy := _match.standing(1 - _me if _match.setup.players.size() == 2 else 1)
-	if enemy != null and enemy.is_collapsing():
-		lines.append(">> %s is capitulating in %.0f s" % [enemy.name, enemy.seconds_left()])
+	if _collapse_label != null:
+		_collapse_label.visible = collapsing
+		if collapsing:
+			_collapse_label.text = ("WAR MACHINE DESTROYED -- CAPITULATION IN %d s\n"
+				+ "rebuild a production or supply structure") \
+				% int(ceil(st.seconds_left()))
 	if _placing_role != "":
 		lines.append("PLACING %s -- left click to site it, right click to cancel%s"
 			% [_placing_role, ("   [" + _placing_problem + "]") if _placing_problem else "   [clear]"])
+	if _attack_move_armed:
+		lines.append("ATTACK MOVE -- left click the objective; right click or ESC cancels")
 	lines.append("")
-	lines.append("WASD/edge pan · QE rotate · wheel zoom · LMB select · drag box "
-		+ "· RMB move or attack a contact")
-	lines.append("S stop · H hold fire · R radiate/silent · SPACE pause · TAB speed · F1 home")
+	lines.append("WASD/edge pan · QE rotate · wheel zoom · LMB select · double-click same type "
+		+ "· drag box · RMB move or attack a contact")
+	lines.append("A attack-move · S stop · X hold fire · R radiate/silent "
+		+ "· SPACE pause · TAB speed · H home")
 	_stats.text = "\n".join(lines)
+
+	# Production queue, made visible: each tab wears its queued count, and the
+	# most-advanced job gets a live progress bar under the tab row. queue_of()
+	# returns Job objects (def_key, role, progress()) for exactly this reason.
+	var jobs: Array = _match.world.economy.queue_of(_me)
+	var tab_count: Dictionary = {}
+	var top_job: SimEconomy.Job = null
+	for jv in jobs:
+		var j := jv as SimEconomy.Job
+		var jt: String = _tab_of(j.role, false)
+		tab_count[jt] = int(tab_count.get(jt, 0)) + 1
+		if top_job == null or j.progress() > top_job.progress():
+			top_job = j
+	if _tab_bar != null:
+		for ti in range(_tab_bar.get_child_count()):
+			var tb := _tab_bar.get_child(ti) as Button
+			var tc: int = int(tab_count.get(TABS[ti], 0))
+			tb.text = TAB_LABEL[TABS[ti]] + ((" %d" % tc) if tc > 0 else "")
+	if _queue_label != null:
+		_queue_label.visible = top_job != null
+		_queue_bar.visible = top_job != null
+		if top_job != null:
+			_queue_label.text = "producing %s  %d%%   (%d queued)" % [
+				top_job.role, int(top_job.progress() * 100.0), jobs.size()]
+			_queue_bar.value = top_job.progress()
 
 	var sel := PackedStringArray()
 	if _selected.is_empty():
@@ -1107,6 +1434,13 @@ func _describe_unit(i: int) -> String:
 		bits.append("HOLDING FIRE")
 	elif _match.world.weapons.is_engaging(i):
 		bits.append("engaging track %d" % _match.world.weapons.engagement_of(i))
+	if _match.world.movement.is_attack_moving(i):
+		bits.append("attack-moving")
+	# The EMCON stance, so R has a consequence you can READ as well as the
+	# pulse ring you can see. Only units with something to radiate get one.
+	if _could_emit(i):
+		bits.append("RADIATING" if e.emcon[i] == SimTypes.Emcon.RADIATE
+			else "EMCON SILENT")
 	return "  ".join(bits)
 
 
@@ -1132,7 +1466,12 @@ func _draw_overlay() -> void:
 		_overlay.draw_rect(r, Color(0.5, 0.95, 0.6, 0.9), false, 1.0)
 
 	# Own force: a bracket under everything selected, a damage bar over
-	# everything hurt. Nothing else, so the screen stays readable.
+	# everything hurt, and the unit's EMCON state -- because R with no visible
+	# consequence is a key that does not exist. A unit actually RADIATING gets
+	# an animated pulse ring (it is shouting, and everyone's ESM can hear it);
+	# an emitter-capable unit held SILENT gets a small dim dot. Units with
+	# nothing to radiate get neither, so the marks mean something.
+	var now_s := Time.get_ticks_msec() / 1000.0
 	for i in _match.world.entities.indices_of_faction(_my_team):
 		var at := Vector3(e.pos_x[i], e.pos_y[i], e.pos_z[i])
 		if cam.is_position_behind(at):
@@ -1141,35 +1480,99 @@ func _draw_overlay() -> void:
 		var mine := e.owner[i] == _me
 		if _selected.has(i):
 			_ring(sp, 13.0, COL_SELECTED)
+		if _could_emit(i):
+			if e.is_emitting(i):
+				var phase := fmod(now_s * 0.8 + float(i) * 0.213, 1.0)
+				var pc := COL_EMIT_RING
+				pc.a = (1.0 - phase) * 0.55
+				_overlay.draw_arc(sp, 9.0 + phase * 17.0, 0.0, TAU, 20, pc, 1.5)
+			elif e.emcon[i] == SimTypes.Emcon.SILENT:
+				_overlay.draw_circle(sp + Vector2(0, -14), 2.2, COL_SILENT_DOT)
 		var frac := e.structure_fraction(i)
 		if frac < 0.999:
 			_bar(sp + Vector2(0, -22), 30.0, frac, COL_ALLY if mine else COL_OWN)
 		elif not mine:
 			_overlay.draw_circle(sp, 2.5, COL_ALLY)
+		# Fuel, on everything SELECTED that carries a tank. Units genuinely
+		# strand dry in this game, so the tank is combat information: blue is
+		# fine, amber is "turn for home", red is a vehicle that no longer moves.
+		if _selected.has(i) and e.fuel_capacity[i] > 0.0:
+			_fuel_bar(sp + Vector2(0, -28), 30.0, e.fuel[i] / e.fuel_capacity[i])
+
+	# Supply reach, for anything selected that HAS one -- the invisible circle
+	# that decides docs/04, painted on the ground it applies to. A structure
+	# still under construction shows it dimmed: that is where the reach WILL be.
+	for i in _selected:
+		if not e.is_alive(i):
+			continue
+		var sup := _match.world.economy.def_of(i)
+		if sup == null or sup.supply_radius_m <= 0.0:
+			continue
+		var scol := COL_SUPPLY
+		if e.is_structure[i] == 1 and not _match.world.economy.is_operational(i):
+			scol.a *= 0.4
+		_ground_ring(cam, e.pos_x[i], e.pos_z[i], sup.supply_radius_m, scol)
 
 	_draw_picture(cam)
+
+	# The flash line: two seconds of feedback for a keyboard action.
+	if _flash_msg != "" and now_s < _flash_until:
+		var vp := _overlay.get_rect().size
+		_overlay.draw_string(ThemeDB.fallback_font,
+			Vector2(vp.x * 0.5 - 160.0, vp.y - 64.0), _flash_msg,
+			HORIZONTAL_ALIGNMENT_CENTER, 320.0, 15, Color(1, 1, 1, 0.92))
 
 	if _placing_role != "" and not _headless:
 		var sp := cam.unproject_position(_cursor_ground + Vector3(0, 3, 0))
 		var ok := _placing_problem == ""
 		_ring(sp, 22.0, COL_ALLY if ok else COL_HOSTILE)
+		# Siting a supply structure IS choosing what that circle covers, so the
+		# circle rides the cursor. Dim while the spot is invalid.
+		var pd := _match.world.economy.def_for(_me, _placing_role)
+		if pd != null and pd.supply_radius_m > 0.0:
+			var prc := COL_SUPPLY
+			if not ok:
+				prc.a *= 0.35
+			_ground_ring(cam, _cursor_ground.x, _cursor_ground.z,
+				pd.supply_radius_m, prc)
+
+	# Attack-move armed: the cursor wears a red reticle so the mode is visible
+	# at the point of decision, not just in the status text.
+	if _attack_move_armed and not _headless:
+		var mp := _overlay.get_local_mouse_position()
+		_ring(mp, 14.0, COL_HOSTILE)
+		for k in range(4):
+			var ang := TAU * 0.25 * float(k) + TAU * 0.125
+			var dir := Vector2(cos(ang), sin(ang))
+			_overlay.draw_line(mp + dir * 9.0, mp + dir * 19.0, COL_HOSTILE, 1.6)
+		_overlay.draw_string(ThemeDB.fallback_font, mp + Vector2(18, -12),
+			"ATTACK MOVE", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, COL_HOSTILE)
 
 
-## THE ENEMY, exactly as the simulation says you know it.
+## THE ENEMY, exactly as the simulation says you know it -- NATO symbology.
 ##
-##   FIRE_CONTROL  filled diamond -- you can shoot at this
-##   TRACK         hollow diamond -- position and velocity, guns only
-##   CONTACT       hollow circle  -- something is there
-##   bearing only  a line from your own sensor out along the bearing, with no
-##                 end, because there is no range in the data at all
-##
-## Nothing here reads an entity. Everything is a field of SimTrack.
+##   SHAPE is the believed domain, and you only get one when classification
+##   has reached CATEGORY -- before that, everything is a diamond:
+##     air         semicircle arc, open at the bottom
+##     surface     rectangle           ground   rectangle
+##     subsurface  U-shape, open at the top
+##     unknown     diamond
+##   FILL is track quality: CONTACT hollow, TRACK half, FIRE_CONTROL+ solid.
+##   ALPHA is age: a 30 s old plot is a memory and looks like one.
+##   A short leader points along the believed velocity, length by speed.
+##   A track that appeared or climbed a rung this frame flashes once.
+##   An EMITTING hostile close to our force is tinted COL_ILLUM: our ESM says
+##   that radar is painting us. All of it is SimTrack fields; nothing here
+##   reads an enemy entity.
 func _draw_picture(cam: Camera3D) -> void:
-	var e := _match.world.entities
+	var now_s := Time.get_ticks_msec() / 1000.0
 	for entry in _track_screen:
 		var tr := entry["track"] as SimTrack
+		var id := int(entry["id"])
 		var col := COL_HOSTILE if tr.classification >= SimTypes.Classification.CATEGORY \
 			else COL_UNKNOWN
+		if _illuminating.has(id):
+			col = COL_ILLUM
 		# Age fades a plot: a 30 s old contact is a memory, and it should look
 		# like one rather than like a live target.
 		col.a = clampf(1.0 - tr.age_s / 40.0, 0.30, 1.0)
@@ -1178,46 +1581,189 @@ func _draw_picture(cam: Camera3D) -> void:
 			continue
 		var at := entry["at"] as Vector2
 		var r := 9.0
-		match tr.quality:
-			SimTypes.TrackQuality.FIRE_CONTROL, SimTypes.TrackQuality.TERMINAL:
-				_diamond(at, r, col, true)
-			SimTypes.TrackQuality.TRACK:
-				_diamond(at, r, col, false)
-			_:
-				_overlay.draw_arc(at, r, 0.0, TAU, 18, col, 1.5)
+		var fill := _fill_of(tr.quality)
+		if tr.classification < SimTypes.Classification.CATEGORY:
+			_symbol_poly(_diamond_points(at, r), at, col, fill)
+		else:
+			match tr.category:
+				SimTypes.Category.AIR:
+					# Screen y grows downward, so PI..TAU is the TOP arc.
+					_symbol_arc(at, r, col, fill, PI, TAU)
+				SimTypes.Category.SUBSURFACE:
+					_symbol_arc(at, r, col, fill, 0.0, PI)
+				_:
+					_symbol_poly(_rect_points(at, r), at, col, fill)
+		_draw_leader(cam, tr, at, col)
 		if tr.emitting:
 			# Radiating: it can be seen a long way off and it can be shot at
 			# with an anti-radiation missile. Worth marking.
-			_overlay.draw_arc(at, r + 5.0, 0.0, TAU, 22, Color(1, 0.85, 0.2, col.a), 1.0)
+			_overlay.draw_arc(at, r + 5.0, 0.0, TAU, 22,
+				Color(COL_EMIT_RING, col.a), 1.0)
+		var flashed: float = _track_flash.get(id, -10.0)
+		var since := now_s - flashed
+		if since < 0.6:
+			var k := since / 0.6
+			_overlay.draw_arc(at, r + 3.0 + k * 14.0, 0.0, TAU, 24,
+				Color(1, 1, 1, (1.0 - k) * 0.9), 2.0)
+
+
+## CONTACT is a shape you cannot shoot, TRACK half-earns the fill, and
+## FIRE_CONTROL is solid -- the ladder, painted.
+func _fill_of(quality: int) -> int:
+	if quality >= SimTypes.TrackQuality.FIRE_CONTROL:
+		return 2
+	if quality == SimTypes.TrackQuality.TRACK:
+		return 1
+	return 0
+
+
+## A short line from the symbol along the BELIEVED velocity -- the track's
+## vel fields, which is what the sensors reported, not where the target went.
+## Length scales with speed. A picture without vectors is a photo.
+func _draw_leader(cam: Camera3D, tr: SimTrack, at: Vector2, col: Color) -> void:
+	var speed := Vector2(tr.vel_x, tr.vel_z).length()
+	if speed < 0.5:
+		return
+	# Project one second ahead with the same +4 m lift the plot itself uses,
+	# so the screen direction is the true projected direction on any slope.
+	var ahead := Vector3(tr.pos_x + tr.vel_x,
+		maxf(tr.pos_y + tr.vel_y, 0.0) + 4.0, tr.pos_z + tr.vel_z)
+	if cam.is_position_behind(ahead):
+		return
+	var dir := cam.unproject_position(ahead) - at
+	if dir.length_squared() < 0.01:
+		return
+	dir = dir.normalized()
+	var len_px := clampf(10.0 + speed * 0.55, 12.0, 40.0)
+	_overlay.draw_line(at + dir * 10.0, at + dir * (10.0 + len_px), col, 1.6)
 
 
 func _draw_bearing(cam: Camera3D, tr: SimTrack, col: Color) -> void:
-	# Draw it from our own unit that is nearest the reported bearing origin.
-	# The line has no end because the data has no range.
+	# Drawn FROM the own unit that is actually carrying a passive sensor named
+	# in the track's contributors -- the thing that heard it -- dashed, with no
+	# far end, because the data has no range in it at all.
 	var e := _match.world.entities
-	var own := _match.own_units(_me)
-	if own.is_empty():
+	var hearer := _hearing_unit(tr)
+	if hearer < 0:
 		return
-	var from3 := Vector3(e.pos_x[own[0]], e.pos_y[own[0]] + 3.0, e.pos_z[own[0]])
+	var from3 := Vector3(e.pos_x[hearer], e.pos_y[hearer] + 3.0, e.pos_z[hearer])
 	var out3 := from3 + Vector3(sin(tr.bearing_rad), 0.0, cos(tr.bearing_rad)) * 3000.0
 	if cam.is_position_behind(from3) or cam.is_position_behind(out3):
 		return
-	_overlay.draw_dashed_line(cam.unproject_position(from3),
-		cam.unproject_position(out3), col, 1.0, 9.0)
+	var a := cam.unproject_position(from3)
+	var b := cam.unproject_position(out3)
+	_overlay.draw_dashed_line(a, b, col, 1.0, 9.0)
+	# The classification guess rides the ray: passive sensors are BAD at
+	# position and GOOD at naming things, and the label is where that shows.
+	var what := _category_name(tr.category) \
+		if tr.classification >= SimTypes.Classification.CATEGORY else "unknown"
+	var label := "%s  brg %03d" % [what,
+		wrapi(int(round(rad_to_deg(tr.bearing_rad))), 0, 360)]
+	_overlay.draw_string(ThemeDB.fallback_font, a.lerp(b, 0.45) + Vector2(4, -4),
+		label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
+
+
+## Which of our units heard this bearing-only contact: the first own unit
+## whose passive sensor is named in the track's contributors. If several ESM
+## sets contributed the table does not record which cut is current, so the
+## first carrier is the honest best guess; own_units[0] is the fallback.
+func _hearing_unit(tr: SimTrack) -> int:
+	var e := _match.world.entities
+	var own := _match.own_units(_me)
+	if own.is_empty():
+		return -1
+	for u in own:
+		for s in e.sensors.get(u, []):
+			var sd := s as SimSensorDef
+			if sd.is_passive() and tr.contributors.has(sd.name):
+				return u
+	return own[0]
+
+
+## Does this unit have anything that COULD radiate? Only these units get an
+## EMCON mark at all, so the mark carries information instead of clutter.
+func _could_emit(i: int) -> bool:
+	var e := _match.world.entities
+	if e.jammer_power[i] > 0.0:
+		return true
+	for s in e.sensors.get(i, []):
+		var sd := s as SimSensorDef
+		if sd.emits and not sd.is_passive():
+			return true
+	return false
+
+
+static func _category_name(c: int) -> String:
+	match c:
+		SimTypes.Category.AIR: return "AIR"
+		SimTypes.Category.SURFACE: return "SURFACE"
+		SimTypes.Category.SUBSURFACE: return "SUB"
+	return "GROUND"
 
 
 func _ring(at: Vector2, r: float, col: Color) -> void:
 	_overlay.draw_arc(at, r, 0.0, TAU, 24, col, 1.6)
 
 
-func _diamond(at: Vector2, r: float, col: Color, filled: bool) -> void:
-	var pts := PackedVector2Array([
+# ── symbol geometry ──────────────────────────────────────────────────────────
+
+func _diamond_points(at: Vector2, r: float) -> PackedVector2Array:
+	return PackedVector2Array([
 		at + Vector2(0, -r), at + Vector2(r, 0),
 		at + Vector2(0, r), at + Vector2(-r, 0)])
-	if filled:
-		_overlay.draw_colored_polygon(pts, col)
-	else:
-		_overlay.draw_polyline(pts + PackedVector2Array([pts[0]]), col, 1.6)
+
+
+func _rect_points(at: Vector2, r: float) -> PackedVector2Array:
+	var hw := r * 1.15
+	var hh := r * 0.72
+	return PackedVector2Array([
+		at + Vector2(-hw, -hh), at + Vector2(hw, -hh),
+		at + Vector2(hw, hh), at + Vector2(-hw, hh)])
+
+
+## A closed symbol: fill per the quality ladder, then the outline.
+func _symbol_poly(pts: PackedVector2Array, at: Vector2, col: Color, fill: int) -> void:
+	_fill_symbol(pts, at, col, fill)
+	_overlay.draw_polyline(pts + PackedVector2Array([pts[0]]), col, 1.6)
+
+
+## An arc symbol -- air and subsurface. The NATO glyph is OPEN (no chord), so
+## the outline is just the arc; the fill closes across the chord implicitly.
+func _symbol_arc(at: Vector2, r: float, col: Color, fill: int,
+		a0: float, a1: float) -> void:
+	var pts := PackedVector2Array()
+	var n := 14
+	for k in range(n + 1):
+		var ang := a0 + (a1 - a0) * float(k) / float(n)
+		pts.append(at + Vector2(cos(ang), sin(ang)) * r)
+	_fill_symbol(pts, at, col, fill)
+	_overlay.draw_polyline(pts, col, 1.6)
+
+
+## fill 0 = hollow, 1 = the LEFT half (every symbol is symmetric about the
+## vertical axis, so a half-plane clip reads as exactly half), 2 = solid.
+func _fill_symbol(pts: PackedVector2Array, at: Vector2, col: Color, fill: int) -> void:
+	if fill <= 0:
+		return
+	var p := pts if fill >= 2 else _clip_left_of(pts, at.x)
+	if p.size() >= 3:
+		_overlay.draw_colored_polygon(p, col)
+
+
+## Sutherland-Hodgman against the half-plane x <= cx, treating pts as closed.
+func _clip_left_of(pts: PackedVector2Array, cx: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var n := pts.size()
+	for k in range(n):
+		var a := pts[k]
+		var b := pts[(k + 1) % n]
+		var a_in := a.x <= cx
+		var b_in := b.x <= cx
+		if a_in:
+			out.append(a)
+		if a_in != b_in and absf(b.x - a.x) > 0.0001:
+			out.append(a + (b - a) * ((cx - a.x) / (b.x - a.x)))
+	return out
 
 
 func _bar(at: Vector2, width: float, frac: float, full: Color) -> void:
@@ -1225,6 +1771,45 @@ func _bar(at: Vector2, width: float, frac: float, full: Color) -> void:
 	_overlay.draw_rect(r, COL_BAR_BG)
 	var col := full if frac > 0.6 else (COL_UNKNOWN if frac > 0.3 else COL_HOSTILE)
 	_overlay.draw_rect(Rect2(r.position, Vector2(width * frac, 4.0)), col)
+
+
+## The fuel gauge: thinner than the health bar so the pair never read as one
+## stat. Blue while comfortable, amber under the RTB reserve, red when dry --
+## and a dry tank still draws a sliver, because an empty bar looks like no bar.
+func _fuel_bar(at: Vector2, width: float, frac: float) -> void:
+	var r := Rect2(at - Vector2(width * 0.5, 1.5), Vector2(width, 3.0))
+	_overlay.draw_rect(r, COL_BAR_BG)
+	var col := COL_FUEL
+	if frac <= 0.001:
+		col = COL_HOSTILE
+	elif frac < FUEL_RESERVE_FRAC:
+		col = COL_UNKNOWN
+	_overlay.draw_rect(Rect2(r.position,
+		Vector2(width * clampf(maxf(frac, 0.03), 0.0, 1.0), 3.0)), col)
+
+
+## A circle painted ON the terrain -- supply reach follows the ground, not a
+## screen-space ellipse. Segments whose endpoints fall behind the camera are
+## simply skipped; the ring can be kilometres across and partly off screen.
+func _ground_ring(cam: Camera3D, cx: float, cz: float, radius: float,
+		col: Color) -> void:
+	var t := _match.terrain
+	var prev := Vector2.ZERO
+	var prev_ok := false
+	var n := 64
+	for k in range(n + 1):
+		var ang := TAU * float(k) / float(n)
+		var wx := cx + sin(ang) * radius
+		var wz := cz + cos(ang) * radius
+		var p3 := Vector3(wx, t.ground_under(wx, wz) + 2.0, wz)
+		if cam.is_position_behind(p3):
+			prev_ok = false
+			continue
+		var sp := cam.unproject_position(p3)
+		if prev_ok:
+			_overlay.draw_line(prev, sp, col, 1.4)
+		prev = sp
+		prev_ok = true
 
 
 # ═══════════════════════════════════════════════════════════════════════════

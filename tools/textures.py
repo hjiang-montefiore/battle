@@ -5,8 +5,15 @@ Run inside Blender (numpy and the image API both come bundled):
 
 Three schemes, which double as the faction-identification channel that
 docs/07-art-pipeline.md says silhouette CANNOT provide for same-role variants.
+
+TEXTURE PASS (2026-08): this module now also carries the per-unit COMPOSE
+pipeline — panel lines, weathering, insignia — that hero_models.py drives at
+build time. Everything is seeded and deterministic; nothing is downloaded.
+The compose inputs are world-space POSITION and NORMAL maps baked over the
+unit's unique `bake` UV, so every layer works in metres, not in UV space:
+a dust gradient is "the bottom 1.1 m", a decal is "0.9 m wide at this point".
 """
-import bpy, numpy as np, os
+import bpy, math, numpy as np, os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "art", "textures")
@@ -143,7 +150,464 @@ SCHEMES = {
                  (1.01, (0.44, 0.42, 0.32))], 44, 9),
 }
 
-print("generating textures...")
-for name, (bands, seed, res) in SCHEMES.items():
-    camo(name, bands, seed, res, panel=(name != "terrain"))
-print("done")
+
+# ════════════════════════════════════════════════════════════════════
+# THE COMPOSE PIPELINE — per-unit textures
+#
+# hero_models.apply_composed_texture() bakes, per material group,
+#     pos  (res,res,3)  world position in metres
+#     nrm  (res,res,3)  world unit normal
+#     ao   (H,W)        the existing AO bake (SURVIVES separately as the glTF
+#                       occlusionTexture — here it is only a MASK for wear)
+# over the unit's unique non-overlapping `bake` UV, then calls compose().
+# Layer order:  base camo -> tonal mottle -> panel lines -> weathering
+#               (dust / streaks / exhaust / edge wear) -> insignia.
+#
+# Stated resolution per unit size class:
+SIZE_CLASS = {"vehicle": 1024, "aircraft": 1024, "ship": 2048, "structure": 1024}
+# metres of world per camo tile, per size class (a ship's blotches are not
+# tank-sized):
+CAMO_SCALE = {"vehicle": 2.2, "aircraft": 2.8, "ship": 9.0, "structure": 3.0}
+UNIT_TEX_DIR = os.path.join(OUT, "units")
+
+
+def seed_of(name):
+    """Deterministic across processes — hash() is salted, this is not."""
+    return sum(ord(c) * (i + 11) for i, c in enumerate(name)) & 0x7FFFFFFF
+
+
+def load_png(name):
+    """art/textures/{name}.png -> float (H,W,3), values exactly as stored."""
+    img = bpy.data.images.load(os.path.join(OUT, f"{name}.png"),
+                               check_existing=True)
+    w, h = img.size
+    arr = np.array(img.pixels[:], dtype=np.float32).reshape(h, w, img.channels)
+    return arr[..., :3]
+
+
+def save_unit_png(name, rgb):
+    """Write art/textures/units/{name}.png and return the bpy image, ready to
+    plug straight into a material (the glTF exporter packs it)."""
+    os.makedirs(UNIT_TEX_DIR, exist_ok=True)
+    h, w = rgb.shape[:2]
+    old = bpy.data.images.get(name)
+    if old is not None:
+        bpy.data.images.remove(old)
+    img = bpy.data.images.new(name, w, h, alpha=False)
+    rgba = np.dstack([np.clip(rgb, 0, 1),
+                      np.ones((h, w, 1), np.float32)]).astype(np.float32)
+    img.pixels = rgba.ravel()
+    img.filepath_raw = os.path.join(UNIT_TEX_DIR, f"{name}.png")
+    img.file_format = "PNG"
+    img.save()
+    return img
+
+
+# ── samplers ────────────────────────────────────────────────────────
+def _sample_rgb(img, u, v):
+    """Bilinear, wrapping. img (H,W,3); u,v arrays in tile units."""
+    h, w = img.shape[:2]
+    x = (u % 1.0) * w; y = (v % 1.0) * h
+    x0 = np.floor(x).astype(np.int32) % w
+    y0 = np.floor(y).astype(np.int32) % h
+    x1 = (x0 + 1) % w; y1 = (y0 + 1) % h
+    fx = (x - np.floor(x))[..., None]; fy = (y - np.floor(y))[..., None]
+    return (img[y0, x0] * (1 - fy) * (1 - fx) + img[y1, x0] * fy * (1 - fx)
+            + img[y0, x1] * (1 - fy) * fx + img[y1, x1] * fy * fx)
+
+
+def _sample_gray(img, u, v):
+    return _sample_rgb(img[..., None], u, v)[..., 0]
+
+
+def _resize(arr, res):
+    h, w = arr.shape[:2]
+    if h == res and w == res:
+        return arr
+    ys = np.linspace(0, h - 1, res); xs = np.linspace(0, w - 1, res)
+    y0 = np.floor(ys).astype(int); x0 = np.floor(xs).astype(int)
+    y1 = np.minimum(y0 + 1, h - 1); x1 = np.minimum(x0 + 1, w - 1)
+    fy = (ys - y0)[:, None]; fx = (xs - x0)[None, :]
+    if arr.ndim == 3:
+        fy = fy[..., None]; fx = fx[..., None]
+    return (arr[y0][:, x0] * (1 - fy) * (1 - fx) + arr[y1][:, x0] * fy * (1 - fx)
+            + arr[y0][:, x1] * (1 - fy) * fx + arr[y1][:, x1] * fy * fx)
+
+
+def _wnoise(a, b, period, rng, octaves=3, base=4, res=256):
+    """Tileable fbm sampled by WORLD coordinates a,b at `period` metres."""
+    img = fbm(res, res, rng, octaves, base)
+    img = (img - img.min()) / (img.max() - img.min() + 1e-9)
+    return _sample_gray(img.astype(np.float32), a / period, b / period)
+
+
+def _project2d(pos, nrm):
+    """Dominant-axis planar coords (a,b) per texel + the axis id.
+
+    This is the numpy twin of the world-scale cube projection the blockouts
+    use for UV0 — it lets compose() lay the same camo down on the unique
+    unwrap without a diffuse bake."""
+    ax = np.argmax(np.abs(nrm), axis=-1)
+    a = np.where(ax == 0, pos[..., 1], pos[..., 0])
+    b = np.where(ax == 2, pos[..., 1], pos[..., 2])
+    return a.astype(np.float32), b.astype(np.float32), ax
+
+
+def _texel_size(pos, valid):
+    """Median metres-per-texel — needed so line widths hold at any res."""
+    d = np.linalg.norm(np.diff(pos, axis=1), axis=-1)
+    vv = valid[:, 1:] & valid[:, :-1]
+    d = d[vv & (d > 1e-7)]
+    if d.size == 0:
+        return 0.01
+    return float(np.median(d))
+
+
+def _seam_mask(pos, texel, k=4.0):
+    """Texels where world position JUMPS between neighbours: unwrap island
+    borders — which smart_project cuts at hard angles, i.e. at the real
+    plate boundaries of the model. Free panel lines along natural seams."""
+    m = np.zeros(pos.shape[:2], bool)
+    j = np.linalg.norm(np.diff(pos, axis=0), axis=-1) > k * texel
+    m[:-1] |= j; m[1:] |= j
+    j = np.linalg.norm(np.diff(pos, axis=1), axis=-1) > k * texel
+    m[:, :-1] |= j; m[:, 1:] |= j
+    return m
+
+
+# ── layers ──────────────────────────────────────────────────────────
+def panel_lines(pos, nrm, a, b, ax, texel, spacing=1.6, strength=0.5,
+                jitter=0.10, seams=0.55, seed=0):
+    """Multiplicative field: per-panel value shifts + darkened seams.
+
+    Two sources: a world-space panel grid (`spacing` metres, hashed per cell
+    for the value shift — this is what makes a big flat plate read as built
+    from plates), and the geometry seam mask (island borders = real part
+    outlines)."""
+    sp2 = spacing * 0.72
+    ia = np.floor(a / spacing).astype(np.int64)
+    ib = np.floor(b / sp2).astype(np.int64)
+    h = (ia * 73856093) ^ (ib * 19349663) ^ (ax.astype(np.int64) * 83492791) \
+        ^ np.int64(seed)
+    r = (h & 0xFFFF).astype(np.float32) / 65535.0
+    field = 1.0 + (r - 0.5) * 2 * jitter
+
+    fa = a / spacing - ia; fb_ = b / sp2 - ib
+    d = np.minimum(np.minimum(fa, 1 - fa) * spacing,
+                   np.minimum(fb_, 1 - fb_) * sp2)
+    wline = max(texel * 2.6, 0.02)
+    line = np.clip(1 - d / wline, 0, 1)
+    field = field * (1 - strength * 0.75 * line ** 1.5)
+
+    field = field * np.where(_seam_mask(pos, texel), 1 - strength * seams, 1.0)
+    return field.astype(np.float32)
+
+
+def dust_gradient(pos, nrm, a, b, rng, zmin=0.0, height=1.2,
+                  strength=0.45, tint=(0.45, 0.40, 0.31)):
+    """Factor field for dust rising from the running gear. Blend to `tint`."""
+    z = pos[..., 2]
+    f = np.clip(1.0 - (z - zmin) / height, 0, 1) ** 1.5
+    m = _wnoise(a, b, max(height * 1.7, 0.5), rng, octaves=3, base=6)
+    f = strength * f * (0.45 + 0.75 * m)
+    f = np.where(nrm[..., 2] < -0.5, f * 0.25, f)   # not on the belly
+    return np.clip(f, 0, 1).astype(np.float32)
+
+
+def rust_streaks(pos, nrm, a, rng, z0, length=7.0, density=0.35,
+                 strength=0.5, tint=(0.30, 0.22, 0.16)):
+    """Vertical grime/rust columns running DOWN from z0 (a ship's deck edge,
+    scupper line). Sparse columns keyed on the horizontal coordinate."""
+    z = pos[..., 2]
+    c = 0.62 * _wnoise(a, np.zeros_like(a), length * 1.6, rng, 2, 12) \
+        + 0.38 * _wnoise(a, np.zeros_like(a), length * 0.37, rng, 2, 16)
+    sharp = np.clip((c - (1 - density)) / 0.10, 0, 1)
+    below = np.where(z < z0, np.exp(-np.clip(z0 - z, 0, None) / (length * 0.45)), 0.0)
+    vert = np.clip((0.6 - np.abs(nrm[..., 2])) / 0.6, 0, 1)
+    return np.clip(strength * sharp * below * vert, 0, 1).astype(np.float32)
+
+
+def exhaust_streak(pos, nrm, rng, origin=(0, 0, 0), direction=(0, 1, 0),
+                   length=2.5, width=0.4, strength=0.6):
+    """Soot cone from `origin` along `direction`, widening as it runs."""
+    d = np.array(direction, np.float32)
+    d = d / (np.linalg.norm(d) + 1e-9)
+    v = pos - np.array(origin, np.float32)
+    t = v @ d
+    r = np.linalg.norm(v - t[..., None] * d, axis=-1)
+    wt = width * (1 + 1.8 * np.clip(t, 0, None) / length)
+    f = strength * np.exp(-(r / np.maximum(wt, 1e-4)) ** 2) \
+        * np.clip(1 - t / length, 0, 1) * (t > -0.15)
+    m = _wnoise(t, r * 3.0, max(length * 0.5, 0.4), rng, 2, 8)
+    return np.clip(f * (0.55 + 0.65 * m), 0, 1).astype(np.float32)
+
+
+def edge_wear(ao, strength=0.4):
+    """Additive highlight field from the AO bake's own gradients: worn bright
+    edges where occlusion transitions to fully lit (an AO-inverse)."""
+    a = ao
+    b = (a + np.roll(a, 1, 0) + np.roll(a, -1, 0)
+         + np.roll(a, 1, 1) + np.roll(a, -1, 1)) / 5.0
+    gy, gx = np.gradient(b)
+    g = np.sqrt(gx * gx + gy * gy)
+    e = np.clip(g * 10, 0, 1) * np.clip((b - 0.70) / 0.30, 0, 1)
+    return (strength * e).astype(np.float32)
+
+
+# ── insignia ────────────────────────────────────────────────────────
+_SS = 2      # stamps are rasterised supersampled then box-filtered
+
+
+def _grid(px):
+    n = px * _SS
+    c = (np.arange(n) + 0.5) / n * 2 - 1
+    return np.meshgrid(c, c)
+
+
+def _down(arr):
+    h, w = arr.shape[:2]
+    return arr.reshape(h // _SS, _SS, w // _SS, _SS, arr.shape[2]).mean((1, 3))
+
+
+def _poly_mask(xx, yy, pts):
+    inside = np.zeros(xx.shape, bool)
+    n = len(pts)
+    for i in range(n):
+        x0, y0 = pts[i]; x1, y1 = pts[(i + 1) % n]
+        cond = (y0 > yy) != (y1 > yy)
+        xi = x0 + (yy - y0) / (y1 - y0 + 1e-12) * (x1 - x0)
+        inside ^= cond & (xx < xi)
+    return inside
+
+
+def _star_pts(points=5, r=1.0, inner=0.382, rot=math.pi / 2):
+    pts = []
+    for k in range(points * 2):
+        rr = r if k % 2 == 0 else r * inner
+        an = rot + k * math.pi / points
+        pts.append((math.cos(an) * rr, math.sin(an) * rr))
+    return pts
+
+
+def _paint(layers, px):
+    """layers: [(mask, rgb)] painted in order -> (px,px,4) RGBA float."""
+    xxshape = layers[0][0].shape
+    rgb = np.zeros((*xxshape, 3), np.float32)
+    alpha = np.zeros((*xxshape, 1), np.float32)
+    for mask, col in layers:
+        m = mask[..., None].astype(np.float32)
+        rgb = rgb * (1 - m) + np.array(col, np.float32) * m
+        alpha = np.maximum(alpha, m)
+    return _down(np.dstack([rgb, alpha]))
+
+
+_FONT = {  # 5x7, enough for pennant numbers
+    "0": ["01110", "10001", "10011", "10101", "11001", "10001", "01110"],
+    "1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
+    "2": ["01110", "10001", "00001", "00110", "01000", "10000", "11111"],
+    "3": ["11110", "00001", "00001", "01110", "00001", "00001", "11110"],
+    "4": ["00010", "00110", "01010", "10010", "11111", "00010", "00010"],
+    "5": ["11111", "10000", "11110", "00001", "00001", "10001", "01110"],
+    "6": ["00110", "01000", "10000", "11110", "10001", "10001", "01110"],
+    "7": ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
+    "8": ["01110", "10001", "10001", "01110", "10001", "10001", "01110"],
+    "9": ["01110", "10001", "10001", "01111", "00001", "00010", "01100"],
+}
+
+
+def _text_mask(xx, yy, text, h=1.6):
+    """Rows of 5x7 glyphs centred in the stamp. h = glyph height in stamp
+    units (stamp spans -1..1)."""
+    mask = np.zeros(xx.shape, bool)
+    n = len(text)
+    gw = h * 5.0 / 7.0
+    adv = gw * 1.25
+    total = adv * n - (adv - gw)
+    x0 = -total / 2
+    for i, ch in enumerate(text):
+        bits = _FONT.get(ch)
+        if bits is None:
+            continue
+        gx = (xx - (x0 + i * adv)) / gw          # 0..1 across glyph
+        gy = (h / 2 - yy) / h                    # 0..1 down glyph
+        ok = (gx >= 0) & (gx < 1) & (gy >= 0) & (gy < 1)
+        col = np.clip((gx * 5).astype(int), 0, 4)
+        row = np.clip((gy * 7).astype(int), 0, 6)
+        arr = np.array([[c == "1" for c in r] for r in bits])
+        mask |= ok & arr[row, col]
+    return mask
+
+
+def insignia_stamp(kind, px=256, text=None, color=None):
+    """Vector-ish raster stamps, RGBA (px,px,4). Kinds:
+    star_us, cross_de, roundel_uk, roundel_fr, star_ru, star_cn, star_kp,
+    sun_tw, helipad, pennant (needs text="62")."""
+    xx, yy = _grid(px)
+    rr = np.sqrt(xx * xx + yy * yy)
+    white = (0.92, 0.92, 0.90)
+    if kind == "star_us":
+        col = color or white
+        star = _poly_mask(xx, yy, _star_pts(5, 0.94))
+        ring = (rr < 0.99) & (rr > 0.90)
+        return _paint([(ring, col), (star, col)], px)
+    if kind == "cross_de":
+        lim = (np.abs(xx) < 0.95) & (np.abs(yy) < 0.95)
+        outer = lim & ((np.abs(xx) < 0.34) | (np.abs(yy) < 0.34))
+        inner = lim & ((np.abs(xx) < 0.20) | (np.abs(yy) < 0.20))
+        return _paint([(outer, white), (inner, (0.05, 0.05, 0.05))], px)
+    if kind == "roundel_uk":
+        return _paint([(rr < 0.95, (0.05, 0.13, 0.34)),
+                       (rr < 0.62, white),
+                       (rr < 0.30, (0.62, 0.09, 0.11))], px)
+    if kind == "roundel_fr":
+        return _paint([(rr < 0.95, (0.62, 0.09, 0.11)),
+                       (rr < 0.62, white),
+                       (rr < 0.30, (0.05, 0.13, 0.34))], px)
+    if kind == "star_ru":
+        return _paint([(_poly_mask(xx, yy, _star_pts(5, 0.98)), white),
+                       (_poly_mask(xx, yy, _star_pts(5, 0.80)),
+                        (0.60, 0.08, 0.08))], px)
+    if kind == "star_cn":
+        return _paint([(_poly_mask(xx, yy, _star_pts(5, 0.98)),
+                        (0.85, 0.70, 0.12)),
+                       (_poly_mask(xx, yy, _star_pts(5, 0.78)),
+                        (0.60, 0.08, 0.08))], px)
+    if kind == "star_kp":
+        return _paint([(rr < 0.98, white),
+                       (_poly_mask(xx, yy, _star_pts(5, 0.80)),
+                        (0.60, 0.08, 0.08))], px)
+    if kind == "sun_tw":
+        return _paint([(rr < 0.98, (0.05, 0.13, 0.34)),
+                       (_poly_mask(xx, yy, _star_pts(12, 0.66, inner=0.55)),
+                        white)], px)
+    if kind == "helipad":
+        ring = (rr < 0.96) & (rr > 0.84)
+        hbar = (np.abs(yy) < 0.42) & (np.abs(np.abs(xx) - 0.24) < 0.08)
+        hmid = (np.abs(yy) < 0.08) & (np.abs(xx) < 0.24)
+        return _paint([(ring, white), (hbar | hmid, white)], px)
+    if kind == "pennant":
+        col = color or white
+        return _paint([(_text_mask(xx, yy, text or "0"), col)], px)
+    raise KeyError(f"unknown insignia kind {kind!r}")
+
+
+INSIGNIA = ["star_us", "cross_de", "roundel_uk", "roundel_fr", "star_ru",
+            "star_cn", "star_kp", "sun_tw", "helipad", "pennant"]
+
+
+def project_decal(img, pos, nrm, stamp, center, normal, size,
+                  up=None, alpha=1.0):
+    """Alpha-blend `stamp` onto img, decal-projected in WORLD space: painted
+    where the surface faces `normal` within a size*0.75 slab of `center`.
+    No geometry involved — this is why insignia cannot leak to the far side
+    (the depth window and the facing test both cut it)."""
+    n = np.array(normal, np.float32)
+    n = n / (np.linalg.norm(n) + 1e-9)
+    if up is None:
+        up = (0.0, -1.0, 0.0) if abs(n[2]) > 0.8 else (0.0, 0.0, 1.0)
+    u_ = np.array(up, np.float32)
+    ua = np.cross(u_, n); ua = ua / (np.linalg.norm(ua) + 1e-9)
+    va = np.cross(n, ua)
+    rel = pos - np.array(center, np.float32)
+    u = (rel @ ua) / size + 0.5
+    v = (rel @ va) / size + 0.5
+    ok = ((u >= 0) & (u < 1) & (v >= 0) & (v < 1)
+          & ((nrm @ n) > 0.35) & (np.abs(rel @ n) < size * 0.75))
+    if not ok.any():
+        return img
+    S = stamp.shape[0]
+    xi = np.clip((u * S).astype(int), 0, S - 1)
+    yi = np.clip((v * S).astype(int), 0, S - 1)
+    sm = stamp[yi, xi]
+    a = sm[..., 3:] * alpha * ok[..., None]
+    return img * (1 - a) + sm[..., :3] * a
+
+
+# ── the orchestrator ────────────────────────────────────────────────
+def compose(unit, group, camo_png, base_rgb, pos, nrm, ao, features):
+    """base camo -> tonal mottle -> panel lines -> weathering -> insignia.
+
+    pos/nrm: world maps baked over the unique unwrap. ao: the existing AO
+    bake, used only as a MASK (it ships separately as occlusionTexture, so
+    it composites WITH this albedo rather than being overwritten by it).
+    Returns float RGB at pos's resolution, same value space as the camo PNGs.
+    """
+    res = pos.shape[0]
+    rng = np.random.default_rng(seed_of(f"{unit}:{group}"))
+    nlen = np.linalg.norm(nrm, axis=-1)
+    valid = np.abs(nlen - 1.0) < 0.35
+    n = (nrm / np.maximum(nlen, 1e-6)[..., None]).astype(np.float32)
+    sc = features.get("size_class", "vehicle")
+    scale = float(features.get("camo_scale") or CAMO_SCALE.get(sc, 2.2))
+    a, b, ax = _project2d(pos, n)
+
+    if camo_png:
+        base = _sample_rgb(load_png(camo_png), a / scale, b / scale)
+    else:
+        base = np.ones((res, res, 3), np.float32) * np.array(base_rgb, np.float32)
+    img = base.astype(np.float32)
+
+    # 1. tonal variation at the scale of the WHOLE unit — the layer that
+    # separates steel from plastic at RTS zoom
+    if valid.any():
+        vp = pos[valid]
+        span = float(max(vp[:, 0].max() - vp[:, 0].min(),
+                         vp[:, 1].max() - vp[:, 1].min(),
+                         vp[:, 2].max() - vp[:, 2].min(), 1.0))
+        zmin = float(vp[:, 2].min())
+    else:
+        span, zmin = 10.0, 0.0
+    macro = _wnoise(a, b, span * 0.55, rng, octaves=3, base=3)
+    img = img * (0.93 + 0.14 * macro)[..., None]
+    mid = _wnoise(a, b, max(span * 0.09, 0.8), rng, octaves=2, base=6)
+    img = img * (0.94 + 0.12 * mid)[..., None]
+
+    texel = _texel_size(pos, valid)
+
+    # 2. panel lines + per-panel value shifts
+    pcfg = features.get("panels")
+    if pcfg is not None:
+        img = img * panel_lines(pos, n, a, b, ax, texel,
+                                seed=seed_of(unit), **pcfg)[..., None]
+
+    # 3. weathering
+    wx = features.get("weathering") or {}
+    ao2 = _resize(ao.astype(np.float32), res)
+    if "dust" in wx:
+        cfg = dict(wx["dust"]); tint = np.array(cfg.pop("tint", (0.45, 0.40, 0.31)), np.float32)
+        f = dust_gradient(pos, n, a, b, rng, zmin=zmin, **cfg)[..., None]
+        img = img * (1 - f) + tint * f
+    if "streaks" in wx:
+        cfg = dict(wx["streaks"]); tint = np.array(cfg.pop("tint", (0.30, 0.22, 0.16)), np.float32)
+        f = rust_streaks(pos, n, a, rng, **cfg)[..., None]
+        img = img * (1 - f) + tint * f
+    for e in wx.get("exhaust") or []:
+        f = exhaust_streak(pos, n, rng, **e)[..., None]
+        img = img * (1 - f) + np.array((0.06, 0.058, 0.055), np.float32) * f
+    if "edge_wear" in wx:
+        img = img * (1 + edge_wear(ao2, **wx["edge_wear"]))[..., None]
+
+    # 4. insignia
+    for spec in features.get("insignia") or []:
+        st = insignia_stamp(spec["kind"], text=spec.get("text"),
+                            color=spec.get("color"))
+        img = project_decal(img, pos, n, st, spec["center"], spec["normal"],
+                            spec["size"], spec.get("up"),
+                            spec.get("alpha", 1.0))
+
+    # background/JPEG-bleed fill
+    if valid.any():
+        fill = np.median(img[valid].reshape(-1, 3), axis=0)
+        img = np.where(valid[..., None], img, fill)
+    return np.clip(img, 0, 1).astype(np.float32)
+
+
+def generate_all():
+    print("generating textures...")
+    for name, (bands, seed, res) in SCHEMES.items():
+        camo(name, bands, seed, res, panel=(name != "terrain"))
+    print("done")
+
+
+if __name__ == "__main__":
+    generate_all()

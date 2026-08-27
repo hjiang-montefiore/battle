@@ -1,0 +1,2813 @@
+{
+ "faction": "kp",
+ "source_notes": "Korean People's Army, epochs 1-7 (docs/05 boundaries). Compiled from recalled open-source references (IISS Military Balance patterns, standard Soviet-type specifications, parade imagery analysis) with NO web access; every uncertain figure is listed in estimated_fields and confidence is graded per entry. The faction freezes at epochs 3-4 by design (docs/08): the last major imports are the 1984-88 Soviet package (MiG-23ML, MiG-29, Su-25K, S-125, S-200, Mi-24D). After that, only artillery, MRLs, missiles, submarines and a thin parade layer advance. Absences are recorded as explicit nulls with reasons — the KPA has no multirole fighters, no SEAD, no AEW&C, no tankers, no MPA, no SSNs, and (until 2025) no destroyers. Where a system is shared with another faction (T-55/Type 59, BM-21 pattern, Romeo/Type 033 with cn) the baseline Soviet figures are used so cross-faction numbers match. Ship entries: mass_t = displacement, height = draft, speed_kmh converted from knots, road_range_km = endurance range. Aircraft: mass_t = MTOW, width = span/rotor diameter. M2020-generation parade systems (MBT, Pantsir-style SPAAGM, Pon'gae-5) are carried at low confidence: existence is certain, capability is a claim.",
+ "roles": {
+  "mbt": {
+   "1": {
+    "designation": "T-34-85",
+    "entered_service": 1950,
+    "dims_m": {
+     "len": 8.1,
+     "width": 3.0,
+     "height": 2.72
+    },
+    "mass_t": 32.0,
+    "speed_kmh": 55,
+    "road_range_km": 300,
+    "crew": 5,
+    "main_armament": "85mm ZiS-S-53",
+    "gun_gen": "G1",
+    "armor_class": "steel",
+    "armor_note": "45-90mm cast/rolled, sloped",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "high",
+    "estimated_fields": [],
+    "basis": "Soviet-supplied; ~250 led the June 1950 invasion. Standard published T-34-85 figures."
+   },
+   "2": {
+    "designation": "T-55 / Type 59",
+    "entered_service": 1962,
+    "dims_m": {
+     "len": 9.0,
+     "width": 3.37,
+     "height": 2.4
+    },
+    "mass_t": 36.0,
+    "speed_kmh": 50,
+    "road_range_km": 485,
+    "crew": 4,
+    "main_armament": "100mm D-10T2S",
+    "gun_gen": "G2",
+    "armor_class": "steel",
+    "armor_note": "~200mm cast turret front",
+    "sensors": [
+     "optical",
+     "IR searchlight"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Soviet T-55 and Chinese Type 59 deliveries through the 1960s; standard published specs. Same vehicle the PLA fields — numbers must match cn."
+   },
+   "3": {
+    "designation": "Ch'onma-ho (T-62 copy)",
+    "entered_service": 1978,
+    "dims_m": {
+     "len": 9.34,
+     "width": 3.3,
+     "height": 2.4
+    },
+    "mass_t": 40.0,
+    "speed_kmh": 50,
+    "road_range_km": 450,
+    "crew": 4,
+    "main_armament": "115mm U-5TS smoothbore",
+    "gun_gen": "G3",
+    "armor_class": "steel",
+    "armor_note": "T-62-pattern cast; local build",
+    "sensors": [
+     "optical",
+     "IR searchlight"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service",
+     "road_range_km"
+    ],
+    "basis": "Local T-62 production from ~1978; T-62 published specs assumed carried over."
+   },
+   "4": {
+    "designation": "Ch'onma-ho II",
+    "entered_service": 1985,
+    "dims_m": {
+     "len": 9.34,
+     "width": 3.3,
+     "height": 2.4
+    },
+    "mass_t": 40.5,
+    "speed_kmh": 50,
+    "road_range_km": 450,
+    "crew": 4,
+    "main_armament": "115mm smoothbore",
+    "gun_gen": "G3",
+    "armor_class": "steel + applique",
+    "armor_note": "laser rangefinder and applique plates added",
+    "sensors": [
+     "optical",
+     "laser rangefinder"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "entered_service",
+     "mass_t",
+     "dims_m"
+    ],
+    "basis": "The KPA upgrade path is poorly documented; analyst reconstructions of parade vehicles."
+   },
+   "5": {
+    "designation": "Ch'onma-ho V (Ch'onma-98/214 family)",
+    "entered_service": 1998,
+    "dims_m": {
+     "len": 9.4,
+     "width": 3.4,
+     "height": 2.4
+    },
+    "mass_t": 39.0,
+    "speed_kmh": 50,
+    "road_range_km": 450,
+    "crew": 4,
+    "main_armament": "115mm smoothbore (125mm claimed on some)",
+    "gun_gen": "G3",
+    "armor_class": "steel + ERA",
+    "armor_note": "first-gen ERA bricks, thermal sleeve",
+    "sensors": [
+     "optical",
+     "laser rangefinder"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "entered_service",
+     "dims_m",
+     "mass_t",
+     "main_armament"
+    ],
+    "basis": "Late-90s rebuild series; everything from parade imagery analysis."
+   },
+   "6": {
+    "designation": "Songun-915 (Songun-ho)",
+    "entered_service": 2010,
+    "dims_m": {
+     "len": 9.5,
+     "width": 3.4,
+     "height": 2.4
+    },
+    "mass_t": 44.0,
+    "speed_kmh": 60,
+    "road_range_km": 450,
+    "crew": 4,
+    "main_armament": "125mm smoothbore (2A46 derivative)",
+    "gun_gen": "G4",
+    "armor_class": "steel + ERA",
+    "armor_note": "layered steel + ERA; composite claimed, unverified",
+    "sensors": [
+     "laser rangefinder",
+     "thermal (claimed)"
+    ],
+    "radar_gen": null,
+    "missiles": "hull-mounted Bulsae ATGM rails (claimed)",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "gun_gen"
+    ],
+    "basis": "Unveiled at the 2010 parade; all figures are analyst estimates. The thin modern layer over the Gen 1-2 mass."
+   },
+   "7": {
+    "designation": "M2020 MBT",
+    "entered_service": 2020,
+    "dims_m": {
+     "len": 9.5,
+     "width": 3.5,
+     "height": 2.4
+    },
+    "mass_t": 55.0,
+    "speed_kmh": 60,
+    "road_range_km": 400,
+    "crew": 4,
+    "main_armament": "125mm smoothbore",
+    "gun_gen": "G4",
+    "armor_class": "composite (claimed)",
+    "armor_note": "Armata-styled exterior; actual protection unknown, likely steel + ERA",
+    "sensors": [
+     "panoramic sight (claimed)",
+     "thermal (claimed)"
+    ],
+    "radar_gen": null,
+    "missiles": "hull ATGM launcher pod (paraded)",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew",
+     "armor_class"
+    ],
+    "basis": "Revealed October 2020 parade, never seen in service use; a styling exercise until proven otherwise."
+   }
+  },
+  "light_tank": {
+   "1": {
+    "designation": null,
+    "note": "Niche filled by SU-76M assault guns (see sph); no true light tank in the Korean War inventory.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": "PT-76",
+    "entered_service": 1966,
+    "dims_m": {
+     "len": 7.63,
+     "width": 3.14,
+     "height": 2.33
+    },
+    "mass_t": 14.6,
+    "speed_kmh": 44,
+    "road_range_km": 400,
+    "crew": 3,
+    "main_armament": "76.2mm D-56T",
+    "gun_gen": "G1",
+    "armor_class": "steel",
+    "armor_note": "thin (max ~14mm); fully amphibious, 10 km/h in water",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Soviet deliveries in the 1960s; used in river-crossing and coastal roles."
+   },
+   "4": {
+    "designation": "M1981 Shin'heung",
+    "entered_service": 1981,
+    "dims_m": {
+     "len": 7.0,
+     "width": 3.1,
+     "height": 2.3
+    },
+    "mass_t": 20.0,
+    "speed_kmh": 60,
+    "road_range_km": 400,
+    "crew": 4,
+    "main_armament": "85mm turret gun",
+    "gun_gen": "G1",
+    "armor_class": "steel",
+    "armor_note": "light amphibious hull, PT-76 lineage",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": "Malyutka rails seen on some vehicles",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "Local amphibious light tank; parade imagery only."
+   }
+  },
+  "ifv": {
+   "1": {
+    "designation": null,
+    "note": "Infantry moved by truck; the IFV concept did not exist yet in the Soviet bloc.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "Still no IFV; BMP-1 had not been exported to the KPA yet.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": "BMP-1 (and local Korshun copies)",
+    "entered_service": 1975,
+    "dims_m": {
+     "len": 6.74,
+     "width": 2.94,
+     "height": 2.07
+    },
+    "mass_t": 13.2,
+    "speed_kmh": 65,
+    "road_range_km": 600,
+    "crew": 3,
+    "main_armament": "73mm 2A28 Grom low-pressure gun",
+    "gun_gen": "G1",
+    "armor_class": "steel",
+    "armor_note": "max ~33mm, amphibious",
+    "sensors": [
+     "optical",
+     "IR driving lights"
+    ],
+    "radar_gen": null,
+    "missiles": "9M14 Malyutka rail over gun",
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Soviet/licensed BMP-1; standard published specs. Only IFV the KPA ever got — later epochs inherit; the freeze is the faction."
+   }
+  },
+  "apc": {
+   "1": {
+    "designation": "BTR-40",
+    "entered_service": 1955,
+    "dims_m": {
+     "len": 5.0,
+     "width": 1.9,
+     "height": 1.83
+    },
+    "mass_t": 5.3,
+    "speed_kmh": 80,
+    "road_range_km": 285,
+    "crew": 2,
+    "main_armament": "7.62mm SGMB",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "8mm; open-topped; carries 8",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Early Soviet wheeled APC deliveries; the type seen in DMZ incidents into the 1960s."
+   },
+   "2": {
+    "designation": "BTR-60PB",
+    "entered_service": 1968,
+    "dims_m": {
+     "len": 7.56,
+     "width": 2.83,
+     "height": 2.31
+    },
+    "mass_t": 10.3,
+    "speed_kmh": 80,
+    "road_range_km": 500,
+    "crew": 3,
+    "main_armament": "14.5mm KPVT",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "9mm; amphibious; carries 8",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Soviet deliveries plus later local copies; delivery dates poorly documented."
+   },
+   "3": {
+    "designation": "VTT-323 (M1973)",
+    "entered_service": 1973,
+    "dims_m": {
+     "len": 5.5,
+     "width": 3.0,
+     "height": 2.6
+    },
+    "mass_t": 13.0,
+    "speed_kmh": 60,
+    "road_range_km": 500,
+    "crew": 2,
+    "main_armament": "twin 14.5mm KPV turret",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "light; amphibious; carries 10",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": "some carry Malyutka or SA-7 mounts",
+    "confidence": "medium",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "road_range_km"
+    ],
+    "basis": "Local copy of the Chinese Type 63/YW531; the standard KPA tracked carrier ever since."
+   },
+   "6": {
+    "designation": "M2010 (8x8)",
+    "entered_service": 2010,
+    "dims_m": {
+     "len": 7.7,
+     "width": 2.9,
+     "height": 2.4
+    },
+    "mass_t": 13.5,
+    "speed_kmh": 85,
+    "road_range_km": 600,
+    "crew": 3,
+    "main_armament": "14.5mm KPVT",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "BTR-80-pattern wheeled hull",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "entered_service"
+    ],
+    "basis": "Parade-identified wheeled family; all figures estimated from BTR-80 lineage."
+   }
+  },
+  "recon_vehicle": {
+   "1": {
+    "designation": null,
+    "note": "Reconnaissance on foot, by motorcycle and by captured vehicles; no dedicated recon vehicle.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": "BRDM-1",
+    "entered_service": 1965,
+    "dims_m": {
+     "len": 5.7,
+     "width": 2.25,
+     "height": 1.9
+    },
+    "mass_t": 5.6,
+    "speed_kmh": 90,
+    "road_range_km": 500,
+    "crew": 2,
+    "main_armament": "7.62mm SGMB",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "amphibious scout car",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Presumed with 1960s Soviet aid packages; thinly documented."
+   },
+   "3": {
+    "designation": "BRDM-2",
+    "entered_service": 1972,
+    "dims_m": {
+     "len": 5.75,
+     "width": 2.35,
+     "height": 2.31
+    },
+    "mass_t": 7.0,
+    "speed_kmh": 95,
+    "road_range_km": 750,
+    "crew": 4,
+    "main_armament": "14.5mm KPVT",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "7-14mm; amphibious",
+    "sensors": [
+     "optical",
+     "IR searchlight"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Standard published BRDM-2 specs; in KPA service ever since — frozen."
+   }
+  },
+  "atgm_carrier": {
+   "1": {
+    "designation": null,
+    "note": "No anti-tank guided missiles existed in the inventory; towed AT guns instead.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "Still gun-based anti-tank; Malyutka technology arrived in the 1970s.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": "9P133 (BRDM-2 with Susong-po Malyutka)",
+    "entered_service": 1975,
+    "dims_m": {
+     "len": 5.75,
+     "width": 2.35,
+     "height": 2.31
+    },
+    "mass_t": 7.0,
+    "speed_kmh": 95,
+    "road_range_km": 750,
+    "crew": 2,
+    "main_armament": "6-rail launcher",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "BRDM-2 hull",
+    "sensors": [
+     "optical MCLOS sight"
+    ],
+    "radar_gen": null,
+    "missiles": "9M14M Malyutka / local Susong-po copy, MCLOS, ~3km",
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Soviet carriers plus locally produced missiles; the missile is still in production frozen at this level."
+   },
+   "5": {
+    "designation": "Bulsae-2 truck carrier",
+    "entered_service": 1995,
+    "dims_m": {
+     "len": 5.5,
+     "width": 2.3,
+     "height": 2.2
+    },
+    "mass_t": 6.0,
+    "speed_kmh": 90,
+    "road_range_km": 500,
+    "crew": 3,
+    "main_armament": "multi-rail launcher",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "soft-skin and light-armor mounts",
+    "sensors": [
+     "optical SACLOS sight"
+    ],
+    "radar_gen": null,
+    "missiles": "Bulsae-2 (9K111 Fagot derivative), SACLOS, ~4km",
+    "confidence": "low",
+    "estimated_fields": [
+     "entered_service",
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "Local Fagot-derived family; mount details from parade imagery."
+   },
+   "7": {
+    "designation": "Bulsae-4 (M2018 8x8 NLOS carrier)",
+    "entered_service": 2018,
+    "dims_m": {
+     "len": 7.7,
+     "width": 2.9,
+     "height": 2.5
+    },
+    "mass_t": 14.0,
+    "speed_kmh": 80,
+    "road_range_km": 500,
+    "crew": 3,
+    "main_armament": "8-cell NLOS launcher",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "wheeled M2010-family hull",
+    "sensors": [
+     "EO/datalink guidance (claimed)"
+    ],
+    "radar_gen": null,
+    "missiles": "Bulsae-4 NLOS, EO-seeker with datalink, ~10km claimed",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew",
+     "missiles"
+    ],
+    "basis": "Paraded 2018+; claims mirror Spike-NLOS. Capability unverified."
+   }
+  },
+  "sph": {
+   "1": {
+    "designation": "SU-76M",
+    "entered_service": 1950,
+    "dims_m": {
+     "len": 4.97,
+     "width": 2.71,
+     "height": 2.1
+    },
+    "mass_t": 10.6,
+    "speed_kmh": 44,
+    "road_range_km": 320,
+    "crew": 4,
+    "main_armament": "76.2mm ZiS-3",
+    "gun_gen": "G1",
+    "armor_class": "steel",
+    "armor_note": "open-topped, 25-35mm",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "high",
+    "estimated_fields": [],
+    "basis": "Extensively used in the Korean War; standard published specs."
+   },
+   "3": {
+    "designation": "M1978 Koksan 170mm",
+    "entered_service": 1978,
+    "dims_m": {
+     "len": 14.9,
+     "width": 3.3,
+     "height": 3.1
+    },
+    "mass_t": 40.0,
+    "speed_kmh": 40,
+    "road_range_km": 300,
+    "crew": 8,
+    "main_armament": "170mm gun, ~40km (60km RAP)",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "open mount on Type 59 chassis; crew rides separately",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "The Seoul-range gun; identified 1978. The Tokchon 122/130/152mm open-mount family (M1974-M1977) enters alongside."
+   },
+   "4": {
+    "designation": "M1989 Koksan 170mm",
+    "entered_service": 1989,
+    "dims_m": {
+     "len": 14.9,
+     "width": 3.3,
+     "height": 3.1
+    },
+    "mass_t": 40.0,
+    "speed_kmh": 40,
+    "road_range_km": 300,
+    "crew": 8,
+    "main_armament": "170mm gun, ~40km (60km RAP)",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "improved chassis with onboard ammunition",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "Improved Koksan; distinguishing data is thin."
+   },
+   "7": {
+    "designation": "M2018 152mm SPH",
+    "entered_service": 2018,
+    "dims_m": {
+     "len": 10.0,
+     "width": 3.4,
+     "height": 3.0
+    },
+    "mass_t": 35.0,
+    "speed_kmh": 55,
+    "road_range_km": 400,
+    "crew": 5,
+    "main_armament": "152mm turreted howitzer",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "fully enclosed turret — first modern-pattern KPA SPH",
+    "sensors": [
+     "optical",
+     "fire-control computer (claimed)"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew",
+     "main_armament"
+    ],
+    "basis": "Paraded 2018; all figures estimated from imagery."
+   }
+  },
+  "towed_artillery": {
+   "1": {
+    "designation": "122mm howitzer M1938 (M-30)",
+    "entered_service": 1950,
+    "dims_m": {
+     "len": 5.9,
+     "width": 1.98,
+     "height": 1.82
+    },
+    "mass_t": 2.45,
+    "speed_kmh": null,
+    "road_range_km": null,
+    "crew": 8,
+    "main_armament": "122mm, 11.8km",
+    "gun_gen": null,
+    "armor_class": null,
+    "armor_note": "towed; gun shield only",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "high",
+    "estimated_fields": [
+     "dims_m"
+    ],
+    "basis": "Korean War standard divisional howitzer, alongside 76mm ZiS-3 and 152mm ML-20. Vast numbers — the faction's core."
+   },
+   "2": {
+    "designation": "130mm M-46",
+    "entered_service": 1965,
+    "dims_m": {
+     "len": 11.7,
+     "width": 2.45,
+     "height": 2.55
+    },
+    "mass_t": 8.45,
+    "speed_kmh": null,
+    "road_range_km": null,
+    "crew": 8,
+    "main_armament": "130mm, 27.2km (38km RAP)",
+    "gun_gen": null,
+    "armor_class": null,
+    "armor_note": "towed",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service",
+     "dims_m"
+    ],
+    "basis": "The long-range counterbattery gun; deliveries and local production from the 1960s. Still the backbone of the DMZ gun line."
+   },
+   "3": {
+    "designation": "D-30 122mm (local copy)",
+    "entered_service": 1975,
+    "dims_m": {
+     "len": 5.4,
+     "width": 1.9,
+     "height": 1.66
+    },
+    "mass_t": 3.2,
+    "speed_kmh": null,
+    "road_range_km": null,
+    "crew": 7,
+    "main_armament": "122mm, 15.4km (21.9km RAP)",
+    "gun_gen": null,
+    "armor_class": null,
+    "armor_note": "towed, 360-degree carriage",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Local production of the D-30 pattern; frozen at this level thereafter."
+   }
+  },
+  "mlrs": {
+   "1": {
+    "designation": "BM-13-16 Katyusha",
+    "entered_service": 1950,
+    "dims_m": {
+     "len": 6.5,
+     "width": 2.3,
+     "height": 2.8
+    },
+    "mass_t": 7.2,
+    "speed_kmh": 70,
+    "road_range_km": 400,
+    "crew": 6,
+    "main_armament": "132mm x16 rails, 8.5km",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "truck-mounted",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "entered_service"
+    ],
+    "basis": "Soviet-supplied Katyushas in the Korean War; documentation of KPA use is thin."
+   },
+   "2": {
+    "designation": "107mm Type 63 (towed MRL)",
+    "entered_service": 1968,
+    "dims_m": {
+     "len": 2.6,
+     "width": 1.65,
+     "height": 1.2
+    },
+    "mass_t": 0.6,
+    "speed_kmh": null,
+    "road_range_km": null,
+    "crew": 5,
+    "main_armament": "107mm x12, 8km",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "towed/man-packable",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "entered_service",
+     "dims_m",
+     "mass_t"
+    ],
+    "basis": "Chinese pattern, ideal for infiltration units; entry date estimated."
+   },
+   "3": {
+    "designation": "M1977 122mm (BM-21 copy)",
+    "entered_service": 1977,
+    "dims_m": {
+     "len": 7.35,
+     "width": 2.4,
+     "height": 3.1
+    },
+    "mass_t": 13.7,
+    "speed_kmh": 75,
+    "road_range_km": 500,
+    "crew": 5,
+    "main_armament": "122mm x40, 20.4km",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "truck-mounted",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "road_range_km"
+    ],
+    "basis": "Local Grad copy; standard BM-21 ballistics."
+   },
+   "4": {
+    "designation": "M1985 240mm MRL",
+    "entered_service": 1985,
+    "dims_m": {
+     "len": 10.0,
+     "width": 2.5,
+     "height": 3.2
+    },
+    "mass_t": 25.0,
+    "speed_kmh": 60,
+    "road_range_km": 450,
+    "crew": 5,
+    "main_armament": "240mm x12, ~43km",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "truck-mounted",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km"
+    ],
+    "basis": "First of the heavy Seoul-range MRLs."
+   },
+   "5": {
+    "designation": "M1991 240mm MRL",
+    "entered_service": 1991,
+    "dims_m": {
+     "len": 11.0,
+     "width": 2.5,
+     "height": 3.3
+    },
+    "mass_t": 27.0,
+    "speed_kmh": 60,
+    "road_range_km": 450,
+    "crew": 5,
+    "main_armament": "240mm x22, 43-60km",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "truck-mounted",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km"
+    ],
+    "basis": "Enlarged 22-tube version; with the M1985 the core of the 'sea of fire' threat. TQ0 area fire — the faction's defining weapon per docs/08."
+   },
+   "6": {
+    "designation": "KN-09 300mm guided MRL",
+    "entered_service": 2013,
+    "dims_m": {
+     "len": 11.0,
+     "width": 3.0,
+     "height": 3.4
+    },
+    "mass_t": 30.0,
+    "speed_kmh": 60,
+    "road_range_km": 450,
+    "crew": 5,
+    "main_armament": "300mm x8, ~190km",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "truck-mounted",
+    "sensors": [
+     "GNSS/INS rocket guidance"
+    ],
+    "radar_gen": null,
+    "missiles": "guided rockets blur toward SRBM class",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "main_armament"
+    ],
+    "basis": "First tested 2013-14; guidance claims from test imagery."
+   },
+   "7": {
+    "designation": "KN-25 600mm 'super-large' MRL",
+    "entered_service": 2019,
+    "dims_m": {
+     "len": 12.0,
+     "width": 3.0,
+     "height": 3.5
+    },
+    "mass_t": 35.0,
+    "speed_kmh": 60,
+    "road_range_km": 450,
+    "crew": 4,
+    "main_armament": "600mm x4-6, ~380km",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "tracked and wheeled TELs",
+    "sensors": [
+     "GNSS/INS guidance"
+    ],
+    "radar_gen": null,
+    "missiles": "guided; functionally an SRBM salvo system",
+    "confidence": "medium",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "Tested repeatedly 2019-22; range demonstrated in flight tests. The MRL/ballistic boundary dissolves here."
+   }
+  },
+  "spaag": {
+   "1": {
+    "designation": null,
+    "note": "Air defence by massed towed guns (37mm M1939, 57mm S-60, 14.5mm ZPU) — no self-propelled mount.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": "ZSU-57-2",
+    "entered_service": 1965,
+    "dims_m": {
+     "len": 8.48,
+     "width": 3.27,
+     "height": 2.75
+    },
+    "mass_t": 28.1,
+    "speed_kmh": 50,
+    "road_range_km": 420,
+    "crew": 6,
+    "main_armament": "2x57mm S-68, optical only",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "open-topped turret",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Soviet deliveries; no radar — fits the faction's worst-in-game radar pillar."
+   },
+   "4": {
+    "designation": "ZSU-23-4 Shilka",
+    "entered_service": 1985,
+    "dims_m": {
+     "len": 6.54,
+     "width": 3.13,
+     "height": 2.6
+    },
+    "mass_t": 19.0,
+    "speed_kmh": 50,
+    "road_range_km": 450,
+    "crew": 4,
+    "main_armament": "4x23mm AZP-23",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "light",
+    "sensors": [
+     "RPK-2 Tobol gun-lay radar",
+     "optical"
+    ],
+    "radar_gen": "R1",
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Small numbers reported; the KPA's only radar-laid SPAAG and its presence is uncertain."
+   },
+   "5": {
+    "designation": "M1992 twin 30mm SPAAG",
+    "entered_service": 1992,
+    "dims_m": {
+     "len": 6.5,
+     "width": 3.0,
+     "height": 2.8
+    },
+    "mass_t": 18.0,
+    "speed_kmh": 50,
+    "road_range_km": 400,
+    "crew": 4,
+    "main_armament": "2x30mm",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "local mount on VTT-323-family chassis",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew",
+     "entered_service"
+    ],
+    "basis": "Parade-identified only."
+   }
+  },
+  "shorad_sam": {
+   "1": {
+    "designation": null,
+    "note": "Point defence by massed guns; no SAM of any kind yet.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "Mobile SHORAD absent; the S-75 (see medium_sam_launcher) was the only SAM.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "Still gun-based at short range; shoulder SA-7s arrive late in the decade (see manpads).",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": "Igla/HN-5 vehicle mounts (M1990-family)",
+    "entered_service": 1988,
+    "dims_m": {
+     "len": 5.5,
+     "width": 2.3,
+     "height": 2.5
+    },
+    "mass_t": 6.0,
+    "speed_kmh": 90,
+    "road_range_km": 500,
+    "crew": 3,
+    "main_armament": "multi-rail MANPADS mount",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "truck and light-armor mounts",
+    "sensors": [
+     "optical/IR"
+    ],
+    "radar_gen": null,
+    "missiles": "9K310 Igla-1 class, IR-homing, ~5km",
+    "confidence": "low",
+    "estimated_fields": [
+     "entered_service",
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "MANPADS bolted to vehicles is the KPA's SHORAD; designations are analyst-assigned."
+   },
+   "7": {
+    "designation": "M2020 gun/missile system",
+    "entered_service": 2020,
+    "dims_m": {
+     "len": 7.7,
+     "width": 2.9,
+     "height": 3.2
+    },
+    "mass_t": 16.0,
+    "speed_kmh": 80,
+    "road_range_km": 500,
+    "crew": 3,
+    "main_armament": "twin gun + missile canisters",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "Pantsir-styled turret on wheeled hull",
+    "sensors": [
+     "engagement radar (claimed)"
+    ],
+    "radar_gen": "R2",
+    "missiles": "short-range command-guided SAM (claimed)",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew",
+     "radar_gen",
+     "missiles"
+    ],
+    "basis": "Paraded October 2020; whether the radar functions is unknown."
+   }
+  },
+  "medium_sam_launcher": {
+   "1": {
+    "designation": null,
+    "note": "No SAMs; the air defence was guns and MiGs.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": "S-75 Dvina (SA-2) battery",
+    "entered_service": 1964,
+    "dims_m": {
+     "len": 10.8,
+     "width": 2.6,
+     "height": 3.0
+    },
+    "mass_t": 7.1,
+    "speed_kmh": null,
+    "road_range_km": null,
+    "crew": 6,
+    "main_armament": "single-rail SM-90 launcher",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "semi-fixed site system",
+    "sensors": [
+     "Fan Song fire-control radar",
+     "Spoon Rest early-warning radar"
+    ],
+    "radar_gen": "R1",
+    "missiles": "V-750, command-guided, ~34km, up to 25km altitude",
+    "confidence": "high",
+    "estimated_fields": [
+     "dims_m",
+     "entered_service"
+    ],
+    "basis": "The backbone of one of the world's densest (and oldest) SAM networks; standard S-75 specs."
+   },
+   "4": {
+    "designation": "S-125 Pechora (SA-3) battery",
+    "entered_service": 1985,
+    "dims_m": {
+     "len": 7.0,
+     "width": 2.5,
+     "height": 2.6
+    },
+    "mass_t": 6.0,
+    "speed_kmh": null,
+    "road_range_km": null,
+    "crew": 5,
+    "main_armament": "twin/quad rail launcher",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "semi-fixed",
+    "sensors": [
+     "Low Blow fire-control radar"
+    ],
+    "radar_gen": "R1",
+    "missiles": "V-601, command-guided, ~25km, better low-altitude cover",
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service",
+     "dims_m",
+     "mass_t"
+    ],
+    "basis": "Delivered in the mid-80s Soviet package alongside MiG-23s and S-200."
+   }
+  },
+  "long_sam_launcher": {
+   "1": {
+    "designation": null,
+    "note": "Nothing beyond medium range.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "The S-75 (medium) was the ceiling.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "Still S-75 only.",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": "S-200 Angara (SA-5) site",
+    "entered_service": 1987,
+    "dims_m": {
+     "len": 11.0,
+     "width": 3.0,
+     "height": 3.5
+    },
+    "mass_t": 10.0,
+    "speed_kmh": null,
+    "road_range_km": null,
+    "crew": 8,
+    "main_armament": "fixed rail launcher",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "fixed sites",
+    "sensors": [
+     "Square Pair illumination radar",
+     "P-14 early warning"
+    ],
+    "radar_gen": "R1",
+    "missiles": "5V28, SARH, ~250km against large targets",
+    "confidence": "medium",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "entered_service"
+    ],
+    "basis": "Two sites delivered 1987; long reach against tankers/AEW-sized targets only."
+   },
+   "7": {
+    "designation": "Pon'gae-5 (KN-06) battery",
+    "entered_service": 2017,
+    "dims_m": {
+     "len": 11.0,
+     "width": 3.0,
+     "height": 3.5
+    },
+    "mass_t": 25.0,
+    "speed_kmh": 60,
+    "road_range_km": 450,
+    "crew": 4,
+    "main_armament": "3-canister cold-launch TEL",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "truck-mobile",
+    "sensors": [
+     "phased-array engagement radar (claimed)"
+    ],
+    "radar_gen": "R3",
+    "missiles": "~150km claimed, track-via-missile claimed; unverified",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew",
+     "missiles",
+     "radar_gen"
+    ],
+    "basis": "S-300-styled; tested 2016-17, declared operational 2017. Every performance figure is a claim."
+   }
+  },
+  "interceptor": {
+   "1": {
+    "designation": "MiG-15bis",
+    "entered_service": 1950,
+    "dims_m": {
+     "len": 10.11,
+     "width": 10.08,
+     "height": 3.7
+    },
+    "mass_t": 6.1,
+    "speed_kmh": 1076,
+    "road_range_km": 1240,
+    "crew": 1,
+    "main_armament": "1x37mm N-37 + 2x23mm NR-23",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": null,
+    "sensors": [
+     "optical gunsight"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "high",
+    "estimated_fields": [],
+    "basis": "MiG Alley; mass_t is MTOW, range with slipper tanks. Flown over Korea from Nov 1950."
+   },
+   "2": {
+    "designation": "MiG-21F-13",
+    "entered_service": 1963,
+    "dims_m": {
+     "len": 15.76,
+     "width": 7.15,
+     "height": 4.1
+    },
+    "mass_t": 8.6,
+    "speed_kmh": 2125,
+    "road_range_km": 1300,
+    "crew": 1,
+    "main_armament": "1x30mm NR-30",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": null,
+    "sensors": [
+     "SRD-5 ranging radar",
+     "optical gunsight"
+    ],
+    "radar_gen": null,
+    "missiles": "2x K-13 (AA-2 Atoll) IR",
+    "confidence": "high",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "First deliveries ~1963; span in width field. Day-only, no search radar."
+   },
+   "3": {
+    "designation": "MiG-21PFM (with J-6/J-7 fleet)",
+    "entered_service": 1970,
+    "dims_m": {
+     "len": 15.76,
+     "width": 7.15,
+     "height": 4.13
+    },
+    "mass_t": 9.1,
+    "speed_kmh": 2175,
+    "road_range_km": 1300,
+    "crew": 1,
+    "main_armament": "GP-9 23mm gun pod",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": null,
+    "sensors": [
+     "RP-21 Sapfir radar"
+    ],
+    "radar_gen": "R1",
+    "missiles": "K-13/R-3S IR",
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service",
+     "mass_t"
+    ],
+    "basis": "1970s deliveries plus Chinese J-6/J-7; first (limited) radar intercept capability."
+   },
+   "4": {
+    "designation": "MiG-23ML",
+    "entered_service": 1985,
+    "dims_m": {
+     "len": 16.7,
+     "width": 13.97,
+     "height": 4.82
+    },
+    "mass_t": 17.8,
+    "speed_kmh": 2445,
+    "road_range_km": 1950,
+    "crew": 1,
+    "main_armament": "1x23mm GSh-23L",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": null,
+    "sensors": [
+     "Sapfir-23ML look-down radar"
+    ],
+    "radar_gen": "R2",
+    "missiles": "R-23/R-24 SARH BVR + R-60 IR",
+    "confidence": "high",
+    "estimated_fields": [],
+    "basis": "46 delivered 1984-85 — the first BVR shooter. Width is span spread; range is ferry. The interceptor line freezes here."
+   }
+  },
+  "air_superiority": {
+   "1": {
+    "designation": null,
+    "note": "The interceptor fleet was the entire fighter arm.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "Same — no dedicated air-superiority type.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "Same.",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": "MiG-29 (9-12/9-13)",
+    "entered_service": 1988,
+    "dims_m": {
+     "len": 17.32,
+     "width": 11.36,
+     "height": 4.73
+    },
+    "mass_t": 18.0,
+    "speed_kmh": 2400,
+    "road_range_km": 1430,
+    "crew": 1,
+    "main_armament": "1x30mm GSh-30-1",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": null,
+    "sensors": [
+     "N019 look-down radar",
+     "IRST",
+     "helmet-cued sight"
+    ],
+    "radar_gen": "R3",
+    "missiles": "R-27R SARH + R-73/R-60 IR",
+    "confidence": "high",
+    "estimated_fields": [],
+    "basis": "Deliveries from 1988, local assembly into the mid-90s, ~35-40 airframes. The ceiling of the frozen air force — nothing newer ever arrived."
+   }
+  },
+  "multirole": {
+   "1": {
+    "designation": null,
+    "note": "No multirole fighter was ever acquired; the air force froze at 1980s types (docs/08 — worst radar-cued pillar in the game).",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "No multirole fighter was ever acquired; the air force froze at 1980s types (docs/08 — worst radar-cued pillar in the game).",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "No multirole fighter was ever acquired; the air force froze at 1980s types (docs/08 — worst radar-cued pillar in the game).",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": null,
+    "note": "No multirole fighter was ever acquired; the air force froze at 1980s types (docs/08 — worst radar-cued pillar in the game).",
+    "confidence": "high"
+   },
+   "5": {
+    "designation": null,
+    "note": "No multirole fighter was ever acquired; the air force froze at 1980s types (docs/08 — worst radar-cued pillar in the game).",
+    "confidence": "high"
+   },
+   "6": {
+    "designation": null,
+    "note": "No multirole fighter was ever acquired; the air force froze at 1980s types (docs/08 — worst radar-cued pillar in the game).",
+    "confidence": "high"
+   },
+   "7": {
+    "designation": null,
+    "note": "No multirole fighter was ever acquired; the air force froze at 1980s types (docs/08 — worst radar-cued pillar in the game).",
+    "confidence": "high"
+   }
+  },
+  "strike_aircraft": {
+   "1": {
+    "designation": null,
+    "note": "Strike flown ad hoc by MiG-15/17 with bombs; no dedicated type.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "Same — fighter-bombers only.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": "Su-7BMK",
+    "entered_service": 1971,
+    "dims_m": {
+     "len": 16.61,
+     "width": 9.31,
+     "height": 4.99
+    },
+    "mass_t": 13.5,
+    "speed_kmh": 2150,
+    "road_range_km": 1450,
+    "crew": 1,
+    "main_armament": "2x30mm NR-30 + ~2t bombs",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": null,
+    "sensors": [
+     "optical sight"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service",
+     "road_range_km"
+    ],
+    "basis": "~25-30 delivered ~1971; range is ferry. The only dedicated strike jet the KPA ever received — inherited (and decaying) thereafter."
+   }
+  },
+  "cas": {
+   "1": {
+    "designation": "Il-10 Beast",
+    "entered_service": 1950,
+    "dims_m": {
+     "len": 11.06,
+     "width": 13.4,
+     "height": 4.18
+    },
+    "mass_t": 6.3,
+    "speed_kmh": 551,
+    "road_range_km": 800,
+    "crew": 2,
+    "main_armament": "2x23mm + 2x7.62mm + 600kg bombs",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "armored bathtub around crew",
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "high",
+    "estimated_fields": [],
+    "basis": "Korean War ground-attack workhorse; largely destroyed by late 1950."
+   },
+   "4": {
+    "designation": "Su-25K Frogfoot",
+    "entered_service": 1988,
+    "dims_m": {
+     "len": 15.53,
+     "width": 14.36,
+     "height": 4.8
+    },
+    "mass_t": 17.6,
+    "speed_kmh": 975,
+    "road_range_km": 750,
+    "crew": 1,
+    "main_armament": "30mm GSh-30-2 + ~4t stores",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "titanium cockpit tub",
+    "sensors": [
+     "Klen-PS laser rangefinder/designator"
+    ],
+    "radar_gen": null,
+    "missiles": "Kh-25ML laser-guided + S-8/S-24 rockets",
+    "confidence": "high",
+    "estimated_fields": [],
+    "basis": "~35 delivered 1987-89 with the MiG-29 package; range is combat radius with load. Frozen since."
+   }
+  },
+  "bomber": {
+   "1": {
+    "designation": "Po-2 night harassment biplane",
+    "entered_service": 1950,
+    "dims_m": {
+     "len": 8.17,
+     "width": 11.4,
+     "height": 3.1
+    },
+    "mass_t": 1.35,
+    "speed_kmh": 152,
+    "road_range_km": 630,
+    "crew": 2,
+    "main_armament": "up to ~250kg light bombs",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "wood and fabric",
+    "sensors": [
+     "eyeball, at night"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "mass_t"
+    ],
+    "basis": "'Bedcheck Charlie' — wood/fabric airframe nearly invisible to 1950 radar. The concealment doctrine in embryo; docs/08's signature model loves this."
+   },
+   "2": {
+    "designation": "Il-28 / Harbin H-5",
+    "entered_service": 1960,
+    "dims_m": {
+     "len": 17.65,
+     "width": 21.45,
+     "height": 6.7
+    },
+    "mass_t": 23.2,
+    "speed_kmh": 902,
+    "road_range_km": 2180,
+    "crew": 3,
+    "main_armament": "~3t bombs + 4x23mm; torpedo option",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": null,
+    "sensors": [
+     "optical bombsight",
+     "tail-gun ranging radar"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Soviet Il-28s ~1960, Chinese H-5s later; ~80 nominally still on strength — the world's last light-jet-bomber fleet, frozen for 60 years."
+   }
+  },
+  "sead": {
+   "1": {
+    "designation": null,
+    "note": "No anti-radiation missile capability ever existed; the doctrinal answer is crude jamming, decoy emitters and gun ambushes (docs/08).",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "No anti-radiation missile capability ever existed; the doctrinal answer is crude jamming, decoy emitters and gun ambushes (docs/08).",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "No anti-radiation missile capability ever existed; the doctrinal answer is crude jamming, decoy emitters and gun ambushes (docs/08).",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": null,
+    "note": "No anti-radiation missile capability ever existed; the doctrinal answer is crude jamming, decoy emitters and gun ambushes (docs/08).",
+    "confidence": "high"
+   },
+   "5": {
+    "designation": null,
+    "note": "No anti-radiation missile capability ever existed; the doctrinal answer is crude jamming, decoy emitters and gun ambushes (docs/08).",
+    "confidence": "high"
+   },
+   "6": {
+    "designation": null,
+    "note": "No anti-radiation missile capability ever existed; the doctrinal answer is crude jamming, decoy emitters and gun ambushes (docs/08).",
+    "confidence": "high"
+   },
+   "7": {
+    "designation": null,
+    "note": "No anti-radiation missile capability ever existed; the doctrinal answer is crude jamming, decoy emitters and gun ambushes (docs/08).",
+    "confidence": "high"
+   }
+  },
+  "aewc": {
+   "1": {
+    "designation": null,
+    "note": "Effectively none (docs/08 pillar table). No AEW&C platform in any epoch; blind beyond ground radar coverage.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "Effectively none (docs/08 pillar table). No AEW&C platform in any epoch; blind beyond ground radar coverage.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "Effectively none (docs/08 pillar table). No AEW&C platform in any epoch; blind beyond ground radar coverage.",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": null,
+    "note": "Effectively none (docs/08 pillar table). No AEW&C platform in any epoch; blind beyond ground radar coverage.",
+    "confidence": "high"
+   },
+   "5": {
+    "designation": null,
+    "note": "Effectively none (docs/08 pillar table). No AEW&C platform in any epoch; blind beyond ground radar coverage.",
+    "confidence": "high"
+   },
+   "6": {
+    "designation": null,
+    "note": "Effectively none (docs/08 pillar table). No AEW&C platform in any epoch; blind beyond ground radar coverage.",
+    "confidence": "high"
+   },
+   "7": {
+    "designation": null,
+    "note": "Effectively none (docs/08 pillar table). No AEW&C platform in any epoch; blind beyond ground radar coverage.",
+    "confidence": "high"
+   }
+  },
+  "tanker": {
+   "1": {
+    "designation": null,
+    "note": "No aerial refuelling capability in any epoch; the air force fights over home ground on internal fuel — consistent with the chronic-fuel-shortage pillar.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "No aerial refuelling capability in any epoch; the air force fights over home ground on internal fuel — consistent with the chronic-fuel-shortage pillar.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "No aerial refuelling capability in any epoch; the air force fights over home ground on internal fuel — consistent with the chronic-fuel-shortage pillar.",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": null,
+    "note": "No aerial refuelling capability in any epoch; the air force fights over home ground on internal fuel — consistent with the chronic-fuel-shortage pillar.",
+    "confidence": "high"
+   },
+   "5": {
+    "designation": null,
+    "note": "No aerial refuelling capability in any epoch; the air force fights over home ground on internal fuel — consistent with the chronic-fuel-shortage pillar.",
+    "confidence": "high"
+   },
+   "6": {
+    "designation": null,
+    "note": "No aerial refuelling capability in any epoch; the air force fights over home ground on internal fuel — consistent with the chronic-fuel-shortage pillar.",
+    "confidence": "high"
+   },
+   "7": {
+    "designation": null,
+    "note": "No aerial refuelling capability in any epoch; the air force fights over home ground on internal fuel — consistent with the chronic-fuel-shortage pillar.",
+    "confidence": "high"
+   }
+  },
+  "maritime_patrol": {
+   "1": {
+    "designation": null,
+    "note": "No fixed-wing maritime patrol aircraft in any epoch; coastal observation posts and pickets instead.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "No fixed-wing maritime patrol aircraft in any epoch; coastal observation posts and pickets instead.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "No fixed-wing maritime patrol aircraft in any epoch; coastal observation posts and pickets instead.",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": null,
+    "note": "No fixed-wing maritime patrol aircraft in any epoch; coastal observation posts and pickets instead.",
+    "confidence": "high"
+   },
+   "5": {
+    "designation": null,
+    "note": "No fixed-wing maritime patrol aircraft in any epoch; coastal observation posts and pickets instead.",
+    "confidence": "high"
+   },
+   "6": {
+    "designation": null,
+    "note": "No fixed-wing maritime patrol aircraft in any epoch; coastal observation posts and pickets instead.",
+    "confidence": "high"
+   },
+   "7": {
+    "designation": null,
+    "note": "No fixed-wing maritime patrol aircraft in any epoch; coastal observation posts and pickets instead.",
+    "confidence": "high"
+   }
+  },
+  "transport_helicopter": {
+   "1": {
+    "designation": null,
+    "note": "No rotary-wing lift during the Korean War.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": "Mi-4",
+    "entered_service": 1962,
+    "dims_m": {
+     "len": 16.79,
+     "width": 21.0,
+     "height": 4.4
+    },
+    "mass_t": 7.55,
+    "speed_kmh": 185,
+    "road_range_km": 500,
+    "crew": 3,
+    "main_armament": "12 troops or 1.6t",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": null,
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Width field is main rotor diameter. Soviet deliveries in the 1960s."
+   },
+   "4": {
+    "designation": "Mi-8T / MD-500 fleet",
+    "entered_service": 1980,
+    "dims_m": {
+     "len": 18.17,
+     "width": 21.29,
+     "height": 5.65
+    },
+    "mass_t": 12.0,
+    "speed_kmh": 250,
+    "road_range_km": 450,
+    "crew": 3,
+    "main_armament": "24 troops or 4t",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": null,
+    "sensors": [
+     "optical"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "Mi-8 figures given. Alongside: 87 civilian Hughes MD-500s smuggled via a West German front 1983-85 — US-silhouette deception, an SOF-insertion special. Rotor dia in width."
+   }
+  },
+  "attack_helicopter": {
+   "1": {
+    "designation": null,
+    "note": "None.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "None.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "None; armed transports at most.",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": "Mi-24D Hind",
+    "entered_service": 1985,
+    "dims_m": {
+     "len": 17.51,
+     "width": 17.3,
+     "height": 6.5
+    },
+    "mass_t": 11.5,
+    "speed_kmh": 335,
+    "road_range_km": 450,
+    "crew": 2,
+    "main_armament": "12.7mm YakB gatling + rocket pods",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "armored cockpit; carries 8",
+    "sensors": [
+     "optical/LLTV sight"
+    ],
+    "radar_gen": null,
+    "missiles": "9M17P Falanga-P (AT-2) MCLOS",
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "~20 delivered mid-80s; armed MD-500Ds with Susong-po ATGMs serve as the light complement. Frozen since. Rotor dia in width."
+   }
+  },
+  "asw_helicopter": {
+   "1": {
+    "designation": null,
+    "note": "None.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "None.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "None; ASW is not this navy's game — it is the evader, not the hunter.",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": "Mi-14PL Haze",
+    "entered_service": 1985,
+    "dims_m": {
+     "len": 18.38,
+     "width": 21.29,
+     "height": 6.9
+    },
+    "mass_t": 14.0,
+    "speed_kmh": 230,
+    "road_range_km": 1135,
+    "crew": 4,
+    "main_armament": "torpedoes / depth charges",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "amphibious boat hull",
+    "sensors": [
+     "dipping sonar",
+     "MAD",
+     "search radar"
+    ],
+    "radar_gen": "R1",
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "A handful reported; serviceability doubtful. The faction's only nominal airborne ASW."
+   }
+  },
+  "air_defence_destroyer": {
+   "1": {
+    "designation": null,
+    "note": "No destroyer-sized combatant; the Najin frigates were the fleet's ceiling.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "Same.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "Same.",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": null,
+    "note": "Same.",
+    "confidence": "high"
+   },
+   "5": {
+    "designation": null,
+    "note": "Same.",
+    "confidence": "high"
+   },
+   "6": {
+    "designation": null,
+    "note": "Same.",
+    "confidence": "high"
+   },
+   "7": {
+    "designation": "Choe Hyon-class",
+    "entered_service": 2025,
+    "dims_m": {
+     "len": 144.0,
+     "width": 15.0,
+     "height": 4.0
+    },
+    "mass_t": 5000.0,
+    "speed_kmh": 56,
+    "road_range_km": 7400,
+    "crew": 300,
+    "main_armament": "VLS (~74 cells claimed, mixed sizes) + 127mm-class gun",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": null,
+    "sensors": [
+     "fixed-panel phased-array radar (claimed)"
+    ],
+    "radar_gen": "R3",
+    "missiles": "claimed SAM + cruise + ballistic mix from VLS",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew",
+     "missiles",
+     "radar_gen",
+     "main_armament"
+    ],
+    "basis": "Unveiled April 2025, trials through 2025; second hull damaged at launch. Every capability figure is a state-media claim. Height field holds draft; mass is displacement; speed ~30kn."
+   }
+  },
+  "asw_frigate": {
+   "1": {
+    "designation": null,
+    "note": "Nothing above patrol craft in the post-war fleet.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "Same — torpedo boats and small patrol combatants.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": "Najin-class frigate",
+    "entered_service": 1973,
+    "dims_m": {
+     "len": 100.0,
+     "width": 10.0,
+     "height": 2.7
+    },
+    "mass_t": 1500.0,
+    "speed_kmh": 48,
+    "road_range_km": 7400,
+    "crew": 180,
+    "main_armament": "2x100mm guns + RBU-1200 ASW rockets + depth charges",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": null,
+    "sensors": [
+     "basic hull sonar",
+     "Pot Head surface-search radar"
+    ],
+    "radar_gen": "R1",
+    "missiles": "2x P-15 Termit fitted at times",
+    "confidence": "medium",
+    "estimated_fields": [
+     "road_range_km",
+     "crew",
+     "missiles"
+    ],
+    "basis": "Two hulls, 1973/75 — the largest KPA combatants for 50 years. ASW fit is 1950s-grade; mass is standard displacement, height is draft, speed ~26kn."
+   }
+  },
+  "corvette": {
+   "1": {
+    "designation": null,
+    "note": "Post-war fleet was torpedo boats and ex-minesweeper hulls.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": "Sariwon-class corvette",
+    "entered_service": 1965,
+    "dims_m": {
+     "len": 62.1,
+     "width": 7.3,
+     "height": 2.4
+    },
+    "mass_t": 650.0,
+    "speed_kmh": 39,
+    "road_range_km": 5000,
+    "crew": 60,
+    "main_armament": "1x85mm + AAA + mine rails",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": null,
+    "sensors": [
+     "basic navigation radar"
+    ],
+    "radar_gen": "R1",
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "entered_service",
+     "mass_t",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "Local build on a Soviet Tral-pattern hull; ~21kn. Numbers uncertain."
+   },
+   "7": {
+    "designation": "Amnok-class corvette",
+    "entered_service": 2023,
+    "dims_m": {
+     "len": 77.0,
+     "width": 9.0,
+     "height": 2.7
+    },
+    "mass_t": 1500.0,
+    "speed_kmh": 48,
+    "road_range_km": 5500,
+    "crew": 80,
+    "main_armament": "76mm-class gun + CIWS (claimed)",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": null,
+    "sensors": [
+     "navigation/search radar",
+     "EO director (claimed)"
+    ],
+    "radar_gen": "R2",
+    "missiles": "Kumsong-3 (Kh-35 derivative) AShM; cruise-missile launch shown 2023-24",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew",
+     "main_armament"
+    ],
+    "basis": "Revealed 2023; figures from imagery analysis."
+   }
+  },
+  "missile_boat": {
+   "1": {
+    "designation": null,
+    "note": "Torpedo boats only; the anti-ship missile did not exist yet.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": "Komar-class",
+    "entered_service": 1968,
+    "dims_m": {
+     "len": 26.8,
+     "width": 6.2,
+     "height": 1.5
+    },
+    "mass_t": 80.0,
+    "speed_kmh": 81,
+    "road_range_km": 740,
+    "crew": 11,
+    "main_armament": "2x25mm",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "wooden/light hull",
+    "sensors": [
+     "Square Tie targeting radar"
+    ],
+    "radar_gen": "R1",
+    "missiles": "2x P-15 Termit (Styx)",
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service",
+     "mass_t"
+    ],
+    "basis": "The Styx boat — sank INS Eilat in Egyptian hands 1967, so this is the epoch's naval revolution in KPA colors. ~44kn."
+   },
+   "4": {
+    "designation": "Soju-class",
+    "entered_service": 1981,
+    "dims_m": {
+     "len": 43.0,
+     "width": 7.5,
+     "height": 1.8
+    },
+    "mass_t": 220.0,
+    "speed_kmh": 63,
+    "road_range_km": 900,
+    "crew": 30,
+    "main_armament": "2x30mm + 2x25mm",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": null,
+    "sensors": [
+     "Square Tie-derivative radar"
+    ],
+    "radar_gen": "R1",
+    "missiles": "4x P-15 Termit",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "Local enlarged Osa copy, built from ~1981."
+   },
+   "6": {
+    "designation": "Nongo-class VSV",
+    "entered_service": 2010,
+    "dims_m": {
+     "len": 35.0,
+     "width": 7.0,
+     "height": 1.5
+    },
+    "mass_t": 200.0,
+    "speed_kmh": 74,
+    "road_range_km": 800,
+    "crew": 20,
+    "main_armament": "76mm-class gun (claimed) + AAA",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": "very-slender-vessel bow",
+    "sensors": [
+     "navigation/targeting radar"
+    ],
+    "radar_gen": "R2",
+    "missiles": "Kumsong-3 (Kh-35 derivative), sea-skimming, ~130km",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew",
+     "entered_service",
+     "main_armament"
+    ],
+    "basis": "2000s-2010s build; the one genuinely modern missile combatant family."
+   }
+  },
+  "ssk": {
+   "1": {
+    "designation": null,
+    "note": "No submarines until the 1960s.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": "Whiskey-class",
+    "entered_service": 1965,
+    "dims_m": {
+     "len": 76.0,
+     "width": 6.3,
+     "height": 4.9
+    },
+    "mass_t": 1350.0,
+    "speed_kmh": 24,
+    "road_range_km": 11000,
+    "crew": 52,
+    "main_armament": "6x533mm TT",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": null,
+    "sensors": [
+     "Tamir-era sonar",
+     "snorkel"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "low",
+    "estimated_fields": [
+     "entered_service",
+     "road_range_km"
+    ],
+    "basis": "A handful reportedly transferred mid-1960s and long retired; existence in KPA service is itself only moderately attested. Mass is submerged displacement; speed submerged ~13kn."
+   },
+   "3": {
+    "designation": "Romeo-class (Type 033)",
+    "entered_service": 1974,
+    "dims_m": {
+     "len": 76.6,
+     "width": 6.7,
+     "height": 4.9
+    },
+    "mass_t": 1830.0,
+    "speed_kmh": 24,
+    "road_range_km": 16000,
+    "crew": 54,
+    "main_armament": "8x533mm TT (14 torpedoes) or 28 mines",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": null,
+    "sensors": [
+     "Herkules-pattern active/passive sonar",
+     "snorkel"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "road_range_km"
+    ],
+    "basis": "7 from China 1973-75, then local build into the 1990s; ~20 nominally in service — a frozen 1950s Soviet design and still the fleet's backbone. One carried Kim Jong Un in 2014."
+   },
+   "5": {
+    "designation": "Sang-O-class coastal submarine",
+    "entered_service": 1991,
+    "dims_m": {
+     "len": 34.0,
+     "width": 3.8,
+     "height": 3.2
+    },
+    "mass_t": 275.0,
+    "speed_kmh": 13,
+    "road_range_km": 5000,
+    "crew": 15,
+    "main_armament": "2x533mm TT / mine rails / SOF lockout",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": null,
+    "sensors": [
+     "basic passive sonar"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service",
+     "road_range_km"
+    ],
+    "basis": "The 1996 Gangneung grounding put one on the world's front pages. Slow, quiet, coastal — exactly the speed-to-noise niche docs/08 describes."
+   }
+  },
+  "ssn": {
+   "1": {
+    "designation": null,
+    "note": "No nuclear propulsion in any epoch; a 'nuclear-powered submarine' programme was announced and shown under construction in 2025 state media, but nothing is in service.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "No nuclear propulsion in any epoch; a 'nuclear-powered submarine' programme was announced and shown under construction in 2025 state media, but nothing is in service.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "No nuclear propulsion in any epoch; a 'nuclear-powered submarine' programme was announced and shown under construction in 2025 state media, but nothing is in service.",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": null,
+    "note": "No nuclear propulsion in any epoch; a 'nuclear-powered submarine' programme was announced and shown under construction in 2025 state media, but nothing is in service.",
+    "confidence": "high"
+   },
+   "5": {
+    "designation": null,
+    "note": "No nuclear propulsion in any epoch; a 'nuclear-powered submarine' programme was announced and shown under construction in 2025 state media, but nothing is in service.",
+    "confidence": "high"
+   },
+   "6": {
+    "designation": null,
+    "note": "No nuclear propulsion in any epoch; a 'nuclear-powered submarine' programme was announced and shown under construction in 2025 state media, but nothing is in service.",
+    "confidence": "high"
+   },
+   "7": {
+    "designation": null,
+    "note": "No nuclear propulsion in any epoch; a 'nuclear-powered submarine' programme was announced and shown under construction in 2025 state media, but nothing is in service.",
+    "confidence": "high"
+   }
+  },
+  "midget_sub": {
+   "1": {
+    "designation": null,
+    "note": "The midget fleet begins with the Yugo design in the 1970s.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "Same.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": "Yugo-class midget submarine",
+    "entered_service": 1974,
+    "dims_m": {
+     "len": 20.0,
+     "width": 2.0,
+     "height": 1.6
+    },
+    "mass_t": 90.0,
+    "speed_kmh": 15,
+    "road_range_km": 500,
+    "crew": 4,
+    "main_armament": "2x533mm TT (some boats) / diver lockout",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": null,
+    "sensors": [
+     "none beyond periscope and basic hydrophone"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "Yugoslav-derived design, built in numbers from the mid-70s; carries 6-7 divers. The asymmetric ASW-evasion tool docs/08 names — nearly undetectable creeping in coastal water."
+   },
+   "6": {
+    "designation": "Yono-class midget submarine",
+    "entered_service": 2005,
+    "dims_m": {
+     "len": 29.0,
+     "width": 2.75,
+     "height": 1.6
+    },
+    "mass_t": 130.0,
+    "speed_kmh": 20,
+    "road_range_km": 550,
+    "crew": 15,
+    "main_armament": "2x533mm TT",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": null,
+    "sensors": [
+     "basic passive sonar",
+     "periscope"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service",
+     "dims_m",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "The standing attribution for the 2010 Cheonan sinking — the design's proof that the midget-sub pillar works. Mass is submerged displacement."
+   }
+  },
+  "ballistic_launcher": {
+   "1": {
+    "designation": null,
+    "note": "Artillery reach only; battlefield rockets arrive in the 1960s.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": "9K52 Luna-M (FROG-7)",
+    "entered_service": 1969,
+    "dims_m": {
+     "len": 10.7,
+     "width": 2.8,
+     "height": 3.4
+    },
+    "mass_t": 20.4,
+    "speed_kmh": 60,
+    "road_range_km": 650,
+    "crew": 4,
+    "main_armament": "9M21 unguided rocket, ~70km",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "ZIL-135 TEL",
+    "sensors": [
+     "none — unguided"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service",
+     "dims_m"
+    ],
+    "basis": "Late-60s Soviet package; unguided area weapon, the on-ramp to the missile force."
+   },
+   "4": {
+    "designation": "Hwasong-5 (Scud-B copy) TEL",
+    "entered_service": 1985,
+    "dims_m": {
+     "len": 13.36,
+     "width": 3.02,
+     "height": 3.33
+    },
+    "mass_t": 37.0,
+    "speed_kmh": 55,
+    "road_range_km": 550,
+    "crew": 4,
+    "main_armament": "R-17 derivative, 300km, ~450m CEP, 1t warhead",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "MAZ-543 TEL",
+    "sensors": [
+     "INS"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "high",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t"
+    ],
+    "basis": "Reverse-engineered from Egyptian-supplied R-17s; production from 1984-86. Founds the entire missile programme."
+   },
+   "5": {
+    "designation": "Nodong-1 TEL",
+    "entered_service": 1995,
+    "dims_m": {
+     "len": 15.0,
+     "width": 3.2,
+     "height": 3.5
+    },
+    "mass_t": 40.0,
+    "speed_kmh": 55,
+    "road_range_km": 550,
+    "crew": 4,
+    "main_armament": "Nodong-1, ~1300km, ~2km CEP",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "enlarged TEL",
+    "sensors": [
+     "INS"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service",
+     "dims_m",
+     "mass_t"
+    ],
+    "basis": "Scaled Scud; strategic reach, hopeless accuracy — kills buildings, never movers, exactly the docs/12 note."
+   },
+   "6": {
+    "designation": "KN-02 Toksa TEL",
+    "entered_service": 2007,
+    "dims_m": {
+     "len": 9.5,
+     "width": 2.9,
+     "height": 3.2
+    },
+    "mass_t": 18.0,
+    "speed_kmh": 65,
+    "road_range_km": 550,
+    "crew": 3,
+    "main_armament": "Toksa (SS-21 derivative), 120-170km, INS/GNSS",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "wheeled TEL",
+    "sensors": [
+     "INS/GNSS"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service",
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "First solid-fuel, first vaguely accurate missile; parade debut 2007."
+   },
+   "7": {
+    "designation": "KN-23 TEL",
+    "entered_service": 2019,
+    "dims_m": {
+     "len": 11.0,
+     "width": 3.0,
+     "height": 3.3
+    },
+    "mass_t": 25.0,
+    "speed_kmh": 60,
+    "road_range_km": 550,
+    "crew": 3,
+    "main_armament": "KN-23 quasi-ballistic, ~450-690km, maneuvering depressed trajectory",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "tracked and wheeled TELs",
+    "sensors": [
+     "INS/GNSS"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "Iskander-pattern; flight-tested repeatedly from 2019 and combat-proven in Russian use in Ukraine. The one KPA system with a modern kill chain — GNSS_INS per docs/12."
+   }
+  },
+  "coastal_asm": {
+   "1": {
+    "designation": null,
+    "note": "Coastal guns only.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "Still guns; Styx-derived coastal missiles arrive with 1970s Chinese aid.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": "HY-1 Silkworm coastal battery",
+    "entered_service": 1975,
+    "dims_m": {
+     "len": 6.6,
+     "width": 2.8,
+     "height": 3.0
+    },
+    "mass_t": 15.0,
+    "speed_kmh": 50,
+    "road_range_km": 400,
+    "crew": 5,
+    "main_armament": "rail launcher on truck/fixed site",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": null,
+    "sensors": [
+     "coastal targeting radar"
+    ],
+    "radar_gen": "R1",
+    "missiles": "HY-1 (Styx derivative), ~40km, active-radar terminal; HY-2 (~95km) follows",
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service",
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "The dense coastal AShM belt both coasts still carry; local production followed."
+   },
+   "7": {
+    "designation": "Kumsong-3 (KN-19) coastal battery",
+    "entered_service": 2017,
+    "dims_m": {
+     "len": 11.0,
+     "width": 3.0,
+     "height": 3.3
+    },
+    "mass_t": 25.0,
+    "speed_kmh": 60,
+    "road_range_km": 500,
+    "crew": 4,
+    "main_armament": "4-canister TEL",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": null,
+    "sensors": [
+     "coastal targeting radar",
+     "datalink (claimed)"
+    ],
+    "radar_gen": "R2",
+    "missiles": "Kh-35 derivative, sea-skimming, ~130-250km",
+    "confidence": "medium",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "Salvo-tested June 2017; the modern layer of the coastal belt."
+   }
+  },
+  "ssbn": {
+   "1": {
+    "designation": null,
+    "note": "No strategic submarine force.",
+    "confidence": "high"
+   },
+   "2": {
+    "designation": null,
+    "note": "Same.",
+    "confidence": "high"
+   },
+   "3": {
+    "designation": null,
+    "note": "Same.",
+    "confidence": "high"
+   },
+   "4": {
+    "designation": null,
+    "note": "Same.",
+    "confidence": "high"
+   },
+   "5": {
+    "designation": null,
+    "note": "Same.",
+    "confidence": "high"
+   },
+   "6": {
+    "designation": "Gorae (Sinpo)-class SSB",
+    "entered_service": 2015,
+    "dims_m": {
+     "len": 67.0,
+     "width": 6.6,
+     "height": 5.0
+    },
+    "mass_t": 1700.0,
+    "speed_kmh": 18,
+    "road_range_km": 2800,
+    "crew": 70,
+    "main_armament": "1x SLBM tube (Pukguksong-1)",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": null,
+    "sensors": [
+     "basic sonar",
+     "snorkel"
+    ],
+    "radar_gen": null,
+    "missiles": "Pukguksong-1 SLBM, ~1200km claimed",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew"
+    ],
+    "basis": "Single experimental diesel boat; launched the Pukguksong test shots 2015-16. Strategic, rarely fights — per docs/12."
+   },
+   "7": {
+    "designation": "Hero Kim Kun Ok (Sinpo-C)",
+    "entered_service": 2023,
+    "dims_m": {
+     "len": 86.0,
+     "width": 7.0,
+     "height": 5.0
+    },
+    "mass_t": 2500.0,
+    "speed_kmh": 18,
+    "road_range_km": 2800,
+    "crew": 60,
+    "main_armament": "10 missile tubes claimed (4 large + 6 small)",
+    "gun_gen": null,
+    "armor_class": "steel",
+    "armor_note": null,
+    "sensors": [
+     "basic sonar",
+     "snorkel"
+    ],
+    "radar_gen": null,
+    "missiles": "SLBM/SLCM mix claimed",
+    "confidence": "low",
+    "estimated_fields": [
+     "dims_m",
+     "mass_t",
+     "speed_kmh",
+     "road_range_km",
+     "crew",
+     "main_armament",
+     "missiles"
+    ],
+    "basis": "A stretched Romeo conversion unveiled September 2023 as a 'tactical nuclear attack submarine'; seaworthiness widely questioned."
+   }
+  },
+  "transport_aircraft": {
+   "1": {
+    "designation": "An-2 Colt",
+    "entered_service": 1957,
+    "dims_m": {
+     "len": 12.4,
+     "width": 18.18,
+     "height": 4.1
+    },
+    "mass_t": 5.5,
+    "speed_kmh": 258,
+    "road_range_km": 845,
+    "crew": 2,
+    "main_armament": "12 troops or ~1.5t",
+    "gun_gen": null,
+    "armor_class": "none",
+    "armor_note": "wood, fabric and steel-tube biplane",
+    "sensors": [
+     "eyeball; night low-level"
+    ],
+    "radar_gen": null,
+    "missiles": null,
+    "confidence": "medium",
+    "estimated_fields": [
+     "entered_service"
+    ],
+    "basis": "THE infiltration special: fabric biplane with a tiny radar and IR signature flying at treetop height to insert SOF — still in service seven decades later. Docs/08's concealment column, airborne. Width is upper-wing span."
+   }
+  }
+ }
+}

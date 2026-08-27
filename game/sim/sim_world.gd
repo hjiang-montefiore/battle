@@ -62,6 +62,33 @@ var fire_control: SimFireControl = null
 ## carries as it appears. Off by default: the spine's own tests spawn unarmed
 ## units on purpose, and turning this on would change what they measure.
 var arm_on_spawn: bool = false
+## Slots 3.5-3.7: the order systems. Null until their owning agents build and
+## install them -- like fire_control, they are OPTIONAL layers a match wires
+## up, and a bare world runs without them. DELIBERATELY UNTYPED: the classes
+## live in files that do not exist yet, and naming them here would make the
+## spine unparseable until all three land. Each must expose step(dt: float)
+## and is_implemented() -> bool, plus its order intake below. An order routed
+## to a missing system is REJECTED (counted), never silently swallowed.
+##
+##   transport_system : order_load(unit: int, transport: int) -> bool
+##                      order_unload(transport: int, passenger: int) -> bool
+##                          (passenger -1 = everything aboard)
+##                      order_deploy(unit: int) -> bool
+##       Owns loading/unloading and the DeployState machine. The state changes
+##       go through SimEntities.board()/disembark(); deploy_state/deploy_timer
+##       are its to write. Range checks and ramp/deploy times live here.
+##   patrol_system    : order_patrol(unit: int, points: PackedFloat32Array) -> bool
+##       Owns ground/naval patrol loops: walks the point list via
+##       SimMovement.order_move(), loops it, and clears it on any new order.
+##   sortie_system    : order_strike(unit: int, x: float, z: float) -> bool
+##                      order_patrol(unit: int, x: float, z: float,
+##                          radius_m: float) -> bool
+##       Owns SortieState, home_base recovery and the docs/04 RTB rule:
+##       range_remaining = fuel / burn_per_km_at_cruise, RTB when
+##       range_remaining < 1.10 x distance to the nearest recovery point.
+var transport_system = null
+var patrol_system = null
+var sortie_system = null
 ## player id -> SimAiDirector. Iterated through ai_player_ids(), which sorts,
 ## because docs/06 forbids relying on Dictionary order anywhere in the sim and
 ## two AIs deciding in an unstable order is a desync.
@@ -200,6 +227,25 @@ func _sim_step(dt: float) -> void:
 		_economy_slot(_economy_accum)
 		_economy_accum = 0.0
 
+	# ── 3.5-3.7 THE ORDER SYSTEMS: TRANSPORT, PATROL, SORTIE ────────────────
+	# All three sit BETWEEN economy and movement because all three express
+	# themselves as movement intent -- destinations, boarding, launches -- and
+	# none of them writes a position. After ECONOMY: a unit spawned this tick
+	# is orderable this tick, and the sortie RTB rule reads the fuel the
+	# economy slot just wrote, not last second's. Before MOVEMENT: intent
+	# issued here is planned and steered on this same tick, so a patroller
+	# never stands idle a tick between legs and a launched aircraft moves on
+	# the tick it launches.
+	#
+	# Among the three, TRANSPORT runs FIRST: boarding takes a unit off the map,
+	# and patrol and sortie must see it gone before they consider steering it.
+	# SORTIE runs LAST so a recovery point that unloaded or deployed this tick
+	# is in its final state when d_home is measured. Each is a no-op until its
+	# owning agent installs the system.
+	_transport_slot(dt)
+	_patrol_slot(dt)
+	_sortie_slot(dt)
+
 	# ── 4. MOVEMENT ─────────────────────────────────────────────────────────
 	# Plans paths and steers. It writes VELOCITY and HEADING and never position.
 	# Splitting the decision from the integration keeps _integrate() the single
@@ -291,7 +337,19 @@ func _command_is_authorised(c: SimCommandQueue.Command) -> bool:
 		return false
 	if entities.alive[c.unit] == 0:
 		return false
-	return entities.owner[c.unit] == c.issuer
+	if entities.owner[c.unit] != c.issuer:
+		return false
+	# LOAD names a SECOND unit -- the transport -- and it is held to the same
+	# standard as the first: real, alive, and the issuer's own. Boarding an
+	# enemy APC must be as impossible as ordering an enemy tank to move.
+	if c.kind == SimTypes.OrderKind.LOAD:
+		if c.target_unit < 0 or c.target_unit >= entities.count():
+			return false
+		if entities.alive[c.target_unit] == 0:
+			return false
+		if entities.owner[c.target_unit] != c.issuer:
+			return false
+	return true
 
 
 ## Returns true when the order actually changed something.
@@ -299,6 +357,8 @@ func _execute_command(c: SimCommandQueue.Command) -> bool:
 	match c.kind:
 		SimTypes.OrderKind.MOVE:
 			return movement.order_move(c.unit, c.x, c.z)
+		SimTypes.OrderKind.ATTACK_MOVE:
+			return movement.order_attack_move(c.unit, c.x, c.z, c.queued)
 		SimTypes.OrderKind.STOP:
 			movement.order_stop(c.unit)
 			return true
@@ -325,6 +385,29 @@ func _execute_command(c: SimCommandQueue.Command) -> bool:
 			if fire_control != null:
 				fire_control.note_manual_order(c.unit)
 			return true
+		# ── the order systems (slots 3.5-3.7). Each case routes to a system an
+		# agent has yet to install; until then the order is REJECTED and counted,
+		# never silently swallowed -- the counters stay honest about what the
+		# sim can actually do. `x != null and x.f()` short-circuits, so a
+		# missing system is never dereferenced.
+		SimTypes.OrderKind.PATROL:
+			return patrol_system != null \
+				and patrol_system.order_patrol(c.unit, c.points)
+		SimTypes.OrderKind.LOAD:
+			return transport_system != null \
+				and transport_system.order_load(c.unit, c.target_unit)
+		SimTypes.OrderKind.UNLOAD:
+			return transport_system != null \
+				and transport_system.order_unload(c.unit, c.target_unit)
+		SimTypes.OrderKind.DEPLOY:
+			return transport_system != null \
+				and transport_system.order_deploy(c.unit)
+		SimTypes.OrderKind.SORTIE_STRIKE:
+			return sortie_system != null \
+				and sortie_system.order_strike(c.unit, c.x, c.z)
+		SimTypes.OrderKind.SORTIE_PATROL:
+			return sortie_system != null \
+				and sortie_system.order_patrol(c.unit, c.x, c.z, c.radius_m)
 		SimTypes.OrderKind.CANCEL:
 			return false
 	return false
@@ -353,6 +436,33 @@ func _arm_new_units() -> void:
 		SimArsenal.arm(weapons, i, d.role, d.epoch)
 
 
+## Slot 3.5. Loading, unloading and the DeployState machine. A NO-OP until the
+## transport agent installs `transport_system`. Its state changes go through
+## SimEntities.board()/disembark(); deploy_state and deploy_timer are its to
+## write, per the ownership table in sim_entities.gd.
+func _transport_slot(dt: float) -> void:
+	if transport_system != null:
+		transport_system.step(dt)
+
+
+## Slot 3.6. Ground and naval patrol loops. A NO-OP until the patrol agent
+## installs `patrol_system`. Its whole output is SimMovement order calls for
+## units that finished the current leg -- which is exactly why it runs
+## immediately before the movement slot.
+func _patrol_slot(dt: float) -> void:
+	if patrol_system != null:
+		patrol_system.step(dt)
+
+
+## Slot 3.7. Aircraft sorties: launch, transit, station, and the docs/04 RTB
+## rule (RTB when range_remaining < 1.10 x distance to the nearest recovery
+## point, return leg costed at CRUISE burn regardless of current throttle).
+## A NO-OP until the sortie agent installs `sortie_system`.
+func _sortie_slot(dt: float) -> void:
+	if sortie_system != null:
+		sortie_system.step(dt)
+
+
 ## Slot 4. Path planning and steering.
 func _movement_slot(dt: float) -> void:
 	# Decide at MOVEMENT_HZ, integrate every tick. The accumulator is passed in
@@ -378,6 +488,12 @@ func _combat_slot(dt: float) -> void:
 		if not impact.is_arrival():
 			continue
 		if not entities.is_alive(impact.target):
+			continue
+		# The target boarded a transport while the round was in flight: it is
+		# off the map, and the round wastes itself. Killing cargo means
+		# killing the transport it is riding in -- see the carried-unit
+		# doctrine in sim_entities.gd.
+		if entities.is_aboard(impact.target):
 			continue
 		var pen := SimArmor.penetration_at_range_mm(
 			impact.penetration_mm, impact.damage_class, impact.range_m)
@@ -450,6 +566,13 @@ func subsystem_status() -> Dictionary:
 		"damage": damage.is_implemented(),
 		"economy": economy.is_implemented(),
 		"ai": ai_player_ids().any(func(p): return (ai[p] as SimAiDirector).is_implemented()),
+		# The order systems are optional layers like fire_control; a bare
+		# world honestly reports them absent. Each must expose
+		# is_implemented() -- reporting true while doing nothing is the lie
+		# this whole function exists to prevent.
+		"transport": transport_system != null and transport_system.is_implemented(),
+		"patrol": patrol_system != null and patrol_system.is_implemented(),
+		"sortie": sortie_system != null and sortie_system.is_implemented(),
 	}
 
 
@@ -459,9 +582,23 @@ func _integrate(dt: float) -> void:
 	for i in range(entities.count()):
 		if entities.alive[i] == 0:
 			continue
+		if entities.carried_by[i] >= 0:
+			continue   # passengers ride; the second pass below places them
 		entities.pos_x[i] += entities.vel_x[i] * dt
 		entities.pos_y[i] += entities.vel_y[i] * dt
 		entities.pos_z[i] += entities.vel_z[i] * dt
+	# Passengers ride their transport. Their position is written HERE and
+	# nowhere else, so _integrate stays the single writer of pos_*. A separate
+	# second pass, after every carrier has moved, so cargo sees its carrier's
+	# THIS-tick position whatever their relative indices -- nested holds
+	# resolve through top_carrier(), which names the one hull actually moving.
+	for i in range(entities.count()):
+		if entities.alive[i] == 0 or entities.carried_by[i] < 0:
+			continue
+		var top := entities.top_carrier(i)
+		entities.pos_x[i] = entities.pos_x[top]
+		entities.pos_y[i] = entities.pos_y[top]
+		entities.pos_z[i] = entities.pos_z[top]
 
 
 ## Run exactly n simulation ticks, ignoring the accumulator. For tests and for
@@ -506,6 +643,15 @@ func state_hash() -> int:
 		buf.append(float(entities.path_cursor[i]))
 		buf.append(float(entities.path_len[i]))
 		buf.append(snappedf(entities.fuel[i], 0.001))
+		# Spine state for the order systems. Cargo membership is covered by
+		# carried_by + cargo_len (the slot ordering is derivable from
+		# carried_by, so hashing the slots too would be redundant).
+		buf.append(float(entities.deploy_state[i]))
+		buf.append(snappedf(entities.deploy_timer[i], 0.001))
+		buf.append(float(entities.carried_by[i]))
+		buf.append(float(entities.cargo_len[i]))
+		buf.append(float(entities.home_base[i]))
+		buf.append(float(entities.sortie_state[i]))
 	# Track state matters too -- a desync in the picture is still a desync.
 	for f in solver.faction_ids():
 		var table: SimTrackTable = solver.tables[f]

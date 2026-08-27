@@ -199,7 +199,62 @@ enum OrderKind {
 	PRODUCE = 6,       ## queue a unit at a structure
 	BUILD = 7,         ## place a structure at a world point
 	CANCEL = 8,
+	PATROL = 9,        ## loop a list of world points until reordered
+	LOAD = 10,         ## unit boards a transport (Command.target_unit names it)
+	UNLOAD = 11,       ## transport disgorges (target_unit = one passenger, -1 = all)
+	DEPLOY = 12,       ## toggle a deployable's state in place (towed guns, launchers)
+	SORTIE_STRIKE = 13, ## aircraft: fly to x/z, deliver, come home on fuel (docs/04)
+	SORTIE_PATROL = 14, ## aircraft: orbit x/z until the RTB rule says otherwise
+	ATTACK_MOVE = 15,  ## advance to a world point at combat power, engaging en route
 }
+
+
+## Deployable state machine, shared because SimEntities stores it per unit and
+## the transport/deploy, movement and combat layers all read it. The
+## TRANSITIONS take time -- deploy_timer in SimEntities counts them down --
+## which is what makes catching a battery limbered a real reward rather than a
+## cosmetic animation. SimEntities.can_move() is false in every state but
+## MOBILE; whether a role may FIRE while deployed (towed artillery: only then)
+## is the deploy system's per-role knowledge, not encoded here.
+enum DeployState {
+	MOBILE = 0,       ## travelling configuration. Can move, typically cannot fire
+	DEPLOYING = 1,    ## in transition, vulnerable: cannot move, cannot fire
+	DEPLOYED = 2,     ## emplaced. The role's deployed capability is live
+	UNDEPLOYING = 3,  ## packing up: cannot move, cannot fire
+}
+
+
+## Where an aircraft is in its sortie. docs/04's eight aircraft states folded
+## to the five the sim needs -- TAKEOFF, LANDING and TURNAROUND are timers the
+## sortie system runs inside GROUNDED and RECOVERING, not distinct states the
+## rest of the sim ever branches on. Stored per unit in SimEntities; written by
+## the sortie system ONLY.
+enum SortieState {
+	GROUNDED = 0,    ## at home_base: ready, arming, or refuelling
+	OUTBOUND = 1,    ## transiting to the tasked point at cruise
+	ON_STATION = 2,  ## orbiting (SORTIE_PATROL) or attacking (SORTIE_STRIKE)
+	RTB = 3,         ## returning: fuel rule, winchester, damage, or order
+	RECOVERING = 4,  ## committed to the approach; cannot be re-tasked
+}
+
+
+static func deploy_state_name(s: int) -> String:
+	match s:
+		DeployState.MOBILE: return "MOBILE"
+		DeployState.DEPLOYING: return "DEPLOYING"
+		DeployState.DEPLOYED: return "DEPLOYED"
+		DeployState.UNDEPLOYING: return "UNDEPLOYING"
+	return "?"
+
+
+static func sortie_state_name(s: int) -> String:
+	match s:
+		SortieState.GROUNDED: return "GROUNDED"
+		SortieState.OUTBOUND: return "OUTBOUND"
+		SortieState.ON_STATION: return "ON_STATION"
+		SortieState.RTB: return "RTB"
+		SortieState.RECOVERING: return "RECOVERING"
+	return "?"
 
 
 static func facet_name(f: int) -> String:

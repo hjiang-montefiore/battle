@@ -34,6 +34,12 @@ const DESCRIPTIONS := {
 
 
 static func build(key: String, seed_value := 20260826) -> SimTerrain:
+	# A theatre key is a legal arena key. SimMatch.start() takes an arena KEY,
+	# not a terrain, and resolves it here -- so this delegation is what lets a
+	# match start on docs/08's real-geography theatres without the match layer
+	# knowing theatres exist. Same determinism contract either way.
+	if key in SimTheatre.ALL:
+		return SimTheatre.build(key, seed_value)
 	var rng := SimRng.new(seed_value)
 	match key:
 		OPEN_STEPPE: return _open_steppe(rng)
@@ -128,7 +134,14 @@ static func _nearest_dry(terrain: SimTerrain, x: float, z: float) -> Vector2:
 	if not terrain.is_water(x, z):
 		return Vector2(x, z)
 	var step := terrain.cell_size_m * 2.0
-	for ring in range(1, 40):
+	# Ring count scales with the map: a fixed 40 rings was 120 km on the North
+	# Atlantic theatre, and a base slot in the middle of a 768 km ocean box
+	# stayed at -1000 m because no land was that close. Reaching 45% of the
+	# shorter extent means the search can always get from the slot circle
+	# (36% inset) to the map edge before giving up.
+	var max_ring := maxi(40, int(minf(terrain.extent_x_m(),
+		terrain.extent_z_m()) * 0.45 / step))
+	for ring in range(1, max_ring):
 		var r := step * float(ring)
 		# Fixed 16-point compass, in a fixed order.
 		for k in range(16):

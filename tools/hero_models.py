@@ -634,6 +634,211 @@ CAMO = {"mbt_e4_us_m1_abrams": "camo_us",
         "mbt_e4_de_leopard2a6": "camo_de"}
 
 
+# ── the texture pass (2026-08): per-unit composed textures ─────────
+# A roster entry REQUESTS texture features per material group by calling
+# texture_features() at import time (model modules do this next to their
+# roster; build_all's child needs no change because importing the module runs
+# the registrations). Units that never call it build EXACTLY as before —
+# the hook is a no-op without a registration, which is what keeps this API
+# stable for the workflows that rebuild units concurrently.
+#
+#   texture_features("mbt_e4_us_m1_abrams",
+#       size_class="vehicle",            # -> textures.SIZE_CLASS resolution
+#       groups=("body", "deck"),         # material groups that get composed
+#       camo_scale=None,                 # metres per camo tile (class default)
+#       panels=dict(spacing=1.5, strength=0.5, jitter=0.10, seams=0.55),
+#       weathering=dict(
+#           dust=dict(height=1.1, strength=0.45, tint=(0.50, 0.44, 0.34)),
+#           streaks=dict(z0=8.2, length=7.0, density=0.35, strength=0.5),
+#           exhaust=[dict(origin=(0, 3.9, 1.35), direction=(0, 1, -0.4),
+#                         length=2.0, width=0.4, strength=0.55)],
+#           edge_wear=dict(strength=0.5)),
+#       insignia=[dict(kind="star_us", center=(0, 0.35, 2.45),
+#                      normal=(0, 0, 1), size=0.85, up=(0, -1, 0),
+#                      alpha=0.85, color=None, text=None)])
+#
+# Coordinates are build-space METRES (Z-up, the space every model function
+# already works in). All layers are seeded from the unit name: deterministic.
+TEXTURE_FEATURES = {}
+
+
+def texture_features(name, **spec):
+    """Roster hook: request a composed per-unit texture. Additive API."""
+    TEXTURE_FEATURES[name] = spec
+    return spec
+
+
+def _textures():
+    import sys as _sys
+    d = os.path.dirname(os.path.abspath(__file__))
+    if d not in _sys.path:
+        _sys.path.insert(0, d)
+    import textures
+    return textures
+
+
+def _world_bbox(obj):
+    from mathutils import Vector as _V
+    cs = [obj.matrix_world @ _V(c) for c in obj.bound_box]
+    mn = _V((min(c.x for c in cs), min(c.y for c in cs), min(c.z for c in cs)))
+    mx = _V((max(c.x for c in cs), max(c.y for c in cs), max(c.z for c in cs)))
+    size = mx - mn
+    for i in range(3):
+        size[i] = max(size[i], 1e-4)
+    return mn, size
+
+
+def _bake_emit(obj, res, build_nodes, tag_):
+    """EMIT-bake an arbitrary node-driven colour into a float image over the
+    non-overlapping `bake` UV (UV1). Used for world POSITION and NORMAL maps —
+    the inputs that let the compose layers work in metres."""
+    import numpy as np
+    me = obj.data
+    me.uv_layers.active_index = 1
+    img = bpy.data.images.new(f"{obj.name}_{tag_}", res, res,
+                              alpha=False, float_buffer=True)
+    img.colorspace_settings.name = "Non-Color"
+    mat = bpy.data.materials.new("__bakeaux")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    for nd in list(nt.nodes):
+        nt.nodes.remove(nd)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    em = nt.nodes.new("ShaderNodeEmission")
+    nt.links.new(em.outputs["Emission"], out.inputs["Surface"])
+    build_nodes(nt, em)
+    ti = nt.nodes.new("ShaderNodeTexImage")
+    ti.image = img
+    ti.select = True
+    nt.nodes.active = ti
+    uvn = nt.nodes.new("ShaderNodeUVMap")
+    uvn.uv_map = "bake"
+    nt.links.new(uvn.outputs["UV"], ti.inputs["Vector"])
+
+    orig = [s.material for s in obj.material_slots]
+    for s in obj.material_slots:
+        s.material = mat
+    sc = bpy.context.scene
+    sc.render.engine = "CYCLES"
+    sc.cycles.device = "CPU"
+    sc.cycles.samples = 1
+    sc.cycles.seed = 20260825
+    sc.render.bake.margin = 8
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.bake(type="EMIT")
+    for s, m in zip(obj.material_slots, orig):
+        s.material = m
+    bpy.data.materials.remove(mat)
+    arr = np.array(img.pixels[:], dtype=np.float32).reshape(res, res, 4)[..., :3]
+    bpy.data.images.remove(img)
+    return arr
+
+
+def bake_world_maps(obj, res):
+    """(pos, nrm) world maps as numpy arrays, baked over UV1."""
+    import numpy as np
+    mn, size = _world_bbox(obj)
+
+    def pos_nodes(nt, em):
+        g = nt.nodes.new("ShaderNodeNewGeometry")
+        sub = nt.nodes.new("ShaderNodeVectorMath"); sub.operation = "SUBTRACT"
+        sub.inputs[1].default_value = mn
+        div = nt.nodes.new("ShaderNodeVectorMath"); div.operation = "DIVIDE"
+        div.inputs[1].default_value = size
+        nt.links.new(g.outputs["Position"], sub.inputs[0])
+        nt.links.new(sub.outputs["Vector"], div.inputs[0])
+        nt.links.new(div.outputs["Vector"], em.inputs["Color"])
+
+    def nrm_nodes(nt, em):
+        g = nt.nodes.new("ShaderNodeNewGeometry")
+        mad = nt.nodes.new("ShaderNodeVectorMath")
+        mad.operation = "MULTIPLY_ADD"
+        mad.inputs[1].default_value = (0.5, 0.5, 0.5)
+        mad.inputs[2].default_value = (0.5, 0.5, 0.5)
+        nt.links.new(g.outputs["Normal"], mad.inputs[0])
+        nt.links.new(mad.outputs["Vector"], em.inputs["Color"])
+
+    pos = _bake_emit(obj, res, pos_nodes, "pos")
+    nrm = _bake_emit(obj, res, nrm_nodes, "nrm")
+    pos = pos * np.array(size, np.float32) + np.array(mn, np.float32)
+    nrm = nrm * 2.0 - 1.0
+    return pos, nrm
+
+
+def _retarget_basecolor(mat, image):
+    """Point the material's Base Color at the composed image, driven by the
+    unique `bake` unwrap instead of the tiling cube projection."""
+    nt = mat.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    base = bsdf.inputs["Base Color"]
+    node = None
+    if base.is_linked and base.links[0].from_node.type == "TEX_IMAGE":
+        node = base.links[0].from_node
+    if node is None:
+        node = nt.nodes.new("ShaderNodeTexImage")
+        node.interpolation = "Smart"
+        nt.links.new(node.outputs["Color"], base)
+    node.image = image
+    uvn = nt.nodes.new("ShaderNodeUVMap")
+    uvn.uv_map = "bake"
+    nt.links.new(uvn.outputs["UV"], node.inputs["Vector"])
+
+
+def apply_composed_texture(g, gname, unit, feats, ao_img, lod):
+    """The hook build() calls per material group when a unit registered
+    texture features. Bakes world maps, composes, saves, retargets."""
+    import numpy as np
+    T = _textures()
+    sc_name = feats.get("size_class", "vehicle")
+    res = int(feats.get("res") or T.SIZE_CLASS.get(sc_name, 1024))
+    if lod == 1:
+        res = max(256, res // 2)
+    pos, nrm = bake_world_maps(g, res)
+    ares = ao_img.size[0]
+    ao = np.array(ao_img.pixels[:], dtype=np.float32).reshape(
+        ao_img.size[1], ares, 4)[..., 0]
+
+    mat = g.data.materials[0]
+    bsdf = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    base_in = bsdf.inputs["Base Color"]
+    camo_png, base_rgb = None, (0.5, 0.5, 0.5)
+    if base_in.is_linked and base_in.links[0].from_node.type == "TEX_IMAGE":
+        camo_png = CAMO.get(unit)
+    else:
+        base_rgb = tuple(base_in.default_value[:3])
+
+    img = T.compose(unit, gname, camo_png, base_rgb, pos, nrm, ao, feats)
+    suffix = "" if lod == 0 else f"_lod{lod}"
+    bimg = T.save_unit_png(f"{unit}_{gname}{suffix}", img)
+    _retarget_basecolor(mat, bimg)
+    print(f"      composed {gname:7s} {res}px  "
+          f"mean {float(img.mean()):.3f}")
+
+
+# The hero tank carries its features here, the way it carries CAMO/TEAM —
+# it is the reference request the roster appliers copy from.
+texture_features(
+    "mbt_e4_us_m1_abrams",
+    size_class="vehicle",
+    groups=("body", "deck"),
+    panels=dict(spacing=1.5, strength=0.55, jitter=0.13, seams=0.55),
+    weathering=dict(
+        dust=dict(height=1.3, strength=0.6, tint=(0.50, 0.44, 0.34)),
+        exhaust=[dict(origin=(0.0, 3.9, 1.35), direction=(0, 1, -0.35),
+                      length=2.0, width=0.45, strength=0.5)],
+        edge_wear=dict(strength=0.5)),
+    insignia=[
+        dict(kind="star_us", center=(0.0, 0.35, 2.45), normal=(0, 0, 1),
+             size=0.85, up=(0, -1, 0), alpha=0.80, color=(0.14, 0.13, 0.12)),
+        dict(kind="star_us", center=(1.47, -0.30, 2.02), normal=(1, 0, 0),
+             size=0.60, alpha=0.80, color=(0.14, 0.13, 0.12)),
+        dict(kind="star_us", center=(-1.47, -0.30, 2.02), normal=(-1, 0, 0),
+             size=0.60, alpha=0.80, color=(0.14, 0.13, 0.12)),
+    ])
+
+
 def uvproj(obj, world_size=2.2, jitter=0.0):
     """Uniform WORLD-SCALE cube projection.
 
@@ -765,10 +970,14 @@ def build(name, fn, lod):
     for gname, g in made.items():
         uvproj(g, world_size=2.2, jitter=jitter)
         g.data.materials.append(GROUP_MATS[gname](name))
+    feats = TEXTURE_FEATURES.get(name)
     for gname, g in made.items():
         # LOD1 is what the RTS camera actually renders — bake it too
         if lod <= 1:
-            bake_ao_texture(g, res=(1024 if gname == "body" else 256))
+            ao_img = bake_ao_texture(g, res=(1024 if gname == "body" else 256))
+            # texture pass: composed per-unit albedo for requested groups
+            if feats and gname in feats.get("groups", ("body",)):
+                apply_composed_texture(g, gname, name, feats, ao_img, lod)
         g.parent = root
     bpy.data.objects.remove(ground, do_unlink=True)
 

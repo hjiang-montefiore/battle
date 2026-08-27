@@ -220,10 +220,9 @@ func order_move(unit: int, x_m: float, z_m: float, queued := false) -> bool:
 ##
 ## HONESTY: the movement half of this is real -- the unit travels in
 ## MoveState.COMBAT and is_attack_moving() reports it. The "halt and engage what
-## you meet" half belongs to the weapon cycle, which is not built, so today an
-## attack-move differs from a move only in burn rate and in the flag.
-## It is also not yet reachable through SimCommandQueue: SimTypes.OrderKind has
-## no ATTACK_MOVE member, and that enum is shared, not this layer's to extend.
+## you meet" half belongs to the weapon cycle, which reads is_attack_moving().
+## Reachable through SimCommandQueue.attack_move() (OrderKind.ATTACK_MOVE),
+## the same path a plain MOVE takes.
 func order_attack_move(unit: int, x_m: float, z_m: float, queued := false) -> bool:
 	return _enqueue(unit, OrderType.ATTACK_MOVE, x_m, z_m, queued)
 

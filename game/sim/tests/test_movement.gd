@@ -697,6 +697,14 @@ func _suite_command_path() -> void:
 	_ok("a STOP command through the queue halts the unit",
 		e.speed_ms[mine] == 0.0 and e.has_dest[mine] == 0)
 
+	# ATTACK_MOVE through the queue: the same path the A-then-click gesture
+	# takes, landing in order_attack_move() with the flag and burn rate set.
+	w.commands.attack_move(0, mine, 900.0, 0.0)
+	w.run_ticks(10)
+	_ok("an ATTACK_MOVE command through the queue advances at combat power",
+		w.movement.is_attack_moving(mine)
+			and e.move_state[mine] == SimTypes.MoveState.COMBAT)
+
 
 # ── work budgeting and terrain following ─────────────────────────────────────
 

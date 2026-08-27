@@ -29,6 +29,16 @@ class Command extends RefCounted:
 	var value: int = 0          ## SET_EMCON / SET_MOVE_STATE / CANCEL slot
 	var key: String = ""        ## PRODUCE / BUILD: unit or structure def key
 	var queued: bool = false    ## true = append to the unit's order queue
+	## LOAD: the transport being boarded. UNLOAD: one passenger, -1 = all.
+	## A SECOND unit index on the command; the ownership gate in
+	## SimWorld._command_is_authorised() checks it too -- boarding an enemy
+	## APC must be as impossible as ordering an enemy tank.
+	var target_unit: int = -1
+	## PATROL: the loop, as flat [x0, z0, x1, z1, ...] world metres.
+	## Duplicated at submit so a caller mutating its own array afterwards
+	## cannot change a command already sitting in the queue.
+	var points := PackedFloat32Array()
+	var radius_m: float = 0.0   ## SORTIE_PATROL: orbit radius, metres
 
 	func _to_string() -> String:
 		return "cmd(kind=%d issuer=%d unit=%d at %.0f,%.0f track=%d %s)" % [
@@ -53,6 +63,15 @@ func submit(c: Command) -> Command:
 func move(issuer: int, unit: int, x: float, z: float, queued := false) -> Command:
 	var c := Command.new()
 	c.kind = SimTypes.OrderKind.MOVE
+	c.issuer = issuer; c.unit = unit; c.x = x; c.z = z; c.queued = queued
+	return submit(c)
+
+
+## Advance to a world point ready to fight: SimMovement's ATTACK_MOVE order,
+## reached through the queue exactly the way a plain MOVE is.
+func attack_move(issuer: int, unit: int, x: float, z: float, queued := false) -> Command:
+	var c := Command.new()
+	c.kind = SimTypes.OrderKind.ATTACK_MOVE
 	c.issuer = issuer; c.unit = unit; c.x = x; c.z = z; c.queued = queued
 	return submit(c)
 
@@ -98,6 +117,72 @@ func build(issuer: int, def_key: String, x: float, z: float) -> Command:
 	var c := Command.new()
 	c.kind = SimTypes.OrderKind.BUILD
 	c.issuer = issuer; c.key = def_key; c.x = x; c.z = z
+	return submit(c)
+
+
+## Loop a list of world points until told otherwise. `p_points` is flat
+## [x0, z0, x1, z1, ...] metres; one point is a legal loiter-here. The first
+## point is mirrored into x/z so anything that renders or logs a command's
+## destination keeps working without knowing about point lists.
+func patrol(issuer: int, unit: int, p_points: PackedFloat32Array,
+		queued := false) -> Command:
+	var c := Command.new()
+	c.kind = SimTypes.OrderKind.PATROL
+	c.issuer = issuer; c.unit = unit; c.queued = queued
+	c.points = p_points.duplicate()
+	if c.points.size() >= 2:
+		c.x = c.points[0]; c.z = c.points[1]
+	return submit(c)
+
+
+## `unit` boards `transport`. BOTH must belong to the issuer -- the second
+## index is validated at drain time exactly like the first.
+func load_cargo(issuer: int, unit: int, transport: int) -> Command:
+	var c := Command.new()
+	c.kind = SimTypes.OrderKind.LOAD
+	c.issuer = issuer; c.unit = unit; c.target_unit = transport
+	return submit(c)
+
+
+## `transport` disgorges where it stands. `passenger` = one specific unit
+## aboard, or -1 for everything. There is no destination on this order on
+## purpose: "unload over there" is a MOVE then an UNLOAD, which the UI can
+## queue; the sim keeps the primitive atomic.
+func unload_cargo(issuer: int, transport: int, passenger := -1) -> Command:
+	var c := Command.new()
+	c.kind = SimTypes.OrderKind.UNLOAD
+	c.issuer = issuer; c.unit = transport; c.target_unit = passenger
+	return submit(c)
+
+
+## Toggle a deployable in place: MOBILE begins deploying, DEPLOYED begins
+## undeploying, and a mid-transition order is the deploy system's to accept or
+## refuse. One order kind for both directions because the player's gesture is
+## one key.
+func deploy(issuer: int, unit: int) -> Command:
+	var c := Command.new()
+	c.kind = SimTypes.OrderKind.DEPLOY
+	c.issuer = issuer; c.unit = unit
+	return submit(c)
+
+
+## Aircraft: sortie from home_base, deliver at the point, and come home on the
+## docs/04 RTB rule. The sim flies the whole loop; the player owns one click.
+func sortie_strike(issuer: int, unit: int, x: float, z: float) -> Command:
+	var c := Command.new()
+	c.kind = SimTypes.OrderKind.SORTIE_STRIKE
+	c.issuer = issuer; c.unit = unit; c.x = x; c.z = z
+	return submit(c)
+
+
+## Aircraft: sortie and orbit the point at `radius_m` until fuel, damage or a
+## new order ends the station. The RTB rule, not a duration, decides when the
+## orbit is over -- that is the docs/04 contract.
+func sortie_patrol(issuer: int, unit: int, x: float, z: float,
+		radius_m := 4000.0) -> Command:
+	var c := Command.new()
+	c.kind = SimTypes.OrderKind.SORTIE_PATROL
+	c.issuer = issuer; c.unit = unit; c.x = x; c.z = z; c.radius_m = radius_m
 	return submit(c)
 
 
