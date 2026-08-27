@@ -49,10 +49,13 @@ const FUEL_RESERVE_FRAC := 0.25
 
 # ── the simulation ───────────────────────────────────────────────────────────
 const GameAudioScript := preload("res://scripts/audio.gd")
+const GameMusicScript := preload("res://scripts/music.gd")
 const MinimapScript := preload("res://scripts/minimap.gd")
 
 var _match: SimMatch
 var _audio: Node3D
+var _music: Node
+var _music_kills := 0
 var _seen_impacts := 0
 var _seen_kills := 0
 var _seen_shots := 0
@@ -88,6 +91,10 @@ var _cursor_ground := Vector3.ZERO
 ## Attack-move. A arms it; the next left click sends the selection there at
 ## combat power, engaging what appears. Holding A while clicking works too.
 var _attack_move_armed := false
+## T arms a patrol order the same way A arms attack-move. For ground and
+## naval units the clicked point closes a loop with where they stand; for
+## aircraft it is a standing SORTIE_PATROL the airbase keeps cycling.
+var _patrol_armed := false
 
 ## Screen positions of the contacts we can currently see, rebuilt every frame
 ## so a right-click can be tested against them without a second projection.
@@ -144,6 +151,9 @@ func _ready() -> void:
 	_build_terrain_mesh()
 	_audio = GameAudioScript.new()
 	add_child(_audio)
+	if not _headless:
+		_music = GameMusicScript.new()
+		add_child(_music)
 	_build_hud()
 	_sync_proxies()
 	_frame_on_base()
@@ -362,6 +372,7 @@ func _process(dt: float) -> void:
 		_match.step(dt * _speed)
 	_follow_ground()
 	_audio_tick()
+	_music_tick()
 	_sync_proxies()
 	_prune_selection()
 	_project_tracks()
@@ -412,6 +423,22 @@ func _audio_tick() -> void:
 			var cam := _camera_ground()
 			_audio.at("destroy_catastrophic", cam.x, cam.y, cam.z, -2.0)
 		_seen_kills = kills
+
+
+## Feed the score from player-knowable state only: own-side kills delta says
+## combat, own standing says peril, own picture and epoch say the rest.
+func _music_tick() -> void:
+	if _music == null or _match == null:
+		return
+	var w := _match.world
+	var kills: int = w.damage.kills if w.damage != null else 0
+	var fighting := kills != _music_kills
+	_music_kills = kills
+	var s = _match.victory.standing(_me) if _match.victory != null else null
+	var collapse: bool = s != null and "in_collapse" in s and s.in_collapse
+	var contacts: int = _match.picture_for(_me).track_ids().size()
+	var epoch: int = w.economy.epoch_of(_me) if w.economy != null else 1
+	_music.set_state(fighting, collapse, contacts, epoch)
 
 
 func _camera_ground() -> Vector3:
@@ -668,10 +695,23 @@ func _unhandled_input(ev: InputEvent) -> void:
 				_attack_move_armed = false
 				_order_move_to(_ground_point(mb.position), true)
 				return
+			if _patrol_armed and not _selected.is_empty():
+				_patrol_armed = false
+				_order_patrol(_ground_point(mb.position))
+				return
 			_attack_move_armed = false
+			_patrol_armed = false
 			if mb.double_click:
-				# Double-click: everything visible of the same role.
+				# Double-click is CONTEXT-SENSITIVE, per the owner's design:
+				# on a unit that can deploy or unload it means D; on anything
+				# else it selects everything visible of the same role. One
+				# gesture, two meanings, resolved by what was clicked -- the
+				# same way Red Alert's own double-click behaves.
 				_dragging = false
+				var u := _own_unit_at(mb.position)
+				if u >= 0 and _can_deploy_or_unload(u):
+					_do_deploy(PackedInt32Array([u]))
+					return
 				_select_same_role(mb.position, Input.is_key_pressed(KEY_SHIFT))
 				return
 			_drag_from = mb.position
@@ -687,10 +727,28 @@ func _unhandled_input(ev: InputEvent) -> void:
 			_placing_role = ""
 			_refresh_panels()
 			return
-		if _attack_move_armed:
+		if _attack_move_armed or _patrol_armed:
 			_attack_move_armed = false
-			_flash("attack-move cancelled")
+			_patrol_armed = false
+			_flash("order cancelled")
 			return
+		# Right-click on an OWN transport with units selected = board it.
+		# The sim validates who may carry whom; the UI only offers the gesture
+		# when the target visibly has empty slots.
+		var boarder := _own_unit_at(mb.position)
+		if boarder >= 0 and not _selected.has(boarder) and not _selected.is_empty():
+			var ent := _match.world.entities
+			if ent.cargo_capacity[boarder] > ent.cargo_len[boarder]:
+				var asked := 0
+				for i in _selected:
+					if i != boarder:
+						_match.world.commands.load_cargo(_me, i, boarder)
+						asked += 1
+				if asked > 0:
+					_flash("boarding %d unit(s)" % asked)
+					if _audio != null:
+						_audio.flat("ui_order", -6.0)
+					return
 		# Right-click with a FACTORY selected sets its rally point -- the Red
 		# Alert gesture. Units already in the selection still get move orders.
 		var e := _match.world.entities
@@ -754,6 +812,12 @@ func _key(k: InputEventKey) -> void:
 		KEY_H:
 			# HOME. The single most-pressed key in an RTS.
 			_frame_on_base()
+		KEY_D:
+			_do_deploy(PackedInt32Array(_selected))
+		KEY_T:
+			if not _selected.is_empty():
+				_patrol_armed = true
+				_flash("PATROL -- click the far leg")
 		KEY_P:
 			# Primary factory: bare production orders route here, and the
 			# panel queues to it. One factory selected = mark it.
@@ -940,6 +1004,75 @@ func _select_same_role(screen: Vector2, additive: bool) -> void:
 
 ## Right click. On a contact it is an attack order naming that TRACK; on the
 ## ground it is a formation move. Both go through the same queue the AI uses.
+## The unit of ours nearest the cursor, or -1. The same search
+## _select_same_role runs, shared rather than duplicated.
+func _own_unit_at(screen: Vector2) -> int:
+	var cam: Camera3D = _rig.camera()
+	var e := _match.world.entities
+	var best := -1
+	var best_d := 40.0
+	for i in _match.own_units(_me):
+		var at := Vector3(e.pos_x[i], e.pos_y[i] + 2.0, e.pos_z[i])
+		if cam.is_position_behind(at):
+			continue
+		var d := cam.unproject_position(at).distance_to(screen)
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
+
+
+func _can_deploy_or_unload(u: int) -> bool:
+	var e := _match.world.entities
+	if e.cargo_len[u] > 0:
+		return true
+	var ts = _match.world.transport_system
+	return ts != null and ts.is_deployable(u)
+
+
+## D -- and double-click on a deployable. Unload beats deploy when both apply,
+## because a loaded transport's most urgent verb is always "put them down".
+func _do_deploy(units: PackedInt32Array) -> void:
+	var e := _match.world.entities
+	var ts = _match.world.transport_system
+	var did := 0
+	for i in units:
+		if not e.is_alive(i):
+			continue
+		if e.cargo_len[i] > 0:
+			_match.world.commands.unload_cargo(_me, i)
+			did += 1
+		elif ts != null and ts.is_deployable(i):
+			_match.world.commands.deploy(_me, i)
+			did += 1
+	if did > 0:
+		_flash("deploy/unload -- %d unit(s)" % did)
+		if _audio != null:
+			_audio.flat("ui_order", -6.0)
+	else:
+		_flash("nothing selected can deploy or unload")
+
+
+## T-click. Ground and naval loop between here and there; aircraft get a
+## standing orbit their base keeps cycling under the docs/04 fuel rule.
+func _order_patrol(p: Vector3) -> void:
+	var e := _match.world.entities
+	var did := 0
+	for i in _selected:
+		if not e.is_alive(i):
+			continue
+		if e.category[i] == SimTypes.Category.AIR:
+			_match.world.commands.sortie_patrol(_me, i, p.x, p.z)
+		else:
+			var pts := PackedFloat32Array([p.x, p.z])
+			_match.world.commands.patrol(_me, i, pts)
+		did += 1
+	if did > 0:
+		_flash("patrol -- %d unit(s)" % did)
+		if _audio != null:
+			_audio.flat("ui_order", -6.0)
+
+
 func _order(screen: Vector2) -> void:
 	if _selected.is_empty():
 		return
@@ -968,6 +1101,12 @@ func _order_move_to(p: Vector3, attack := false) -> void:
 	for k in range(units.size()):
 		var sx: float = slots[k * 2] if slots.size() > k * 2 + 1 else p.x
 		var sz: float = slots[k * 2 + 1] if slots.size() > k * 2 + 1 else p.z
+		# Aircraft do not drive to a point -- they SORTIE to it and come home
+		# on fuel, which is the Empire Earth half of the owner's control
+		# design. The queue validates whether this unit can actually fly one.
+		if _match.world.entities.category[units[k]] == SimTypes.Category.AIR:
+			_match.world.commands.sortie_strike(_me, units[k], p.x, p.z)
+			continue
 		if attack:
 			_match.world.commands.attack_move(_me, units[k], sx, sz)
 		else:

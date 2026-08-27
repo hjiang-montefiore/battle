@@ -160,6 +160,14 @@ SCHEMES = {
     # surrender the strongest sub-vs-surface tone cue the roster has.
     "navy_haze": ([(0.52, (0.44, 0.465, 0.48)),
                    (1.01, (0.51, 0.53, 0.545))], 181, 3),
+    # submarines — near-uniform anechoic dark, NO_PANEL. air_dark carries the
+    # panel speckle tuned for a 2.8 m aircraft tile; sampled at a submarine's
+    # 9 m ship tile that speckle blows up to ~1 m blocks and the whole boat
+    # rendered as stone masonry (seen on the 2026-08 sub band sheet). Same
+    # tone ladder as air_dark — the sub-vs-surface cue survives — minus the
+    # grain that had nothing to do with rubber tiles.
+    "sub_dark": ([(0.50, (0.20, 0.215, 0.24)),
+                  (1.01, (0.255, 0.27, 0.29))], 191, 3),
     # ground
     "terrain": ([(0.42, (0.32, 0.33, 0.24)),
                  (0.74, (0.38, 0.38, 0.28)),
@@ -293,7 +301,7 @@ def _seam_mask(pos, texel, k=4.0):
 
 # ── layers ──────────────────────────────────────────────────────────
 def panel_lines(pos, nrm, a, b, ax, texel, spacing=1.6, strength=0.5,
-                jitter=0.10, seams=0.55, seed=0):
+                jitter=0.10, seams=0.55, seed=0, width=None):
     """Multiplicative field: per-panel value shifts + darkened seams.
 
     Two sources: a world-space panel grid (`spacing` metres, hashed per cell
@@ -311,7 +319,13 @@ def panel_lines(pos, nrm, a, b, ax, texel, spacing=1.6, strength=0.5,
     fa = a / spacing - ia; fb_ = b / sp2 - ib
     d = np.minimum(np.minimum(fa, 1 - fa) * spacing,
                    np.minimum(fb_, 1 - fb_) * sp2)
-    wline = max(texel * 2.6, 0.02)
+    # `width` (additive, 2026-08 navy pass): explicit seam width in METRES.
+    # The texel-scaled default is right for a 7 m tank at 1024 px but on a
+    # 155 m hull the texel is ~20 cm and 2.6 texels of quintic falloff drew
+    # a 50 cm soft grout line — the destroyer close-up read as bathroom
+    # tile. Ships pass width≈0.3; everything that doesn't builds as before.
+    wline = width if width is not None else max(texel * 2.6, 0.02)
+    wline = max(wline, texel * 1.2, 0.02)   # never sub-texel: lines must not alias away
     line = np.clip(1 - d / wline, 0, 1)
     field = field * (1 - strength * 0.75 * line ** 1.5)
 
@@ -748,7 +762,7 @@ def compose(unit, group, camo_png, base_rgb, pos, nrm, ao, features):
 # and navy_haze turns into carved concrete with it — at a ship's 15+ m camo
 # scale the "panel" speckle lands at 30 cm and reads as stone grain. A ship's
 # tonal life comes from the compose pass instead.
-NO_PANEL = {"terrain", "navy_haze"}
+NO_PANEL = {"terrain", "navy_haze", "sub_dark"}
 
 
 def generate_all():

@@ -3222,7 +3222,8 @@ _TEX_GRAVEL = {"military": 0.16, "industrial": 0.13, "fortification": 0.0}
 
 
 def _tex(name, roof_z, family="military", body_stains=None, deck_stains=None,
-         streaks=True, streak_strength=0.30, wall_panels=3.8, deck_panels=4.0):
+         track_stains=None, streaks=True, streak_strength=0.30,
+         wall_panels=3.8, deck_panels=4.0):
     weather = dict(
         dust=dict(height=0.9, strength=0.24, tint=(0.34, 0.32, 0.28)),
         ao_grime=dict(strength=0.32, threshold=0.55),
@@ -3239,10 +3240,36 @@ def _tex(name, roof_z, family="military", body_stains=None, deck_stains=None,
         edge_wear=dict(strength=0.22))
     if deck_stains:
         deck_weather["stains"] = deck_stains
+    # ASPHALT (track): the largest truly flat fields left after pass 1 — the
+    # airbase apron, the helipad plinth, tarred roof build-ups. Ground-level
+    # tarmac stays near the ladder's 0.048 but gains patch-repair mottle;
+    # up-facing asphalt above the ground line is a gravel-ballasted built-up
+    # roof: lifted and grained, which is the "roof gravel" of the brief in
+    # this module's terms. Panel lines are pointless at this value — off.
+    track_weather = dict(edge_wear=dict(strength=0.25))
+    if track_stains:
+        track_weather["stains"] = track_stains
+    track_ov = dict(
+        panels=None,
+        concrete=dict(roof_above=1.5, gravel=0.30, gravel_lift=1.55,
+                      wall=0.12, apron=0.22, gravel_scale=0.35),
+        weathering=track_weather)
+    # EARTH (era): berms and sandbag rings. Broad banked-soil mottle, dust
+    # pooled where the AO is dark, no panel grid — soil has no plates.
+    era_ov = dict(
+        panels=None,
+        concrete=dict(roof_above=0.6, gravel=0.0, wall=0.16, apron=0.16),
+        weathering=dict(
+            dust=dict(height=1.4, strength=0.30, tint=(0.36, 0.33, 0.26)),
+            ao_grime=dict(strength=0.34, threshold=0.55,
+                          tint=(0.11, 0.105, 0.085)),
+            edge_wear=dict(strength=0.30)))
     H.texture_features(
         name,
         size_class="structure",
-        groups=("body", "deck"),
+        # groups a model does not use are skipped by build(), so the full set
+        # is safe to request roster-wide
+        groups=("body", "deck", "track", "era"),
         panels=dict(spacing=wall_panels, strength=0.36, jitter=0.10,
                     seams=0.42),
         concrete=dict(roof_above=2.0, gravel=0.0, wall=0.13, apron=0.06),
@@ -3251,8 +3278,9 @@ def _tex(name, roof_z, family="military", body_stains=None, deck_stains=None,
             panels=dict(spacing=deck_panels, strength=0.30, jitter=0.07,
                         seams=0.38),
             concrete=dict(roof_above=2.0, gravel=_TEX_GRAVEL[family],
-                          wall=0.10, apron=0.09),
-            weathering=deck_weather)})
+                          wall=0.13, apron=0.13),
+            weathering=deck_weather),
+            "track": track_ov, "era": era_ov})
 
 
 # command-economy spine
@@ -3291,9 +3319,12 @@ _tex("bld_e4_us_airbase", 5.4)
 _tex("bld_e4_us_hardened_shelter", 8.5, family="fortification",
      streak_strength=0.38)
 _tex("bld_e4_us_helipad", 0.9, streaks=False,
-     deck_stains=[dict(origin=(0.0, 0.0, 1.05), direction=(0, 1, -0.02),
-                       length=4.5, width=1.4, strength=0.28,
-                       tint=(0.050, 0.048, 0.045))])  # rotor-wash smear
+     # rotor-wash dust smear ON THE PAD, which is asphalt (track), not deck —
+     # and LIGHTER than the 0.048 tarmac, because a dark stain on near-black
+     # is unpaintable
+     track_stains=[dict(origin=(0.0, 0.0, 1.05), direction=(0, 1, -0.02),
+                        length=4.5, width=1.6, strength=0.30,
+                        tint=(0.085, 0.082, 0.075))])
 
 
 if __name__ == "__main__":

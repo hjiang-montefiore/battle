@@ -2814,9 +2814,11 @@ def mine_warfare():
 #     base_rgb override (GROUP_MATS itself is shared with every module and
 #     stays untouched),
 #   - the hull number stencilled white on both sides of the bow.
-# SUBMARINES KEEP air_dark: tone is the strongest sub-vs-surface cue the
-# roster has (same argument as the F-117 in textures.py), so they take the
-# weathering pass on the dark scheme and carry their number on the sail.
+# SUBMARINES STAY DARK — tone is the strongest sub-vs-surface cue the roster
+# has (same argument as the F-117 in textures.py) — but on `sub_dark`, a
+# no-panel twin of air_dark: the aircraft scheme's baked speckle read as
+# stone masonry at ship camo scale. They take the weathering pass on the
+# dark scheme and carry their number on the sail.
 _STENCIL = (0.90, 0.90, 0.87)
 _RUST = (0.35, 0.20, 0.11)
 _DECK_GREY = (0.165, 0.170, 0.168)
@@ -2850,8 +2852,10 @@ def _ship_tex(name, L, B, fb, sheer, num, res=2048, bow=0.30, num_frac=0.40,
         # Big soft haze blotches, and RESTRAINED plating: at 0.42/0.45 the
         # destroyer rendered as carved stone blocks — every plate outlined.
         camo_scale=min(24.0, max(10.0, L * 0.12)),
+        # width=0.30 m: without it the seam falls back to 2.6 texels, which on
+        # a 2048 px capital hull is a ~50 cm soft grout line — bathroom tile.
         panels=dict(spacing=min(9.0, max(3.0, L * 0.045)), strength=0.34,
-                    jitter=0.06, seams=0.28),
+                    jitter=0.05, seams=0.28, width=0.30),
         weathering=weather,
         insignia=ins + list(extra_insignia))
 
@@ -2859,12 +2863,13 @@ def _ship_tex(name, L, B, fb, sheer, num, res=2048, bow=0.30, num_frac=0.40,
 def _sub_tex(name, L, B, deck, num, sail_y, sail_h, sail_w, num_size=1.8):
     ins = []
     if num:
-        ins = [dict(kind="pennant", text=num, color=_STENCIL, alpha=0.85,
+        ins = [dict(kind="pennant", text=num, color=_STENCIL, alpha=0.96,
                     center=(s * sail_w * 0.5, sail_y, deck + sail_h * 0.5),
                     normal=(s, 0, 0), size=num_size) for s in (-1, 1)]
     H.texture_features(
         name, size_class="ship", res=1024, groups=("body",),
-        panels=dict(spacing=3.0, strength=0.32, jitter=0.05, seams=0.35),
+        panels=dict(spacing=3.0, strength=0.28, jitter=0.04, seams=0.25,
+                    width=0.22),
         weathering=dict(
             streaks=[dict(z0=deck + 0.35, length=2.6, density=0.30,
                           strength=0.35, tint=(0.26, 0.18, 0.12))],
@@ -2876,7 +2881,10 @@ def _sub_tex(name, L, B, deck, num, sail_y, sail_h, sail_w, num_size=1.8):
 _ship_tex("nav_e4_us_destroyer",  155.3, 20.1, 5.9, 2.4, "62")
 _ship_tex("nav_e1_us_cruiser",    172.8, 16.8, 5.6, 2.2, "52")
 _ship_tex("nav_e1_us_frigate",    138.1, 13.7, 4.6, 2.0, "54", bow=0.32)
-_ship_tex("nav_e1_us_corvette",    89.1, 13.3, 3.9, 1.5, "30", res=1024)
+# num_frac 0.31: at the default 0.40 the corvette's fine entry put the decal
+# slab half off the flare and "30" rendered broken (2026-08 side sheet).
+_ship_tex("nav_e1_us_corvette",    89.1, 13.3, 3.9, 1.5, "30", res=1024,
+          num_frac=0.31)
 _ship_tex("nav_e2_us_missileboat", 56.1, 10.2, 3.0, 1.1, "71", res=1024,
           bow=0.34)
 _ship_tex("nav_e1_us_patrol",      54.6,  7.6, 2.9, 0.0, "13", res=1024)
@@ -2924,10 +2932,12 @@ NAVY = [
     ("nav_e1_us_corvette",   corvette,            "navy_haze"),
     ("nav_e2_us_missileboat", missile_boat,       "navy_haze"),
     ("nav_e1_us_patrol",     patrol_vessel,       "navy_haze"),
-    ("sub_e1_us_diesel",     sub_diesel,          "air_dark"),
-    ("sub_e2_us_nuclear",    sub_nuclear,         "air_dark"),
-    ("sub_e7_de_aip",        sub_aip,             "air_dark"),
-    ("sub_e1_kp_midget",     sub_midget,          "air_dark"),
+    # sub_dark, not air_dark: same tone ladder, minus the aircraft-scale
+    # panel speckle that read as stone masonry at a ship's 9 m camo tile.
+    ("sub_e1_us_diesel",     sub_diesel,          "sub_dark"),
+    ("sub_e2_us_nuclear",    sub_nuclear,         "sub_dark"),
+    ("sub_e7_de_aip",        sub_aip,             "sub_dark"),
+    ("sub_e1_kp_midget",     sub_midget,          "sub_dark"),
     ("nav_e1_us_carrier",    carrier,             "navy_haze"),
     ("nav_e2_us_amphib",     amphibious_assault,  "navy_haze"),
     ("nav_e1_us_landingcraft", landing_craft,     "navy_haze"),
