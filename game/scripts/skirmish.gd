@@ -435,7 +435,12 @@ func _music_tick() -> void:
 	var fighting := kills != _music_kills
 	_music_kills = kills
 	var s = _match.victory.standing(_me) if _match.victory != null else null
-	var collapse: bool = s != null and "in_collapse" in s and s.in_collapse
+	# Standing has no in_collapse flag -- collapse is capitulation_s > 0, and
+	# is_collapsing() wraps exactly that. Guessing the field name here would
+	# have silently muted the peril layer forever, which is the sort of bug
+	# nothing measures: the game merely feels flat at its most desperate
+	# moment.
+	var collapse: bool = s != null and s.is_collapsing()
 	var contacts: int = _match.picture_for(_me).track_ids().size()
 	var epoch: int = w.economy.epoch_of(_me) if w.economy != null else 1
 	_music.set_state(fighting, collapse, contacts, epoch)

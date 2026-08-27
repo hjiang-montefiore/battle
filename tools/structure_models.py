@@ -3252,7 +3252,8 @@ def _tex(name, roof_z, family="military", body_stains=None, deck_stains=None,
     track_ov = dict(
         panels=None,
         concrete=dict(roof_above=1.5, gravel=0.30, gravel_lift=1.55,
-                      wall=0.12, apron=0.22, gravel_scale=0.35),
+                      wall=0.12, apron=0.30, gravel_scale=0.35,
+                      apron_lift=1.30),
         weathering=track_weather)
     # EARTH (era): berms and sandbag rings. Broad banked-soil mottle, dust
     # pooled where the AO is dark, no panel grid — soil has no plates.
@@ -3323,8 +3324,8 @@ _tex("bld_e4_us_helipad", 0.9, streaks=False,
      # and LIGHTER than the 0.048 tarmac, because a dark stain on near-black
      # is unpaintable
      track_stains=[dict(origin=(0.0, 0.0, 1.05), direction=(0, 1, -0.02),
-                        length=4.5, width=1.6, strength=0.30,
-                        tint=(0.085, 0.082, 0.075))])
+                        length=4.5, width=1.6, strength=0.45,
+                        tint=(0.095, 0.092, 0.084))])
 
 
 if __name__ == "__main__":

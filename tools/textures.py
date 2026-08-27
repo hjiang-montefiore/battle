@@ -335,7 +335,7 @@ def panel_lines(pos, nrm, a, b, ax, texel, spacing=1.6, strength=0.5,
 
 def concrete_field(pos, nrm, a, b, rng, zmin=0.0, roof_above=2.0,
                    gravel=0.16, gravel_lift=1.65, wall=0.13, apron=0.08,
-                   gravel_scale=0.45):
+                   gravel_scale=0.45, apron_lift=1.0):
     """Multiplicative concrete finish for STRUCTURES — the layer that makes a
     roof deck read as gravel ballast and a wall read as weathered render.
 
@@ -369,7 +369,11 @@ def concrete_field(pos, nrm, a, b, rng, zmin=0.0, roof_above=2.0,
     s = _wnoise(a, z * 0.22, 1.7, rng, octaves=2, base=6)
     f = np.where(vert, f * (1.0 + wall * (s - 0.5) * 2.0), f)
     m = _wnoise(a, b, 6.0, rng, octaves=2, base=4)
-    f = np.where(ground, f * (1.0 + apron * (m - 0.5) * 2.0), f)
+    # apron_lift (additive, structures pass 2): ground-level ASPHALT needs a
+    # mean shift to read at all — ±22% of 0.048 albedo is invisible, but aged
+    # sun-bleached tarmac genuinely sits at ~1.3x fresh, and the patch mottle
+    # then spans values the eye can find while the ladder order survives.
+    f = np.where(ground, f * apron_lift * (1.0 + apron * (m - 0.5) * 2.0), f)
     return f.astype(np.float32)
 
 

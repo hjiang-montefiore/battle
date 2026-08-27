@@ -1828,7 +1828,9 @@ H.texture_features(          # B-52: SEA camouflage, black radome
     "air_e1_us_bomber", size_class="aircraft", ao_ground="under",
     groups=("body", "deck"), group_base={"deck": "camo"},
     camo_scale=6.0,
-    panels=dict(spacing=3.0, strength=0.4, jitter=0.06, seams=0.45),
+    # spacing up / strength down (2026-08-27): at 3.0 m the grid crossed the
+    # swept wing as a fishnet of diamonds; fewer, fainter lines read as plates
+    panels=dict(spacing=3.6, strength=0.30, jitter=0.06, seams=0.45),
     weathering=dict(edge_wear=dict(strength=0.3)),
     tints=[dict(center=(0.0, 24.3, 0.0), radius=1.3, rgb=_RADOME_DARK,
                 strength=0.85)],
@@ -1836,8 +1838,12 @@ H.texture_features(          # B-52: SEA camouflage, black radome
 
 H.texture_features(          # B-2: exhaust troughs stain the upper deck
     "air_e4_us_stealthbomber", size_class="aircraft", ao_ground="under", groups=("body",),
-    camo_scale=5.0,
-    panels=dict(spacing=2.6, strength=0.45, jitter=0.06, seams=0.5),
+    # camo tile up 5 -> 9 m (2026-08-27): at 5 m the low-contrast air_dark
+    # tile repeated ~10x across the 52 m wing and the periodicity read as a
+    # quilt; panel grid softened for the same reason — the strong regular
+    # grid was lifting the whole airframe half a value lighter than air_dark
+    camo_scale=9.0,
+    panels=dict(spacing=3.8, strength=0.32, jitter=0.045, seams=0.5),
     weathering=dict(
         exhaust=[dict(origin=(5.2, -7.4, 1.15), direction=(0, -1, 0),
                       length=3.5, width=1.0, strength=0.4),
