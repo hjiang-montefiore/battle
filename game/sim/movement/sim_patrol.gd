@@ -219,6 +219,41 @@ func describe() -> String:
 		legs_completed, circuits_completed, pauses]
 
 
+# ── SAVE / LOAD (SimSave) ────────────────────────────────────────────────────
+# The loops, the cursors, the pause states, and which leg order is live. All
+# keyed by entity index; the leg's live destination itself rides SimEntities.
+
+func to_dict() -> Dictionary:
+	var pts := {}
+	for u in _points:
+		pts[str(u)] = {"__pf32": SimSave.b64_f32(_points[u])}
+	return {
+		"points": pts,
+		"cursor": SimSave.enc_ii(_cursor),
+		"state": SimSave.enc_ii(_state),
+		"tx": SimSave.enc_if(_tx),
+		"tz": SimSave.enc_if(_tz),
+		"live": SimSave.enc_ib(_live),
+		"counters": [patrols_started, patrols_cancelled, legs_completed,
+			circuits_completed, pauses, resumes],
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	_points.clear()
+	for k in (d["points"] as Dictionary):
+		_points[int(String(k))] = SimSave.un_f32(String(d["points"][k]["__pf32"]))
+	_cursor = SimSave.dec_ii(d["cursor"])
+	_state = SimSave.dec_ii(d["state"])
+	_tx = SimSave.dec_if(d["tx"])
+	_tz = SimSave.dec_if(d["tz"])
+	_live = SimSave.dec_ib(d["live"])
+	var c: Array = d["counters"]
+	patrols_started = int(c[0]); patrols_cancelled = int(c[1])
+	legs_completed = int(c[2]); circuits_completed = int(c[3])
+	pauses = int(c[4]); resumes = int(c[5])
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # THE TICK SLOT -- SimWorld._patrol_slot(), between transport and sortie
 # ═══════════════════════════════════════════════════════════════════════════
