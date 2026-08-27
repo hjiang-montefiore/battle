@@ -214,6 +214,13 @@ static func _stamp(role: String, r: Dictionary, e: int, faction: int) -> SimUnit
 	d.mount_height_m = float(r.get("mount", 2.0))
 	d.sensor = String(r.get("sensor", ""))
 
+	d.cargo_slots = int(r.get("cargo_slots", 0))
+	d.carries_vehicles = bool(r.get("carries_vehicles", false))
+	d.deploy_seconds = float(r.get("deploy_seconds", 0.0))
+	d.undeploy_seconds = float(r.get("undeploy_seconds", d.deploy_seconds))
+	d.fires_deployed_only = bool(r.get("fires_deployed_only",
+		d.deploy_seconds > 0.0))
+
 	d.power_draw = float(r.get("power_draw", 0.0))
 	d.power_supply = float(r.get("power_supply", 0.0))
 	d.extraction_per_min = float(r.get("extraction", 0.0))
@@ -625,12 +632,18 @@ static func _ensure() -> void:
 		"upkeep": 8.0, "speed_kmh": 70.0, "fuel": 800.0, "burn_idle": 3.0,
 		"burn_cruise": 14.0, "burn_combat": 36.0, "damage_model": SimTypes.DamageModel.ARMORED,
 		"hp": 85.0, "armor": "light", "armor_class": 1, "sensor": "eo",
+		# One squad. A Bradley/BMP seats 6-7 dismounts -- less lift than an
+		# APC, because the turret ate the troop compartment.
+		"cargo_slots": 1,
 		"rcs": 14.0, "ir": 1.4, "visual": 16.0, "mount": 3.0},
 	"apc": {"name": "APC", "domain": G, "category": SimTypes.Category.GROUND,
 		"built_by": "light_factory", "cost": 340.0, "build_seconds": 10.0,
 		"upkeep": 5.0, "speed_kmh": 75.0, "fuel": 600.0, "burn_idle": 2.0,
 		"burn_cruise": 11.0, "burn_combat": 26.0, "damage_model": SimTypes.DamageModel.ARMORED,
 		"hp": 70.0, "armor": "light", "armor_class": 1, "sensor": "eo",
+		# An M113/BTR lifts one 11-man squad; the second slot is the attached
+		# weapons team it habitually carries. Infantry units cost 1 slot each.
+		"cargo_slots": 2,
 		"rcs": 12.0, "ir": 1.1, "visual": 14.0, "mount": 2.6},
 	"recon_vehicle": {"name": "Reconnaissance Vehicle", "domain": G,
 		"category": SimTypes.Category.GROUND, "built_by": "light_factory", "cost": 380.0,
@@ -660,6 +673,10 @@ static func _ensure() -> void:
 		"fuel": 160.0, "burn_idle": 0.5, "burn_cruise": 4.0,
 		"burn_combat": 8.0, "damage_model": SimTypes.DamageModel.UNARMORED, "hp": 55.0,
 		"armor": "soft", "sensor": "", "rcs": 6.0, "ir": 0.3,
+		# Limbered <-> deployed. A real gun emplaces in 2-6 minutes; ~10x RTS
+		# time compression. Packing up is slower than dropping trails, so
+		# displacing under counter-battery fire costs real exposure.
+		"deploy_seconds": 10.0, "undeploy_seconds": 15.0,
 		"visual": 9.0, "mount": 2.0},
 	"mlrs": {"name": "MLRS", "domain": G, "category": SimTypes.Category.GROUND,
 		"built_by": "heavy_factory", "cost": 820.0, "build_seconds": 21.0,
@@ -680,6 +697,10 @@ static func _ensure() -> void:
 		"speed_kmh": 45.0, "fuel": 900.0, "burn_idle": 3.0,
 		"burn_cruise": 16.0, "burn_combat": 30.0, "damage_model": SimTypes.DamageModel.UNARMORED,
 		"hp": 90.0, "armor": "soft", "requires": ["research_facility"],
+		# Erect-to-fire. A TEL's real launch sequence runs to an hour; the same
+		# ~10x compression as the guns, but clearly slower than them -- the
+		# erection window IS the counter-battery gameplay.
+		"deploy_seconds": 25.0, "undeploy_seconds": 20.0,
 		"rcs": 30.0, "ir": 1.4, "visual": 30.0, "mount": 3.4},
 	"coastal_asm": {"name": "Coastal Anti-Ship Battery", "domain": G,
 		"category": SimTypes.Category.GROUND, "first_epoch": 2, "built_by": "heavy_factory",
@@ -949,6 +970,9 @@ static func _ensure() -> void:
 		"accel_ms2": 2.5, "turn_rate_rads": 0.10, "fuel": 30000.0,
 		"burn_idle": 30.0, "burn_cruise": 320.0, "burn_combat": 560.0,
 		"damage_model": SimTypes.DamageModel.AIRFRAME, "hp": 160.0, "armor": "none",
+		# A C-130 lifts a company-minus of infantry. 8 is SimEntities.MAX_CARGO,
+		# the spine's per-unit stride -- the honest cap, not a realism claim.
+		"cargo_slots": 8,
 		"rcs": 90.0, "ir": 7.0, "visual": 110.0, "mount": 0.0},
 
 	# ══ AIR — rotary and unmanned ═══════════════════════════════════════════
@@ -966,6 +990,9 @@ static func _ensure() -> void:
 		"speed_kmh": 260.0, "accel_ms2": 3.5, "turn_rate_rads": 0.6,
 		"fuel": 2000.0, "burn_idle": 16.0, "burn_cruise": 95.0,
 		"burn_combat": 150.0, "damage_model": SimTypes.DamageModel.AIRFRAME, "hp": 110.0,
+		# A medium-lift cabin (Mi-8 / CH-46 class): a platoon-minus, three
+		# squads. Infantry only -- sling-loading vehicles is not modelled.
+		"cargo_slots": 3,
 		"armor": "none", "rcs": 14.0, "ir": 3.5, "visual": 32.0,
 		"mount": 0.0},
 	"asw_helicopter": {"name": "ASW Helicopter", "domain": A, "category": SimTypes.Category.AIR,
@@ -1113,7 +1140,12 @@ static func _ensure() -> void:
 		"speed_kmh": 42.0, "accel_ms2": 0.2, "turn_rate_rads": 0.04,
 		"fuel": 160000.0, "burn_idle": 70.0, "burn_cruise": 1000.0,
 		"burn_combat": 2200.0, "damage_model": SimTypes.DamageModel.HULL, "hp": 900.0,
-		"armor": "soft", "sensor": "asw_ship", "rcs": 6000.0, "ir": 12.0,
+		"armor": "soft", "sensor": "asw_ship",
+		# Well deck: loaded landing craft nest aboard (the doctrine's example).
+		# A real LHD lifts a battalion; 8 is SimEntities.MAX_CARGO, the spine's
+		# fixed stride, so the rest of the battalion sails in a second hull.
+		"cargo_slots": 8, "carries_vehicles": true,
+		"rcs": 6000.0, "ir": 12.0,
 		"acoustic": 130.0, "visual": 4000.0, "mount": 26.0},
 	"landing_craft": {"name": "Landing Craft", "domain": N,
 		"category": SimTypes.Category.SURFACE, "built_by": "naval_yard", "cost": 400.0,
@@ -1121,6 +1153,9 @@ static func _ensure() -> void:
 		"accel_ms2": 0.5, "turn_rate_rads": 0.12, "fuel": 6000.0,
 		"burn_idle": 6.0, "burn_cruise": 110.0, "burn_combat": 260.0,
 		"damage_model": SimTypes.DamageModel.HULL, "hp": 120.0, "armor": "soft",
+		# An LCU beaches two vehicles (4 slots each) or eight squads or a mix.
+		# The only small hull that takes vehicles -- that is its whole job.
+		"cargo_slots": 8, "carries_vehicles": true,
 		"rcs": 120.0, "ir": 3.0, "acoustic": 110.0, "visual": 160.0,
 		"mount": 5.0},
 	# docs/04's centrepiece: "a submarine that finds the oiler has taken the

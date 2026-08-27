@@ -67,6 +67,22 @@ var mount_height_m: float = 2.0
 ## SimRoster sensor archetype key, or "" for a unit that carries nothing.
 var sensor: String = ""
 
+# ── transport and deployment (docs/12) ───────────────────────────────────────
+## Cargo slots this unit offers as a transport. 0 = not a transport. Infantry
+## cost 1 slot, a vehicle costs 4 (SimTransport.VEHICLE_SLOT_COST), and the
+## number is capped by SimEntities.MAX_CARGO at spawn.
+var cargo_slots: int = 0
+## May take VEHICLES aboard, not just infantry. docs/12: only the well-deck
+## hulls -- landing craft and amphibs -- ever say yes.
+var carries_vehicles: bool = false
+## Seconds to go from limbered to firing. 0 = not a deployable. The transition
+## window, immobile and unable to shoot, is the gameplay (docs/12).
+var deploy_seconds: float = 0.0
+var undeploy_seconds: float = 0.0
+## True for towed guns and erect-to-fire launchers: the weapon is refused in
+## every DeployState but DEPLOYED. Defaults on for any deployable.
+var fires_deployed_only: bool = false
+
 # ── economy roles (structures, mostly) ───────────────────────────────────────
 var power_draw: float = 0.0
 var power_supply: float = 0.0
@@ -97,6 +113,14 @@ func uses_fuel_at(e: int) -> bool:
 
 func is_supply_source() -> bool:
 	return supply_radius_m > 0.0 and supply_rate_lpm > 0.0
+
+
+func is_transport() -> bool:
+	return cargo_slots > 0
+
+
+func is_deployable() -> bool:
+	return deploy_seconds > 0.0
 
 
 func describe() -> String:

@@ -620,6 +620,10 @@ func _place(player_id: int, d: SimUnitDef, x: float, z: float,
 	entities.turret_rad[i] = heading_rad
 	entities.set_economy_profile(i, d.cost, d.upkeep, d.fuel_capacity,
 		d.burn_idle, d.burn_cruise, d.burn_combat)
+	# cargo_capacity is "set once at spawn, by whoever spawns the unit"
+	# (sim_entities.gd ownership table); the roster is where the number lives.
+	if d.cargo_slots > 0:
+		entities.set_cargo_capacity(i, d.cargo_slots)
 	if d.category == SimTypes.Category.SUBSURFACE:
 		entities.depth_m[i] = 60.0
 	_def_key_of[i] = d.key

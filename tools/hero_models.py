@@ -831,11 +831,47 @@ texture_features(
         edge_wear=dict(strength=0.5)),
     insignia=[
         dict(kind="star_us", center=(0.0, 0.35, 2.45), normal=(0, 0, 1),
-             size=0.85, up=(0, -1, 0), alpha=0.80, color=(0.14, 0.13, 0.12)),
+             size=1.00, up=(0, -1, 0), alpha=0.85, color=(0.14, 0.13, 0.12)),
         dict(kind="star_us", center=(1.47, -0.30, 2.02), normal=(1, 0, 0),
-             size=0.60, alpha=0.80, color=(0.14, 0.13, 0.12)),
+             size=0.60, alpha=0.85, color=(0.14, 0.13, 0.12)),
         dict(kind="star_us", center=(-1.47, -0.30, 2.02), normal=(-1, 0, 0),
-             size=0.60, alpha=0.80, color=(0.14, 0.13, 0.12)),
+             size=0.60, alpha=0.85, color=(0.14, 0.13, 0.12)),
+    ])
+
+texture_features(
+    "mbt_e4_de_leopard2a6",
+    size_class="vehicle",
+    groups=("body", "deck"),
+    panels=dict(spacing=1.5, strength=0.55, jitter=0.13, seams=0.55),
+    weathering=dict(
+        dust=dict(height=1.3, strength=0.55, tint=(0.36, 0.32, 0.25)),
+        exhaust=[dict(origin=(0.0, 3.8, 1.30), direction=(0, 1, -0.35),
+                      length=2.0, width=0.45, strength=0.5)],
+        edge_wear=dict(strength=0.5)),
+    insignia=[
+        dict(kind="cross_de", center=(1.45, 0.30, 2.15), normal=(1, 0, 0),
+             size=0.55, alpha=0.9),
+        dict(kind="cross_de", center=(-1.45, 0.30, 2.15), normal=(-1, 0, 0),
+             size=0.55, alpha=0.9),
+        dict(kind="cross_de", center=(0.0, 0.45, 2.65), normal=(0, 0, 1),
+             size=0.65, up=(0, -1, 0), alpha=0.9),
+    ])
+
+texture_features(
+    "mbt_e4_ru_t72",
+    size_class="vehicle",
+    groups=("body", "deck"),
+    panels=dict(spacing=1.3, strength=0.55, jitter=0.13, seams=0.55),
+    weathering=dict(
+        dust=dict(height=1.2, strength=0.65, tint=(0.42, 0.38, 0.30)),
+        exhaust=[dict(origin=(-1.2, 3.2, 1.15), direction=(0, 1, -0.25),
+                      length=1.8, width=0.40, strength=0.55)],
+        edge_wear=dict(strength=0.5)),
+    insignia=[
+        dict(kind="star_ru", center=(1.27, -0.50, 1.55), normal=(1, 0, 0),
+             size=0.50, alpha=0.9),
+        dict(kind="star_ru", center=(-1.27, -0.50, 1.55), normal=(-1, 0, 0),
+             size=0.50, alpha=0.9),
     ])
 
 

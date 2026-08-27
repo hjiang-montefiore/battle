@@ -52,6 +52,15 @@ var rng: SimRng
 var _mounts: Dictionary = {}      ## unit -> Array[Mount]
 var _engaging: Dictionary = {}    ## unit -> track id
 
+## The POSTURE half of "may I shoot?" -- docs/12's deployables: a towed gun
+## fires only DEPLOYED, and nothing fires mid-transition. Owned by the
+## transport/deploy system (SimTransport.install() sets it) and deliberately
+## DUCK-TYPED like SimWorld's order systems: the class lives in a file another
+## agent owns. Must expose may_fire(unit: int) -> bool and
+## fire_refusal(unit: int) -> String. Null in a bare world = no posture gate,
+## exactly the behaviour every pre-transport test was written against.
+var deploy_gate = null
+
 var shots_fired: int = 0
 var refusals: int = 0
 var last_refusal: String = ""
@@ -160,6 +169,12 @@ func _service(unit: int, mounts: Array) -> void:
 	# The mechanical half of "may I shoot?" -- docs/03's firepower kill.
 	if not entities.can_fire(unit):
 		_refuse(unit, "firepower disabled")
+		return
+
+	# The posture half -- a limbered gun or a mid-transition launcher holds
+	# fire. The ORDER stands: deploy, and the same engagement fires.
+	if deploy_gate != null and not deploy_gate.may_fire(unit):
+		_refuse(unit, deploy_gate.fire_refusal(unit))
 		return
 
 	# docs/03's most valuable row: "the unit is alive and blind. It drops to TQ1

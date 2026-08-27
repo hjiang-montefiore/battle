@@ -90,10 +90,11 @@ func _begin() -> void:
 	# a loading screen can pay that cost up front, and nothing was calling it.
 	world.movement.prime_terrain(SimTypes.Category.GROUND)
 
-	# The two layers the spine declares but leaves for a match to install.
+	# The layers the spine declares but leaves for a match to install.
 	world.arm_on_spawn = true
 	world.fire_control = SimFireControl.new(
 		world.entities, world.weapons, world.solver, world.economy)
+	SimSortie.install(world)
 
 	victory = SimVictory.new(world.entities, world.economy, world.damage)
 
