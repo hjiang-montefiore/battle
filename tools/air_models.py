@@ -7,6 +7,23 @@ outline seen from above. So wing sweep, span and taper carry the identification,
 and fuselage detail barely registers. Every role below is shaped around its
 planform first.
 
+HOW SMALL DOES AN AIRCRAFT ACTUALLY GET? Several comments below were written
+around "must read at 60 px", which was inherited from the ground roster and
+never recalculated. It is a TANK-sized budget. The camera is 48 deg vertical
+into a 900 px viewport and clamps at 18-140 m, so a metre of span is 1011/d
+pixels and the floor at maximum zoom-out is:
+
+    M1 Abrams  3.66 m ->   26 px      A-10A     17.53 m ->  127 px
+    F-16C      9.96 m ->   72 px      F-111F    19.20 m ->  139 px
+    F-15C     13.05 m ->   94 px      B-52H     56.39 m ->  407 px
+
+An Abrams passes through 60 px at 62 m, well inside the zoom range, so for a
+tank the rule bites. No aircraft in this file ever reaches it: the F-16 would
+need the camera 168 m out and the B-2 883 m, against a zoom_max of 140. Read
+"60 px" in the notes below as the historical justification it was, not as a
+constraint that still applies -- fuselage section is affordable here, which is
+the premise the loft() rebuild rests on.
+
 Six of these twenty carry no meaningful air-to-air armament (AEW&C, AEW
 helicopter, electronic attack, tanker, ISR, maritime patrol) and are the most
 valuable targets in the sky — docs/12.
@@ -57,7 +74,7 @@ def _dist_to_outline(x, y, poly):
 
 
 def aerofoil(poly, peak, name="foil", cuts=5, under=0.34, power=0.62,
-             extra=None):
+             extra=None, z=0.0):
     """A planform given a continuous, tapered SECTION.
 
     plate() extrudes an outline straight up at constant thickness, so every
@@ -109,9 +126,9 @@ def aerofoil(poly, peak, name="foil", cuts=5, under=0.34, power=0.62,
     dup = bmesh.ops.duplicate(bm, geom=list(bm.verts) + list(bm.edges) + list(bm.faces))
     bottom = [g for g in dup["geom"] if isinstance(g, bmesh.types.BMVert)]
     for v in top:
-        v.co.z = thickness(v.co.x, v.co.y)
+        v.co.z = z + thickness(v.co.x, v.co.y)
     for v in bottom:
-        v.co.z = -under * thickness(v.co.x, v.co.y)
+        v.co.z = z - under * thickness(v.co.x, v.co.y)
 
     top_rim = [e for e in bm.edges if e.is_boundary and e.verts[0] in set(top)]
     bot_set = set(bottom)
@@ -160,7 +177,26 @@ def shell(stations, name="shell"):
 
 
 def wings(root_y, span, root_c, tip_c, sweep, thick, z, name="wing"):
-    """Mirrored swept tapered panels. sweep = how far back the tip sits."""
+    """Mirrored swept tapered panels with a real SECTION. sweep = how far back
+    the tip sits.
+
+    These used to be plate() extrusions: constant thickness, square edges top
+    and bottom. Against a lofted fuselage that reads as plywood, and the
+    leading edge is the one part of a wing the camera sees nearly head-on when
+    an aircraft crosses the screen. aerofoil() keeps the planform EXACTLY --
+    span, chord and area are what identify an aircraft, and several of these
+    planforms were checked against published wing areas -- and replaces the
+    extrusion with thickness that falls to nothing at leading edge, trailing
+    edge and tip.
+
+    The root edge tapers as well, which sounds wrong until you notice it is
+    buried inside the fuselage: what emerges from the body is a section at
+    roughly two-thirds of peak, which is about where a wing root really sits.
+
+    peak is 0.75 of the old constant thickness so that peak plus the 34 %
+    underside returns the same maximum the plate had. Every aircraft in the
+    file gets this, including tailplanes, which are built by this function too.
+    """
     out = []
     for s in (-1, 1):
         hw = span / 2.0
@@ -170,7 +206,8 @@ def wings(root_y, span, root_c, tip_c, sweep, thick, z, name="wing"):
                (s * 0.30, root_y - root_c)]
         if s < 0:
             pts.reverse()
-        out.append(plate(pts, thick, z, f"{name}_{s}"))
+        out.append(aerofoil(pts, thick * 0.75, f"{name}_{s}", cuts=4,
+                            under=0.34, power=0.55, z=z))
     return out
 
 
@@ -189,6 +226,96 @@ def fin(y, height, root_c, tip_c, sweep, thick, z=0.0, cant=0.0, offset_x=0.0):
     if cant:
         o.rotation_euler = (0.0, R(cant), 0.0)
     return o
+
+
+def _superellipse(w, h, zc, sq, v):
+    """One cross-section ring in the XZ plane.
+
+    sq is the superellipse exponent: 1.0 is a true ellipse, BELOW that the
+    section grows shoulders and flattens its top and bottom, above it pinches
+    toward a diamond. It is the single number that separates a round tube
+    from a chined forebody.
+    """
+    e = max(sq, 0.05)
+    ring = []
+    for i in range(v):
+        t = 2.0 * math.pi * i / v
+        cx, cz = math.cos(t), math.sin(t)
+        ring.append((w * math.copysign(abs(cx) ** e, cx),
+                     zc + h * math.copysign(abs(cz) ** e, cz)))
+    return ring
+
+
+def loft(sections, v=16, name="loft", cap=(True, True)):
+    """Superelliptic lofted body, nose at +Y. The fast-jet fuselage primitive.
+
+    Each section is (y, w, h, zc, sq):
+
+        y    station along the aircraft in metres, nose positive
+        w    HALF-width there
+        h    HALF-height there
+        zc   height of that section's centre above the build plane
+        sq   squareness, per _superellipse above; optional, default 1.0
+             (a plain ellipse), and zc is optional too, so a station may be
+             given as (y, w, h), (y, w, h, zc) or (y, w, h, zc, sq)
+
+    Sections run nose first, descending y. A station with w or h at zero
+    collapses to a point, so a nose or a tailcone closes properly instead of
+    ending on a disc.
+
+    cap is (front, back). An intake and a jet pipe are HOLES, and a lofted
+    tube with both ends capped is a lid where the hole should be -- which is
+    exactly what the F-16's inlet and nozzle looked like on the first pass.
+    Leave the relevant end open and put a darker inner loft behind it.
+
+    This exists because fuselage() can only stack CIRCULAR cones: one radius
+    per station, always centred on z, always round. A real fast jet breaks all
+    three at once. An F-16 through the inlet is about 1.6 times wider than it
+    is tall; the centreline of its sections climbs roughly 0.9 m from inlet lip
+    to spine, so a body drawn on one axis sits either too low at the front or
+    too high at the back; and the forebody is a rounded-off triangle with a
+    chine down each side, which no circle approximates. Width, height, vertical
+    offset and squareness are exactly those three degrees of freedom, and they
+    are what make a fighter read as a fighter rather than as a pipe with wings.
+    """
+    EPS = 1e-4
+    me = bpy.data.meshes.new(name)
+    obj = bpy.data.objects.new(name, me)
+    bpy.context.collection.objects.link(obj)
+    bm = bmesh.new()
+    rings = []
+    for st in sections:
+        y, w, h = st[0], st[1], st[2]
+        zc = st[3] if len(st) > 3 else 0.0
+        sq = st[4] if len(st) > 4 else 1.0
+        if w <= EPS or h <= EPS:
+            rings.append([bm.verts.new((0.0, y, zc))])
+        else:
+            rings.append([bm.verts.new((x, y, z))
+                          for (x, z) in _superellipse(w, h, zc, sq, v)])
+    bm.verts.ensure_lookup_table()
+    for a, b in zip(rings, rings[1:]):
+        if len(a) == 1 and len(b) == 1:
+            continue
+        if len(a) == 1:                                   # nose apex -> fan
+            for i in range(v):
+                bm.faces.new((a[0], b[i], b[(i + 1) % v]))
+        elif len(b) == 1:                                 # -> tail apex
+            for i in range(v):
+                bm.faces.new((a[i], a[(i + 1) % v], b[0]))
+        else:
+            for i in range(v):
+                j = (i + 1) % v
+                if len({a[i], a[j], b[j], b[i]}) == 4:
+                    bm.faces.new((a[i], a[j], b[j], b[i]))
+    if cap[0] and len(rings[0]) > 1:
+        bm.faces.new(list(reversed(rings[0])))
+    if cap[1] and len(rings[-1]) > 1:
+        bm.faces.new(rings[-1])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    bm.to_mesh(me)
+    bm.free()
+    return tag(obj)
 
 
 def fuselage(length, r_mid, nose=0.0, tail=0.0, z=0.0, v=14, name="fus",
@@ -214,6 +341,73 @@ def fuselage(length, r_mid, nose=0.0, tail=0.0, z=0.0, v=14, name="fus",
         rb = max(r_mid * r1, 0.02)
         out.append(cyl((0, (y0 + y1) / 2.0, z), ra, seg,
                        rot=(R(90), 0, 0), v=v, taper=rb / ra))
+    return out
+
+
+def nozzle(y_aft, r, length, x=0.0, z=0.0, v=18, name="nozzle",
+           waist=0.86, flare=1.02):
+    """An OPEN jet pipe: an outer shell with a black throat down it.
+
+    Every engine in this file used to be a capped cylinder, and that was
+    survivable while the fuselage around it was also a stack of cylinders.
+    Once the bodies were lofted, the lid across the back of the exhaust became
+    the most obviously fake thing on the aeroplane -- a jet with its exhaust
+    welded shut. A real afterburning nozzle necks IN behind the tail fairing
+    and flares back out at the petals, and you can see down it.
+
+    Restores the caller's material group on the way out, since this is called
+    from inside blocks that have already chosen one.
+    """
+    prev = H.CURRENT
+    y0 = y_aft + length
+    out = []
+    use("gun")
+    out.append(loft([(y0, r, r, z),
+                     (y0 - length * 0.62, r * waist, r * waist, z),
+                     (y_aft, r * flare, r * flare, z)], v=v, name=name,
+                    cap=(True, False)))
+    use("gunbore")
+    out.append(loft([(y0 - length * 0.30, r * 0.60, r * 0.60, z),
+                     (y_aft - 0.02, r * flare * 0.94, r * flare * 0.94, z)],
+                    v=v, name=name + "_throat", cap=(True, False)))
+    for o in out:
+        o.location.x = x
+    use(prev)
+    return out
+
+
+def turbofan(y_front, r, length, x=0.0, z=0.0, v=18, name="pod"):
+    """A podded turbofan: cowl, dark fan face, open exhaust, spinner.
+
+    Same failure as nozzle(), one step worse. A podded engine drawn as a
+    capped cylinder has neither an intake nor an exhaust, so it reads as a
+    drop tank -- and the A-10 hangs two of them where the aeroplane's whole
+    silhouette depends on their being engines. What separates the two shapes
+    at a glance is that an engine is OPEN at both ends with a visibly dark
+    disc a little way inside the cowl lip.
+    """
+    prev = H.CURRENT
+    out = []
+    ya = y_front - length
+    use("gun")
+    out.append(loft([(y_front, r * 0.94, r * 0.94, z),
+                     (y_front - length * 0.10, r, r, z),
+                     (y_front - length * 0.62, r * 0.97, r * 0.97, z),
+                     (ya, r * 0.80, r * 0.80, z)], v=v, name=name,
+                    cap=(False, False)))
+    use("gunbore")
+    out.append(loft([(y_front - 0.02, r * 0.90, r * 0.90, z),
+                     (y_front - length * 0.30, r * 0.84, r * 0.84, z)],
+                    v=v, name=name + "_fan", cap=(False, True)))
+    out.append(loft([(y_front - length * 0.70, r * 0.72, r * 0.72, z),
+                     (ya + 0.02, r * 0.76, r * 0.76, z)], v=v,
+                    name=name + "_jet", cap=(True, False)))
+    use("gun")
+    out.append(cyl((0, y_front - length * 0.20, z), r * 0.24, length * 0.30,
+                   rot=(R(90), 0, 0), v=10, taper=0.06))
+    for o in out:
+        o.location.x = x
+    use(prev)
     return out
 
 
@@ -285,7 +479,8 @@ def interceptor():
     exists to carry.
 
     A tailless delta is the one planform in the fast-jet family that cannot be
-    read as a trapezoid-plus-tailplane at 60 px. The plan is a single triangle
+    read as a trapezoid-plus-tailplane even at its 84 px floor. The plan is a
+    single triangle
     from 41 % of the length back to the trailing edge at 88 %, and behind it
     there is nothing but the fin -- no stabilator, no second surface, no notch.
 
@@ -300,11 +495,23 @@ def interceptor():
     L, SPAN = 21.55, 11.67
     N = L / 2.0
     SWP = math.tan(math.radians(60.0)) * (SPAN / 2.0 - 0.30)      # 9.587
-    p = fuselage(L, 0.86, 0.5, 0.45,
-                 stations=((0.00, 0.05), (0.05, 0.30), (0.12, 0.58),
-                           (0.20, 0.80), (0.30, 0.96), (0.42, 1.00),
-                           (0.56, 0.86), (0.66, 0.84), (0.78, 0.96),
-                           (0.90, 0.84), (1.00, 0.52)))
+    # The F-106 is the aeroplane the AREA RULE was named on: its fuselage
+    # pinches where the wing carries the most cross-section and swells again
+    # behind it. The old station list already had that dip (0.86 down to 0.84
+    # and back to 0.96) but drew it as circles, so it read as a bulge rather
+    # than as a waist. With width and height free it is a real coke bottle.
+    p = [loft([(10.72, 0.03, 0.03, 0.00),
+               (9.70, 0.20, 0.19, 0.00),
+               (8.20, 0.42, 0.40, 0.02),
+               (6.50, 0.60, 0.56, 0.05, 0.95),
+               (4.30, 0.76, 0.68, 0.06, 0.90),
+               (1.75, 0.86, 0.78, 0.02, 0.88),
+               (-0.90, 0.78, 0.74, 0.00, 0.90),
+               (-3.10, 0.73, 0.72, 0.00, 0.92),
+               (-5.60, 0.80, 0.78, 0.01, 0.94),
+               (-8.20, 0.72, 0.70, 0.02),
+               (-9.60, 0.60, 0.58, 0.02),
+               (-10.10, 0.54, 0.53, 0.02)], v=22, name="f106_fus")]
     p += wings(N - 8.90, SPAN, 10.30, 0.30, SWP, 0.30, 0.0, "w")
     p.append(fin(N - 14.40, 3.20, 5.60, 1.70, 3.60, 0.26, 0.55))
     use("deck")
@@ -313,7 +520,7 @@ def interceptor():
         p.append(cube((s * 1.52, N - 12.60, 0.44), (0.14, 3.10, 0.80)))  # ramp
         p.append(cube((s * 3.10, N - 18.40, 0.16), (2.60, 1.30, 0.22)))  # elevon
     use("gun")
-    p.append(cyl((0, -N + 0.75, 0), 0.62, 1.30, rot=(R(90), 0, 0), v=16))
+    p += nozzle(-10.77, 0.62, 1.05, z=0.02, name="f106_nozzle")
     p.append(cyl((0, N - 0.55, 0.02), 0.16, 1.10, rot=(R(90), 0, 0), v=10))
     use("body")
     p += _kit(SPAN, L, 0)
@@ -362,10 +569,23 @@ def air_superiority():
     L, SPAN = 19.43, 13.05
     N = L / 2.0
     SWP = math.tan(math.radians(45.0)) * (SPAN / 2.0 - 0.30)      # 6.225
-    p = fuselage(L, 0.86, 0.48, 0.62,
-                 stations=((0.00, 0.06), (0.05, 0.36), (0.12, 0.68),
-                           (0.20, 0.88), (0.32, 1.00), (0.56, 0.98),
-                           (0.74, 0.84), (0.88, 0.72), (1.00, 0.50)))
+    # An Eagle is round at the nose and RECTANGULAR by the time it reaches the
+    # engines -- the aft body is the flat shovel that carries the two of them
+    # side by side, and it is the single strongest cue separating this from
+    # the F-16 next to it in the lineup. sq falls from 0.92 to 0.68 down the
+    # length, which is that transition; a stack of cones cannot express it.
+    p = [loft([(9.60, 0.04, 0.04, 0.00),
+               (8.70, 0.26, 0.25, 0.00),
+               (7.40, 0.50, 0.46, 0.02),
+               (6.00, 0.66, 0.58, 0.05, 0.92),
+               (4.20, 0.80, 0.68, 0.04, 0.85),
+               (2.00, 0.90, 0.76, 0.00, 0.78),
+               (-0.60, 0.94, 0.78, -0.02, 0.72),
+               (-3.20, 0.92, 0.74, -0.02, 0.68),
+               (-5.60, 0.88, 0.70, 0.00, 0.70),
+               (-7.60, 0.80, 0.64, 0.02, 0.75),
+               (-9.10, 0.70, 0.58, 0.03, 0.85),
+               (-9.72, 0.62, 0.54, 0.03)], v=22, name="f15_fus")]
     p += wings(N - 8.30, SPAN, 7.20, 1.46, SWP, 0.34, 0.0, "w")
     p += wings(N - 13.62, 8.61, 3.55, 1.04, 4.77, 0.28, 0.0, "h")
     for s in (-1, 1):                                   # stabilator SNAG
@@ -387,8 +607,8 @@ def air_superiority():
         p.append(cube((s * 1.10, -5.60, 0.50), (1.00, 5.40, 0.14)))      # deck
     use("gun")
     for s in (-1, 1):
-        p.append(cyl((s * 1.10, -N + 0.80, -0.05), 0.56, 1.60,
-                     rot=(R(90), 0, 0), v=14))
+        p += nozzle(-N, 0.56, 1.60, x=s * 1.10, z=-0.05, v=14,
+                    name="f15_nozzle_%d" % s)
     use("body")
     p += _kit(SPAN, L, 0, tanks=2)
     return p, dict(top=0.95, hull_l=L, hull_w=SPAN, turret_top=2.1,
@@ -413,8 +633,8 @@ def multirole():
        5.07 - 1.15 = 3.93 = exactly the leading-edge sweep offset, which is
        what makes the trailing edge straight. That straight line is the
        structural cue this aircraft was missing: every other jet in the family
-       has a trailing edge that sweeps, so at 60 px the F-16 is the only fast
-       jet whose back edge is a ruler line.
+       has a trailing edge that sweeps, so even at the F-16's 72 px floor it
+       is the only fast jet whose back edge is a ruler line.
 
     Third: the strakes. The LERX are what make an F-16 plan read as one
     continuous blended body from radome to wingtip instead of a tube with
@@ -438,11 +658,39 @@ def multirole():
     L, SPAN = 15.06, 9.96
     N = L / 2.0
     SWP = math.tan(math.radians(40.0)) * (SPAN / 2.0 - 0.30)      # 3.927
-    p = fuselage(L, 0.84, 0.5, 0.55,
-                 stations=((0.00, 0.04), (0.03, 0.26), (0.08, 0.53),
-                           (0.14, 0.67), (0.22, 0.85), (0.34, 1.00),
-                           (0.50, 1.00), (0.62, 0.92), (0.78, 0.88),
-                           (0.90, 0.80), (1.00, 0.62)))
+    # Body: a superelliptic loft, not a stack of cones. Width, height, section
+    # centre and squareness each vary independently along the body, which is
+    # exactly what fuselage() could not express -- through the inlet this
+    # aeroplane is 1.94 m wide against 1.64 m tall, its section centre travels
+    # 0.11 m between inlet and spine, and the forebody is a rounded-off
+    # triangle (sq 0.75, shoulders) rather than a circle. Stations are metres
+    # from the datum with the nose positive, so they land on the +Y-forward
+    # axis used here unchanged. w and h are HALF-dimensions.
+    p = [loft([(6.20, 0.27, 0.26, 0.01),
+               (5.50, 0.42, 0.40, 0.04),
+               (4.70, 0.54, 0.50, 0.08, 0.90),
+               (3.80, 0.64, 0.56, 0.08, 0.85),
+               (2.80, 0.76, 0.66, 0.02, 0.80),
+               (1.60, 0.90, 0.78, -0.03, 0.75),
+               (0.20, 0.97, 0.82, -0.03, 0.75),
+               (-1.40, 0.96, 0.81, -0.01, 0.78),
+               (-3.00, 0.90, 0.77, 0.02, 0.80),
+               (-4.60, 0.80, 0.70, 0.05, 0.85),
+               (-6.00, 0.64, 0.58, 0.06, 0.90),
+               (-7.00, 0.48, 0.47, 0.05),
+               (-7.50, 0.41, 0.41, 0.05)], v=24, name="f16_fus")]
+    use("gun")
+    # Radome, then the pitot boom. The quoted 15.06 m is measured to the TIP
+    # OF THE BOOM, so the radome closes at 7.08 and the boom runs the last
+    # 0.45 m out to +N. Taking the study's 7.52 m radome tip literally and
+    # then adding a boom in front of it would have made the aeroplane 15.9 m.
+    p.append(loft([(7.08, 0.012, 0.012, 0.0),
+                   (6.76, 0.115, 0.115, 0.0),
+                   (6.15, 0.272, 0.262, 0.01)], v=20, name="f16_radome"))
+    p.append(cyl((0, 7.31, 0.0), 0.022, 0.45, rot=(R(90), 0, 0), v=6))
+    for s in (-1, 1):                                   # AoA probes
+        p.append(cyl((s * 0.24, 6.45, 0.02), 0.016, 0.28, rot=(R(90), 0, 0), v=6))
+    use("body")
     for s in (-1, 1):                                   # LERX chine, blended
         pts = [(s * 0.34, N - 3.90), (s * 0.62, N - 4.80), (s * 0.96, N - 5.60),
                (s * 1.32, N - 6.53), (s * 0.34, N - 6.53)]
@@ -463,14 +711,45 @@ def multirole():
         p.append(fin(N - 11.60, -0.85, 1.60, 0.80, 0.90, 0.14, -0.55,
                      offset_x=s * 0.62))                        # ventral fin
     use("gun")
-    p.append(cyl((0, -N + 0.72, 0), 0.56, 1.45, rot=(R(90), 0, 0), v=12))
-    use("deck")                                         # the chin inlet
-    p.append(cube((0, N - 3.60, -0.78), (1.28, 2.60, 0.78)))
-    p.append(cyl((0, N - 4.80, -0.72), 0.62, 1.30, rot=(R(90), 0, 0), v=12))
-    use("body")                                         # bubble canopy, PROUD
-    p.append(dome((0, N - 4.30, 0.66), 0.56, 1.62, 0.46, v=16))
+    # Nozzle. This was a plain capped cylinder, and once the body around it
+    # was lofted it read as a tin can taped to the back. A real afterburning
+    # nozzle necks IN behind the fairing and flares back out at the petals,
+    # and it is open, so the last station is a black throat rather than a lid.
+    p += nozzle(-7.53, 0.50, 1.48, z=0.04, name="f16_nozzle")
+    use("deck")
+    # The chin inlet, which was a box with a cylinder stuck in it. It is now a
+    # duct with a rolled LIP -- the section swells to 0.50 half-width at 2.80
+    # and comes back to 0.46 at the throat, which is what makes an intake read
+    # as an opening rather than as a pipe end.
+    p.append(loft([(2.88, 0.44, 0.32, -0.78, 0.80),
+                   (2.80, 0.50, 0.38, -0.78, 0.80),
+                   (2.75, 0.46, 0.34, -0.78, 0.80),
+                   (1.80, 0.50, 0.38, -0.72, 0.80),
+                   (0.20, 0.52, 0.36, -0.62, 0.80),
+                   (-1.20, 0.46, 0.28, -0.55, 0.85)], v=20, name="f16_duct",
+                  cap=(False, True)))
+    use("gunbore")                                      # the hole itself
+    p.append(loft([(2.86, 0.44, 0.32, -0.78, 0.80),
+                   (2.20, 0.28, 0.20, -0.76, 0.80)], v=20, name="f16_mouth",
+                  cap=(False, True)))
+    use("gun")
+    p.append(cube((0, 2.60, -0.44), (0.52, 0.70, 0.03)))   # splitter plate
+    use("body")
+    # Canopy. The sill and the dorsal spine are what stop a bubble canopy from
+    # looking like a bubble SITTING ON a tube: the sill is the frame line the
+    # glass sits in, and the spine carries the fairing aft into the body
+    # instead of letting the glass end in mid-air.
+    p.append(loft([(3.30, 0.44, 0.50, 0.50),
+                   (3.10, 0.42, 0.42, 0.46),
+                   (2.30, 0.40, 0.26, 0.34),
+                   (1.20, 0.36, 0.16, 0.24),
+                   (0.00, 0.30, 0.08, 0.16)], v=16, name="f16_spine"))
+    use("gun")
+    p.append(loft([(5.55, 0.34, 0.045, 0.235),
+                   (4.30, 0.475, 0.05, 0.26),
+                   (3.05, 0.44, 0.045, 0.30)], v=12, name="f16_sill"))
     use("glass")
-    p.append(dome((0, N - 4.25, 0.70), 0.50, 1.50, 0.44, v=16))
+    p.append(dome((0, 4.15, 0.52), 0.46, 1.62, 0.50, v=20))
     use("body")
     p += _kit(SPAN, L, 0, canopy=False, tanks=0)
     return p, dict(top=0.9, hull_l=L, hull_w=SPAN, turret_top=1.9,
@@ -524,11 +803,24 @@ def strike():
     """
     L, SPAN = 22.40, 19.20
     N = L / 2.0
-    p = fuselage(L, 1.25, 0.52, 0.58,
-                 stations=((0.00, 0.05), (0.04, 0.28), (0.09, 0.52),
-                           (0.15, 0.76), (0.23, 0.94), (0.34, 1.00),
-                           (0.52, 1.00), (0.70, 0.98), (0.84, 0.92),
-                           (1.00, 0.66)))
+    # The F-111 seats its crew SIDE BY SIDE in an escape capsule, so the
+    # forward fuselage is wide and flat where a fighter's is deep and narrow:
+    # 2.16 m across against 1.72 m tall at the capsule, widening to 2.50 x 1.84
+    # amidships. That proportion is most of why the aeroplane reads as a bomber
+    # from above rather than as a big fighter, and it is worth stating that the
+    # width is carried by the CABIN, not by the engines.
+    p = [loft([(11.10, 0.05, 0.05, 0.00),
+               (10.10, 0.30, 0.28, 0.00),
+               (8.60, 0.60, 0.54, 0.03),
+               (7.00, 0.86, 0.72, 0.06, 0.90),
+               (5.20, 1.08, 0.86, 0.06, 0.82),
+               (2.80, 1.22, 0.92, 0.02, 0.76),
+               (0.00, 1.25, 0.92, 0.00, 0.72),
+               (-3.00, 1.22, 0.88, 0.00, 0.72),
+               (-6.00, 1.14, 0.84, 0.02, 0.75),
+               (-8.60, 1.00, 0.78, 0.03, 0.82),
+               (-10.40, 0.86, 0.70, 0.04),
+               (-11.18, 0.78, 0.66, 0.04)], v=24, name="f111_fus")]
     for s in (-1, 1):                       # the fixed glove — 65 deg LE
         pts = [(s * 1.15, N - 5.30), (s * 3.00, N - 9.20),
                (s * 3.00, N - 13.20), (s * 1.15, N - 14.30)]
@@ -547,8 +839,8 @@ def strike():
         p.append(cyl((s * 1.62, N - 8.30, -0.28), 0.66, 3.40,
                      rot=(R(90), 0, 0), v=12))
         # nozzles: side by side and CLOSE. 1.70 m apart against the F-15's 2.90
-        p.append(cyl((s * 0.85, -N + 1.00, -0.05), 0.62, 2.00,
-                     rot=(R(90), 0, 0), v=12))
+        p += nozzle(-N, 0.62, 2.00, x=s * 0.85, z=-0.05, v=14,
+                    name="f111_nozzle_%d" % s)
         for k in range(2):                  # swivelling pylons + stores
             y = N - (10.60 + k * 0.30)
             p.append(cube((s * (2.10 + k * 0.95), y + 0.55, -0.46),
@@ -610,10 +902,24 @@ def cas():
     """
     L, SPAN = 16.26, 17.53
     N = L / 2.0                                   # nose sits at y = +N
-    p = fuselage(L, 0.78, 0.55, 0.70,
-                 stations=((0.00, 0.24), (0.04, 0.62), (0.09, 0.85),
-                           (0.16, 0.97), (0.34, 1.00), (0.62, 1.00),
-                           (0.80, 0.90), (0.90, 0.74), (1.00, 0.58)))
+    # The A-10's nose is BLUNT because a 1.9 m cannon lives in it, and the
+    # fuselage behind it barely tapers -- it is a straight-sided box with
+    # rounded corners, not a fighter's waisted tube. Through the mid-body sq
+    # holds at 0.86-0.88, which is what gives it square shoulders, and the
+    # section is very nearly CONSTANT from 3.6 m ahead of the datum to 2.0 m
+    # behind it: 1.56 m wide and no waist anywhere. Every other jet in this
+    # file narrows somewhere; this one does not, and that is the shape cue.
+    p = [loft([(8.05, 0.20, 0.20, 0.02),
+               (7.60, 0.34, 0.33, 0.02),
+               (6.80, 0.52, 0.50, 0.03, 0.95),
+               (5.60, 0.66, 0.64, 0.05, 0.92),
+               (3.60, 0.76, 0.74, 0.06, 0.88),
+               (1.00, 0.78, 0.78, 0.04, 0.86),
+               (-2.00, 0.78, 0.76, 0.02, 0.86),
+               (-4.60, 0.72, 0.70, 0.02, 0.88),
+               (-6.40, 0.62, 0.60, 0.02),
+               (-7.60, 0.50, 0.48, 0.02),
+               (-8.10, 0.44, 0.43, 0.02)], v=22, name="a10_fus")]
     Y0 = N - 6.78                                 # wing root leading edge
     p += wings(Y0, SPAN, 3.55, 1.75, 0.55, 0.34, -0.15, "w")
     for s in (-1, 1):                             # inboard constant-chord kink
@@ -628,8 +934,8 @@ def cas():
                      offset_x=s * 2.80))
     use("gun")
     for s in (-1, 1):                             # podded TF34s + their pylons
-        p.append(cyl((s * 1.62, N - 11.45, 0.86), 0.68, 3.60,
-                     rot=(R(90), 0, 0), v=14))
+        p += turbofan(N - 13.25, 0.68, 3.60, x=s * 1.62, z=0.86,
+                      name="a10_pod_%d" % s)
         p.append(cube((s * 1.10, N - 11.45, 0.50), (1.20, 2.40, 0.60)))
     # GAU-8/A. The gun is on the centreline but the barrel that FIRES is the
     # one at nine o'clock, so the muzzle sits ~0.25 m to port of it — the one
@@ -754,7 +1060,7 @@ def stealth_bomber():
     then the tip. Six trailing-edge vertices per side. This is the feature
     that separates it from every four-engined swept-wing aircraft in the
     roster at a glance, and unlike a pod or a store it is the outline itself,
-    so it survives LOD2 and 60 px.
+    so it survives LOD2 -- and a B-52 never falls below 407 px anyway.
 
     Tiering: the wing is thin at the tips and 2.2 m deep on the centreline,
     so it is built as three stacked plates that shrink inboard-to-outboard,
@@ -939,11 +1245,22 @@ def sead():
     # Area-ruled body: widest at the inlets, pinched to 82% over the wing, then
     # swelling again for the afterburner can. On a 21.21 x 10.65 planform that
     # waist is what stops the fuselage reading as a plain tube.
-    p = fuselage(L, 0.98, 0.50, 0.60,
-                 stations=((0.000, 0.05), (0.057, 0.30), (0.123, 0.55),
-                           (0.198, 0.78), (0.283, 0.94), (0.377, 1.00),
-                           (0.500, 0.86), (0.613, 0.82), (0.731, 0.93),
-                           (0.872, 0.90), (1.000, 0.60)))
+    # A Thunderchief is area-ruled like the F-106 but much bigger, and it is
+    # the waist plus the sheer 21 m length that reads at a glance. Same
+    # treatment: the waist is now a genuine narrowing in BOTH axes rather than
+    # a smaller circle, which is what makes it visible from above.
+    p = [loft([(10.55, 0.04, 0.04, 0.00),
+               (9.40, 0.24, 0.23, 0.00),
+               (7.90, 0.48, 0.45, 0.02),
+               (6.30, 0.68, 0.62, 0.05, 0.94),
+               (4.40, 0.86, 0.76, 0.06, 0.88),
+               (2.40, 0.98, 0.84, 0.02, 0.84),
+               (0.00, 0.92, 0.82, 0.00, 0.86),
+               (-2.60, 0.84, 0.78, 0.00, 0.88),
+               (-5.00, 0.92, 0.84, 0.01, 0.90),
+               (-7.40, 0.88, 0.80, 0.02),
+               (-9.40, 0.72, 0.68, 0.02),
+               (-10.15, 0.62, 0.60, 0.02)], v=22, name="f105_fus")]
     for s in (-1, 1):        # forward-swept wing-root intakes, +/-1.70 shoulders
         pts = [(s * 0.55, N - 7.30), (s * 1.70, N - 6.10),
                (s * 1.70, N - 11.20), (s * 0.55, N - 12.80)]
@@ -957,7 +1274,7 @@ def sead():
     p.append(fin(N - 13.60, 3.60, 5.60, 1.90, 3.10, 0.28, z=0.42))
     p.append(fin(-6.20, -1.05, 2.80, 1.50, 1.20, 0.22, z=-0.60))   # ventral fin
     use("gun")
-    p.append(cyl((0, -N + 0.80, 0), 0.60, 1.50, rot=(R(90), 0, 0), v=14))
+    p += nozzle(-10.60, 0.66, 1.10, z=0.02, name="f105_nozzle")
     # Anti-radiation missiles. By the brief these carry NO identification —
     # they are gone at LOD2 and invisible overhead — so they are detail, not
     # separation. AGM-78 Standard ARM inboard, AGM-45 Shrike outboard.
@@ -999,7 +1316,9 @@ def stealth_strike():
     describes -- "Stealth strike aircraft, epoch 4, the fourth-root cliff
     arrives", which is Baghdad 1991, not Lightning II -- and it is the only
     combat jet in the roster whose planform is a single unbroken dart. Measured
-    against the same F-16 it lands at 0.596 shape / 0.604 at 60 px.
+    against the same F-16 it lands at 0.596 shape / 0.604 at 60 px. That
+    second figure is a measurement AT 60 px, not a claim that it ever appears
+    that small: an F-117 bottoms out at 95 px.
 
     THE PLANFORM IS THE WHOLE AIRCRAFT. Apex on the nose, one straight 67.5 deg
     leading edge to each tip (tan 67.5 = 2.414, so a 6.60 m semi-span puts the
