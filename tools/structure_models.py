@@ -3238,6 +3238,15 @@ def _tex(name, roof_z, family="military", body_stains=None, deck_stains=None,
         ao_grime=dict(strength=0.38, threshold=0.60,
                       tint=(0.052, 0.050, 0.046)),
         edge_wear=dict(strength=0.22))
+    if family == "fortification":
+        # the casemate drum / hex cap / head wall IS the building for this
+        # family, and dark smooth pour reads as vinyl without rain-wash: pale
+        # lime streaks running down the vertical faces, the way old hardened
+        # concrete actually weathers. LIGHTER than the 0.098 base — a dark
+        # streak on near-black is unpaintable.
+        deck_weather["streaks"] = dict(z0=roof_z, length=max(roof_z, 3.0),
+                                       density=0.38, strength=0.30,
+                                       tint=(0.155, 0.150, 0.135))
     if deck_stains:
         deck_weather["stains"] = deck_stains
     # ASPHALT (track): the largest truly flat fields left after pass 1 — the
@@ -3287,20 +3296,23 @@ def _tex(name, roof_z, family="military", body_stains=None, deck_stains=None,
 # command-economy spine
 _tex("bld_e4_us_hq", 11.5)                       # wall head 11.5, decks above
 _tex("bld_e4_us_power_plant", 12.0, family="industrial",
-     body_stains=[dict(origin=(-5.0, 5.0, 17.5), direction=(0, 0, -1),
-                       length=3.5, width=1.35, strength=0.55),
-                  dict(origin=(5.0, 5.0, 17.5), direction=(0, 0, -1),
-                       length=3.5, width=1.35, strength=0.55)])  # stack soot
+     # stack soot: the cone axis is the stack's own axis, so the surface sits
+     # a full radius (1.2-1.5 m) off it — width must be ~2 radii or the
+     # gaussian has already died by the time it reaches the concrete
+     body_stains=[dict(origin=(-5.0, 5.0, 18.1), direction=(0, 0, -1),
+                       length=5.5, width=2.4, strength=0.85),
+                  dict(origin=(5.0, 5.0, 18.1), direction=(0, 0, -1),
+                       length=5.5, width=2.4, strength=0.85)])
 _tex("bld_e4_us_oil_derrick", 3.2, family="industrial", streak_strength=0.24)
 _tex("bld_e4_us_refinery", 7.0, family="industrial",
-     body_stains=[dict(origin=(2.0, -5.0, 13.4), direction=(0, 0, -1),
-                       length=3.0, width=0.95, strength=0.50)])  # heater stack
+     body_stains=[dict(origin=(2.0, -5.0, 13.6), direction=(0, 0, -1),
+                       length=4.5, width=1.5, strength=0.75)])  # heater stack
 _tex("bld_e4_us_supply_depot", 5.4, family="industrial", streak_strength=0.22)
 # production group
 _tex("bld_e4_us_barracks", 8.0, streak_strength=0.24)
 _tex("bld_e4_us_light_factory", 8.9, family="industrial",
-     body_stains=[dict(origin=(-6.5, 2.0, 9.7), direction=(0, 0, -1),
-                       length=2.5, width=0.62, strength=0.50)])  # its one stack
+     body_stains=[dict(origin=(-6.5, 2.0, 10.1), direction=(0, 0, -1),
+                       length=3.5, width=1.0, strength=0.70)])  # its one stack
 _tex("bld_e4_us_heavy_factory", 12.35, family="industrial")
 _tex("bld_e4_us_research_facility", 11.1)
 _tex("bld_e4_us_repair_depot", 6.4, family="industrial",

@@ -2860,14 +2860,23 @@ def _ship_tex(name, L, B, fb, sheer, num, res=2048, bow=0.30, num_frac=0.40,
         insignia=ins + list(extra_insignia))
 
 
-def _sub_tex(name, L, B, deck, num, sail_y, sail_h, sail_w, num_size=1.8):
+def _sub_tex(name, L, B, deck, num, sail_y, sail_h, sail_w, num_size=1.8,
+             sail_l=0.0):
+    # sail_y is the sail's LEADING-EDGE station and the fin body runs AFT of
+    # it (sail() profiles span y-l..y), so a stamp centred at sail_y painted
+    # only the raked leading edge — the 2026-08 side sheet showed one sliver
+    # of one digit. Centre on the fin's mid-length instead.
     ins = []
     if num:
+        yc = sail_y - 0.5 * sail_l
         ins = [dict(kind="pennant", text=num, color=_STENCIL, alpha=0.96,
-                    center=(s * sail_w * 0.5, sail_y, deck + sail_h * 0.5),
+                    center=(s * sail_w * 0.5, yc, deck + sail_h * 0.55),
                     normal=(s, 0, 0), size=num_size) for s in (-1, 1)]
     H.texture_features(
         name, size_class="ship", res=1024, groups=("body",),
+        # 3.5 m tile: shrinks the base-scheme drift to sub-30 cm grain — at
+        # the ship default 9 m it read as ~1 m stone blocks on the hull.
+        camo_scale=3.5,
         panels=dict(spacing=3.0, strength=0.28, jitter=0.04, seams=0.25,
                     width=0.22),
         weathering=dict(
@@ -2917,11 +2926,13 @@ H.texture_features(
     insignia=[dict(kind="pennant", text="91", color=_STENCIL, alpha=0.9,
                    center=(s * 14.3 * 0.47, 0.5, 4.1), normal=(s, 0, 0),
                    size=2.2) for s in (-1, 1)])
-#         name                L      B    deck  number  sail y/h/w
+#         name                L      B    deck  number  sail y/h/w (+l)
 _sub_tex("sub_e2_us_nuclear", 110.3, 10.1, 1.90, "688", 23.7, 5.8, 3.2,
-         num_size=2.4)
-_sub_tex("sub_e1_us_diesel",   62.0,  6.2, 1.20, "209", 12.4, 3.6, 2.2)
-_sub_tex("sub_e7_de_aip",      57.2,  7.0, 1.30, "212", 10.0, 3.8, 2.1)
+         num_size=2.4, sail_l=11.6)
+_sub_tex("sub_e1_us_diesel",   62.0,  6.2, 1.20, "209", 12.4, 3.6, 2.2,
+         sail_l=7.4)
+_sub_tex("sub_e7_de_aip",      57.2,  7.0, 1.30, "212", 10.0, 3.8, 2.1,
+         sail_l=6.6)
 _sub_tex("sub_e1_kp_midget",   34.0,  3.8, 0.80, None,   5.1, 1.9, 1.3)
 
 

@@ -166,8 +166,13 @@ SCHEMES = {
     # rendered as stone masonry (seen on the 2026-08 sub band sheet). Same
     # tone ladder as air_dark — the sub-vs-surface cue survives — minus the
     # grain that had nothing to do with rubber tiles.
-    "sub_dark": ([(0.50, (0.20, 0.215, 0.24)),
-                  (1.01, (0.255, 0.27, 0.29))], 191, 3),
+    # Bands only 10% apart: even with NO_PANEL the compose pass still showed
+    # masonry, and the composed texture pinned it on the per-band colour
+    # drift (fbm base 11 — ~0.8 m features at a 9 m tile) amplifying a wide
+    # band step. Close bands + the subs' small camo_scale turn both into
+    # fine grain.
+    "sub_dark": ([(0.50, (0.215, 0.23, 0.253)),
+                  (1.01, (0.238, 0.253, 0.275))], 191, 3),
     # ground
     "terrain": ([(0.42, (0.32, 0.33, 0.24)),
                  (0.74, (0.38, 0.38, 0.28)),
