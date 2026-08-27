@@ -50,16 +50,11 @@ func setup(m: SimMatch, me: int, my_team: int, rig: Node3D) -> void:
 
 	var ex := m.terrain.extent_x_m()
 	var ez := m.terrain.extent_z_m()
-	var w := SIZE_PX
-	var h := SIZE_PX * ez / maxf(ex, 1.0)
-	anchor_left = 0.0
-	anchor_right = 0.0
-	anchor_top = 1.0
-	anchor_bottom = 1.0
-	offset_left = MARGIN_PX
-	offset_right = MARGIN_PX + w
-	offset_top = -(MARGIN_PX + h)
-	offset_bottom = -MARGIN_PX
+	# The minimap is a CHILD OF THE SIDEBAR now and is sized by its container,
+	# so it no longer anchors itself into a screen corner. It keeps the map's
+	# aspect ratio inside whatever width it is given.
+	custom_minimum_size.y = custom_minimum_size.x * ez / maxf(ex, 1.0)
+	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	clip_contents = true          # bearing rays and the view quad can run off-map
 	mouse_filter = Control.MOUSE_FILTER_STOP

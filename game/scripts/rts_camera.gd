@@ -12,6 +12,21 @@ extends Node3D
 ## The outer few pixels of that band pan faster, so a deliberate shove at the
 ## screen edge crosses the map while a drifting pointer only nudges it.
 @export var edge_boost := 2.6
+
+## Screen rectangles the pointer must not pan from. The RTS sidebar occupies
+## the ENTIRE right edge, which is exactly where the edge-pan band lives -- so
+## without this, reaching for a build button scrolls the map out from under the
+## player. The scene that owns the panel registers its rect here; the rig knows
+## nothing about what the rectangles are for.
+var ui_blockers: Array[Rect2] = []
+
+
+func pointer_over_ui() -> bool:
+	var m := get_viewport().get_mouse_position()
+	for r in ui_blockers:
+		if r.has_point(m):
+			return true
+	return false
 ## ZOOM IS IN METRES OF CAMERA-TO-GROUND DISTANCE, and the useful range depends
 ## entirely on the scene. THE DEFAULTS BELOW ARE THE MODEL VIEWER'S, not a
 ## skirmish's: proving_ground.gd adds this rig with no overrides at all onto a
@@ -55,6 +70,8 @@ func _ready() -> void:
 
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventMouseButton and e.pressed:
+		if pointer_over_ui():
+			return
 		if e.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_dist = clampf(_dist * 0.90, zoom_min, zoom_max)
 			_apply()
@@ -74,7 +91,8 @@ func _process(dt: float) -> void:
 	var vp := get_viewport().get_visible_rect().size
 	var m := get_viewport().get_mouse_position()
 	var boost := 1.0
-	if m.x >= 0.0 and m.y >= 0.0 and m.x <= vp.x and m.y <= vp.y:
+	if m.x >= 0.0 and m.y >= 0.0 and m.x <= vp.x and m.y <= vp.y \
+			and not pointer_over_ui():
 		# Depth INTO the band scales speed: brushing the edge drifts, pinning
 		# the pointer against it moves properly.
 		if m.x < edge_margin:

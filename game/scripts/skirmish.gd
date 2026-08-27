@@ -139,8 +139,8 @@ var _stats: Label
 var _selection_info: Label
 var _log_label: Label
 var _banner: Label
-var _build_box: VBoxContainer
-var _produce_box: VBoxContainer
+var _build_box: GridContainer
+var _produce_box: GridContainer
 var _minimap: Control
 var _headless := false
 ## Economy visibility: the amber refine-bottleneck line, the red capitulation
@@ -148,6 +148,7 @@ var _headless := false
 var _bottleneck_label: Label
 var _power_label: Label
 var _ore_nodes: Array = []
+var _sidebar: PanelContainer
 var _repair_btn: Button
 var _sell_btn: Button
 var _collapse_label: Label
@@ -255,6 +256,7 @@ func _capture() -> void:
 	_sync_proxies()
 	_project_tracks()
 	_refresh_panels(true)
+	_refresh_ui_rects()
 	_update_hud()
 	_overlay.queue_redraw()
 	await RenderingServer.frame_post_draw
@@ -756,6 +758,7 @@ func _process(dt: float) -> void:
 	_audio_tick()
 	_music_tick()
 	_update_ore()
+	_refresh_ui_rects()
 	_sync_proxies()
 	_prune_selection()
 	_project_tracks()
@@ -861,10 +864,35 @@ func _sync_proxies() -> void:
 			node.scale = Vector3(1.0, maxf(p, 0.08), 1.0)
 
 
+## THE UNIT RATIO. Vehicles and infantry are drawn larger than life, and this
+## is the one place in the project where a number is deliberately not true.
+##
+## The models are built at real published dimensions and the simulation reasons
+## in real metres -- an M1 is 9.8 m long, and at the 411 m of ground this game
+## opens on that is 35 px on a 1600 px screen: about 2% of the width. Red
+## Alert's tanks sit nearer 5-6%, which is why its battles read at a glance and
+## why "the tank is too small" is the right complaint even though every number
+## behind it is correct.
+##
+## Zooming in instead would work and would cost the wrong thing: the starting
+## base spans 405 m, so a view tight enough to make a tank large enough no
+## longer frames the base a player is building. So the VIEW keeps its honest
+## scale and the units are drawn 2.4x, which is the same trade Red Alert makes
+## and never mentions.
+##
+## STRUCTURES ARE EXCLUDED. Their footprint is a simulation quantity -- the
+## economy refuses a placement that overlaps one -- so a building drawn larger
+## than its footprint would be a lie a player could act on, and they already
+## read well at true scale.
+const UNIT_VIEW_SCALE := 2.4
+
+
 func _make_proxy(i: int) -> Node3D:
 	var e := _match.world.entities
 	var holder := Node3D.new()
 	holder.name = "u%d" % i
+	if e.is_structure[i] == 0:
+		holder.scale = Vector3.ONE * UNIT_VIEW_SCALE
 	var glb := _model_for(_match.world.economy.def_of(i))
 	if glb != "" and ResourceLoader.exists(glb):
 		holder.add_child((load(glb) as PackedScene).instantiate())
@@ -1044,6 +1072,14 @@ func _unhandled_input(ev: InputEvent) -> void:
 	if not (ev is InputEventMouseButton):
 		return
 	var mb := ev as InputEventMouseButton
+	# THE PANEL IS NOT THE WORLD. _unhandled_input only sees what the UI did
+	# not consume, but a click landing on the panel's BACKGROUND -- the gaps
+	# between buttons, the margins, the empty space under a short build list --
+	# is unconsumed and would otherwise deselect an army or order it into the
+	# terrain behind the sidebar. Board-game rule: if the pointer is on the
+	# board furniture, it is not on the board.
+	if _pointer_over_ui(mb.position):
+		return
 	if mb.button_index == MOUSE_BUTTON_LEFT:
 		if mb.pressed:
 			if _placing_role != "":
@@ -1634,6 +1670,27 @@ func _on_sell() -> void:
 		_audio.flat("ui_order", -6.0)
 
 
+## The screen rectangles the world must not react through. Rebuilt whenever the
+## viewport resizes; also handed to the camera rig, which uses it to refuse
+## edge-pan and wheel-zoom over the same furniture.
+var _ui_rects: Array[Rect2] = []
+
+
+func _pointer_over_ui(p: Vector2) -> bool:
+	for r in _ui_rects:
+		if r.has_point(p):
+			return true
+	return false
+
+
+func _refresh_ui_rects() -> void:
+	_ui_rects.clear()
+	if _sidebar != null:
+		_ui_rects.append(Rect2(_sidebar.global_position, _sidebar.size))
+	if _rig != null:
+		_rig.set("ui_blockers", _ui_rects)
+
+
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
@@ -1673,50 +1730,58 @@ func _build_hud() -> void:
 	_collapse_label.add_theme_color_override("font_color", COL_HOSTILE)
 	_collapse_label.visible = false
 
-	# The minimap owns the bottom-left corner; it anchors itself in setup().
-	_minimap = MinimapScript.new()
-	layer.add_child(_minimap)
-	_minimap.setup(_match, _me, _my_team, _rig)
-	_minimap.fly_to.connect(_fly_to)
-	_minimap.order_at.connect(_minimap_order)
 
 	# Anchored by hand rather than with a preset: set_anchors_preset() rewrites
 	# the offsets, so a position assigned afterwards is silently discarded and
 	# the panel ends up off the bottom of the screen. Shifted right of the
 	# minimap's 220 px.
-	_selection_info = _label(layer, Vector2.ZERO, 13)
-	_anchor(_selection_info, 0.0, 1.0, 246.0, -212.0, 854.0, -10.0)
+
 
 	_log_label = _label(layer, Vector2.ZERO, 12)
-	_anchor(_log_label, 1.0, 1.0, -700.0, -128.0, -256.0, -10.0)
+	# Clear of the sidebar: anchored to the right edge, it used to run underneath
+	# the panel now occupying that edge.
+	_anchor(_log_label, 1.0, 1.0, -(SIDEBAR_W + 460.0), -128.0,
+		-(SIDEBAR_W + 12.0), -10.0)
 
-	# Build and production panels, right-hand side, RA2's side bar.
+	# THE SIDEBAR: pinned to the right edge, TOP TO BOTTOM, at a fixed width.
+	#
+	# It used to be a box anchored to the top-right that ended partway down the
+	# screen, which left the map showing through beneath it and gave the panel
+	# no home for the minimap. Full height is what makes it furniture rather
+	# than an overlay -- and it is also what makes the mouse guard above
+	# necessary and sufficient, because now one rectangle covers every part of
+	# the screen that is not the board.
 	var panel := PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	panel.position = Vector2(-236, 8)
-	panel.custom_minimum_size = Vector2(228, 0)
+	panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+	panel.offset_left = -SIDEBAR_W
+	panel.offset_right = 0.0
+	panel.offset_top = 0.0
+	panel.offset_bottom = 0.0
 	var style := StyleBoxFlat.new()
 	style.bg_color = COL_PANEL
-	style.set_content_margin_all(8)
-	style.set_border_width_all(1)
+	style.set_content_margin_all(7)
 	style.border_width_left = 2
 	style.border_color = COL_PANEL_EDGE
-	style.corner_radius_top_left = 3
-	style.corner_radius_bottom_left = 3
 	panel.add_theme_stylebox_override("panel", style)
-	panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	layer.add_child(panel)
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(212, 720)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	panel.add_child(scroll)
+	_sidebar = panel
+
 	var col := VBoxContainer.new()
-	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(col)
-	# TABS, Red Alert style. One panel with categories beats two lists,
-	# because a player looking for a tank should not have to know whether a
-	# tank is "built" or "produced" -- that is an implementation detail of the
-	# economy, not a thing anyone thinks about while playing.
+	col.add_theme_constant_override("separation", 5)
+	panel.add_child(col)
+
+	# THE MINIMAP GOES AT THE TOP, spanning the panel. It anchored itself into
+	# the bottom-left corner before; it is a child of the sidebar now, which is
+	# where the reference layout puts it and where a player's eye already is
+	# when they are reaching for build buttons.
+	_minimap = MinimapScript.new()
+	_minimap.custom_minimum_size = Vector2(SIDEBAR_W - 14, SIDEBAR_W - 14)
+	_minimap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(_minimap)
+	_minimap.setup(_match, _me, _my_team, _rig)
+	_minimap.fly_to.connect(_fly_to)
+	_minimap.order_at.connect(_minimap_order)
+
 	_tab_bar = HBoxContainer.new()
 	_tab_bar.add_theme_constant_override("separation", 2)
 	col.add_child(_tab_bar)
@@ -1745,10 +1810,32 @@ func _build_hud() -> void:
 	_queue_bar.visible = false
 	col.add_child(_queue_bar)
 
-	_build_box = VBoxContainer.new()
-	col.add_child(_build_box)
-	_produce_box = VBoxContainer.new()
-	col.add_child(_produce_box)
+	# The build list is the only part that flexes: it takes whatever height is
+	# left between the tabs and the tools, and scrolls inside that rather than
+	# pushing REPAIR/SELL and the selection readout off the bottom of a screen.
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(scroll)
+	var listcol := VBoxContainer.new()
+	listcol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	listcol.add_theme_constant_override("separation", 3)
+	scroll.add_child(listcol)
+	# TWO COLUMNS, as the reference has them: a card is an icon with its name
+	# and price under it. One column of wide rows wasted most of the panel's
+	# width on whitespace and pushed half the list below the fold.
+	_build_box = GridContainer.new()
+	_build_box.columns = 2
+	_build_box.add_theme_constant_override("h_separation", 3)
+	_build_box.add_theme_constant_override("v_separation", 3)
+	_build_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	listcol.add_child(_build_box)
+	_produce_box = GridContainer.new()
+	_produce_box.columns = 2
+	_produce_box.add_theme_constant_override("h_separation", 3)
+	_produce_box.add_theme_constant_override("v_separation", 3)
+	_produce_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	listcol.add_child(_produce_box)
 
 	# REPAIR and SELL, the two things Red Alert lets you do to a building you
 	# already own. Both go through the command queue like every other order --
@@ -1771,6 +1858,17 @@ func _build_hud() -> void:
 	_sell_btn.add_theme_font_size_override("font_size", 11)
 	_sell_btn.pressed.connect(_on_sell)
 	tools.add_child(_sell_btn)
+
+	# WHAT IS SELECTED, at the foot of the panel where the reference puts it.
+	# It reported from the bottom-left corner before, which is the far side of
+	# the screen from the buttons that act on it.
+	_selection_info = Label.new()
+	_selection_info.add_theme_font_size_override("font_size", 11)
+	_selection_info.custom_minimum_size = Vector2(0, 132)
+	_selection_info.size_flags_vertical = Control.SIZE_SHRINK_END
+	_selection_info.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_selection_info.clip_text = true
+	col.add_child(_selection_info)
 
 	_banner = Label.new()
 	_banner.set_anchors_preset(Control.PRESET_CENTER)
@@ -1826,6 +1924,9 @@ var _panel_signature := ""
 
 ## The six tabs, in the order Red Alert puts them: what you build first, what
 ## defends it, then the three arms, then the sea.
+## Sidebar width in pixels, and the one place it is decided.
+const SIDEBAR_W := 268.0
+
 const TABS := ["BUILDING", "DEFENSE", "INFANTRY", "VEHICLE", "AIR", "NAVY"]
 const TAB_LABEL := {
 	"BUILDING": "BLD", "DEFENSE": "DEF", "INFANTRY": "INF",
@@ -1937,18 +2038,39 @@ func _role_icon(role: String) -> Texture2D:
 	return tex
 
 
+## Two columns of 130 px cannot hold "Heavy Vehicle Factory" on one line, and
+## an ellipsis tells a player nothing. The words that identify a building are
+## the last ones, so the leading qualifier is what gives way.
+func _short_name(n: String) -> String:
+	if n.length() <= 15:
+		return n
+	var words := n.split(" ")
+	if words.size() >= 3:
+		# FIRST and LAST, not last two. Dropping the leading qualifier turned
+		# "Heavy Vehicle Factory" and "Light Vehicle Factory" into the same
+		# label -- two different buildings, one name, which is worse than a
+		# name that does not fit. The qualifier is the distinguishing word.
+		return "%s %s" % [words[0], words[words.size() - 1]]
+	return n
+
+
 func _role_button(role: String, is_build: bool) -> Button:
 	var d := _match.world.economy.def_for(_me, role)
 	var b := Button.new()
-	b.text = "%s   %.0f" % [d.name if d else role, d.cost if d else 0.0]
-	b.add_theme_font_size_override("font_size", 12)
-	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	# The card: name over price, with the icon above both. Godot stacks a
+	# Button's icon above its text when the icon is vertically aligned TOP and
+	# the text is centred, which is exactly the reference's card.
+	b.text = "%s\n%.0f" % [_short_name(d.name if d else role), d.cost if d else 0.0]
+	b.add_theme_font_size_override("font_size", 10)
+	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.custom_minimum_size = Vector2(0, 78)
 	var ico := _role_icon(role)
 	if ico != null:
 		b.icon = ico
 		b.expand_icon = true
-		b.custom_minimum_size = Vector2(0, 44)
-		b.add_theme_constant_override("h_separation", 8)
+		b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+		b.add_theme_constant_override("h_separation", 0)
 	b.tooltip_text = "%s\n%.0f credits, %.0f s%s" % [
 		d.name if d else role, d.cost if d else 0.0,
 		d.build_seconds if d else 0.0,
@@ -2081,6 +2203,12 @@ func _update_hud(dt := 0.0) -> void:
 			sel.append("  " + _describe_unit(i))
 		if _selected.size() > 7:
 			sel.append("  ... and %d more" % (_selected.size() - 7))
+	# Capped to what the panel foot can hold. It is a summary, not a manifest --
+	# the full picture is the map.
+	if sel.size() > 7:
+		var extra: int = sel.size() - 6
+		sel = sel.slice(0, 6)
+		sel.append("... and %d more" % extra)
 	_selection_info.text = "\n".join(sel)
 
 	var log_lines := PackedStringArray()
@@ -2143,8 +2271,12 @@ func _draw_overlay() -> void:
 	# built as PanelContainers because the labels are positioned in absolute
 	# pixels against screen corners, and the overlay sits behind them in the
 	# same CanvasLayer, so a rect drawn here lands exactly underneath.
-	for l: Label in [_stats, _selection_info, _log_label, _power_label,
-			_bottleneck_label, _queue_label]:
+	# Only the labels that float over the BATTLEFIELD get a plate. The
+	# selection readout and the queue line live inside the sidebar now, which
+	# paints its own background -- and their get_rect() is in the sidebar's
+	# coordinate space, so plating them drew an empty black box in the
+	# bottom-left corner of the screen, nowhere near either one.
+	for l: Label in [_stats, _log_label, _power_label, _bottleneck_label]:
 		_plate(l)
 
 	if _dragging:
@@ -2644,9 +2776,42 @@ func _check_audio() -> void:
 	# Priority cues must survive a saturated mixer.
 	var p_before: int = _audio.played
 	_audio.at("missile_warning", cam.x, cam.y, cam.z)
+	_check_ui_guard()
 	_check("audio priority", _audio.played > p_before,
 		"a launch warning is voiced even with every voice busy")
 	print("[skirmish] audio            %s" % _audio.stats())
+
+
+## THE MOUSE GUARD, asserted rather than assumed. The owner asked for it
+## explicitly -- "when our mouse on that pannel, the map won't changes" -- and
+## it is the kind of thing that looks fine in a screenshot while being
+## completely broken, because a still frame cannot show a camera scrolling.
+func _check_ui_guard() -> void:
+	_refresh_ui_rects()
+	var vp := get_viewport().get_visible_rect().size
+	_check("ui rect registered", _ui_rects.size() >= 1,
+		"%d rect(s)" % _ui_rects.size())
+	if _ui_rects.is_empty():
+		return
+	var r: Rect2 = _ui_rects[0]
+	# It must cover the right edge from top to bottom, because that is exactly
+	# where RTSCamera's edge-pan band lives.
+	_check("sidebar covers the right edge",
+		r.end.x >= vp.x - 1.0 and r.position.y <= 1.0 and r.end.y >= vp.y - 1.0,
+		"rect %s in a %s viewport" % [str(r), str(vp)])
+	# A point inside it must be refused by BOTH gates: the scene's click test
+	# and the rig's pan test. Fixing only one of the two is the failure mode.
+	var inside := r.position + r.size * 0.5
+	var outside := Vector2(8.0, vp.y * 0.5)
+	_check("clicks on the panel do not reach the world",
+		_pointer_over_ui(inside) and not _pointer_over_ui(outside))
+	var blockers: Array = _rig.get("ui_blockers")
+	var rig_sees := false
+	for b in blockers:
+		if (b as Rect2).has_point(inside):
+			rig_sees = true
+	_check("the camera will not edge-pan over the panel", rig_sees,
+		"%d blocker(s) handed to the rig" % blockers.size())
 
 
 func _check(label: String, ok: bool, detail := "") -> void:
