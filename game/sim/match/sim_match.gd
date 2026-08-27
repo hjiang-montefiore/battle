@@ -95,6 +95,13 @@ func _begin() -> void:
 	world.fire_control = SimFireControl.new(
 		world.entities, world.weapons, world.solver, world.economy)
 	SimSortie.install(world)
+	# Patrol and transport were test-proven but never INSTALLED -- their build
+	# agents were cut off before this line, and a system that passes 50 tests
+	# while absent from every real match is exactly the "library, not a
+	# feature" failure this project keeps catching. All three install here or
+	# none of the D/patrol/sortie gestures can reach them.
+	SimPatrol.install(world)
+	SimTransport.install(world)
 
 	victory = SimVictory.new(world.entities, world.economy, world.damage)
 
