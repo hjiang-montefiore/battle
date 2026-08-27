@@ -104,7 +104,11 @@ var elapsed_s: float = 0.0
 var _sim_accum: float = 0.0
 var _sensor_accum: float = 0.0
 var _economy_accum: float = 0.0
-var _movement_accum: float = 0.0
+## Primed with a full interval owed, so the FIRST tick of a match decides
+## rather than coasting. Starting at zero meant a freshly ordered unit stood
+## still for a tick, and -- worse -- made "planning is budgeted across ticks"
+## pass by doing no planning at all.
+var _movement_accum: float = 1.0 / MOVEMENT_HZ
 
 ## Set false to drive the sim by exact ticks in tests.
 var use_accumulator: bool = true
@@ -471,8 +475,15 @@ func _movement_slot(dt: float) -> void:
 	_movement_accum += dt
 	var move_dt := 1.0 / MOVEMENT_HZ
 	if _movement_accum >= move_dt:
-		movement.step(_movement_accum)
+		# The interval is passed as the CONSTANT it is meant to be, not as the
+		# accumulator: a decision looks ahead to the next decision, and that
+		# distance should not depend on how the ticks happened to land.
+		movement.step(move_dt)
 		_movement_accum = 0.0
+	# The decisions are rate-limited; the PHYSICS is not. Turning and
+	# accelerating happen every tick at the rates the unit actually quotes,
+	# spending whatever the last decision worked out.
+	movement.apply_kinematics(dt)
 
 
 ## Slot 5 is _integrate(), below.
@@ -663,6 +674,95 @@ func state_hash() -> int:
 	# PackedByteArray has no .hash() in Godot 4; the global hash() takes the
 	# array directly and is stable for a given byte sequence.
 	return hash(buf)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SAVE / LOAD (SimSave)
+#
+# to_dict() snapshots every subsystem through its own to_dict; apply_dict()
+# writes a snapshot back onto an already-CONSTRUCTED world -- SimSave (bare
+# worlds) and SimMatch.from_save (matches) build the shell with the right
+# terrain, optional layers and players first, then call this. The optional
+# layers appear in the dict only when they exist in the world, which is how
+# the restore side knows what to install.
+# ═══════════════════════════════════════════════════════════════════════════
+
+func to_dict() -> Dictionary:
+	var d := {
+		"tick": tick,
+		"sensor_tick": sensor_tick,
+		"elapsed_s": SimSave.enc_float(elapsed_s),
+		"sim_accum": SimSave.enc_float(_sim_accum),
+		"sensor_accum": SimSave.enc_float(_sensor_accum),
+		"economy_accum": SimSave.enc_float(_economy_accum),
+		"movement_accum": SimSave.enc_float(_movement_accum),
+		"use_accumulator": use_accumulator,
+		"arm_on_spawn": arm_on_spawn,
+		"rng": str(rng.state()),
+		"terrain": SimSave.terrain_to_dict(terrain) if terrain != null else null,
+		"entities": entities.to_dict(),
+		"solver": solver.to_dict(),
+		"munitions": munitions.to_dict(),
+		"movement": movement.to_dict(),
+		"damage": damage.to_dict(),
+		"economy": economy.to_dict(),
+		"weapons": weapons.to_dict(),
+		"commands": commands.to_dict(),
+	}
+	if fire_control != null:
+		d["fire_control"] = fire_control.to_dict()
+	if transport_system != null:
+		d["transport"] = transport_system.to_dict()
+	if patrol_system != null:
+		d["patrol"] = patrol_system.to_dict()
+	if sortie_system != null:
+		d["sortie"] = sortie_system.to_dict()
+	var ai_out := {}
+	for pid in ai_player_ids():
+		ai_out[str(pid)] = (ai[pid] as SimAiDirector).to_dict()
+	d["ai"] = ai_out
+	return d
+
+
+func apply_dict(d: Dictionary) -> void:
+	tick = int(d["tick"])
+	sensor_tick = int(d["sensor_tick"])
+	elapsed_s = SimSave.dec_float(d["elapsed_s"])
+	_sim_accum = SimSave.dec_float(d["sim_accum"])
+	_sensor_accum = SimSave.dec_float(d["sensor_accum"])
+	_economy_accum = SimSave.dec_float(d["economy_accum"])
+	_movement_accum = SimSave.dec_float(d["movement_accum"])
+	use_accumulator = bool(d["use_accumulator"])
+	arm_on_spawn = bool(d["arm_on_spawn"])
+	rng.restore_state(int(String(d["rng"])))
+	entities.from_dict(d["entities"])
+	solver.from_dict(d["solver"])
+	munitions.from_dict(d["munitions"])
+	movement.from_dict(d["movement"])
+	damage.from_dict(d["damage"])
+	economy.from_dict(d["economy"])
+	weapons.from_dict(d["weapons"])
+	commands.from_dict(d["commands"])
+	if d.has("fire_control") and fire_control != null:
+		fire_control.from_dict(d["fire_control"])
+	if d.has("transport") and transport_system != null:
+		transport_system.from_dict(d["transport"])
+	if d.has("patrol") and patrol_system != null:
+		patrol_system.from_dict(d["patrol"])
+	if d.has("sortie") and sortie_system != null:
+		sortie_system.from_dict(d["sortie"])
+	# Directors: apply saved state to the ones the shell recreated, recreate
+	# any the shell did not know about, and REMOVE any the shell added that
+	# the save no longer holds -- an eliminated player must stay eliminated.
+	var saved_ai: Dictionary = d.get("ai", {})
+	for pid in ai_player_ids():
+		if not saved_ai.has(str(pid)):
+			remove_ai(pid)
+	for k in saved_ai:
+		var pid := int(String(k))
+		if not ai.has(pid):
+			add_ai(pid, int(saved_ai[k].get("faction", 0)), null)
+		(ai[pid] as SimAiDirector).from_dict(saved_ai[k])
 
 
 func describe() -> String:

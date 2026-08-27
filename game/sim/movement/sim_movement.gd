@@ -169,6 +169,26 @@ var _in_step: bool = false
 ## order. Deferred plans are simply retried.
 var _last_plan_deferred: bool = false
 
+## THE DECISION CACHE -- the seam between deciding and moving.
+##
+## step() runs at SimWorld.MOVEMENT_HZ (10 Hz): waypoints, replanning and the
+## neighbour sweep, which are the expensive parts and are why the sim runs at
+## 25x realtime. But TURNING AND ACCELERATING ARE PHYSICS, and physics belongs
+## on the tick. Deciding and integrating at the same 10 Hz meant a unit spent
+## one tick applying a whole decision-interval's worth of turn -- measurably
+## twice its own turn_rate_rads -- and the next tick perfectly still. It
+## averaged out, which is exactly why it survived: the destination was right,
+## the arrival time was right, and the unit snapped between headings to get
+## there.
+##
+## So _decide() stores what it worked out here, and apply_kinematics() spends
+## it smoothly across every tick until the next decision.
+var _des_head := PackedFloat32Array()   ## heading the unit wants
+var _top_speed := PackedFloat32Array()  ## top speed the ground allows here
+var _sep_x := PackedFloat32Array()      ## crowding nudge, held between decisions
+var _sep_z := PackedFloat32Array()
+var _steering := PackedInt32Array()     ## 1 = _decide() handed us a solution
+
 ## Neighbour offsets in a FIXED order. The order is part of the determinism
 ## contract: with equal f the heap already tie-breaks on cell index, and a fixed
 ## expansion order means two runs push in the same sequence as well.
@@ -389,6 +409,11 @@ func _ensure_capacity() -> void:
 		_hold.append(0)
 		_near_dest.append(0)
 		_combat_set.append(0)
+		_des_head.append(0.0)
+		_top_speed.append(0.0)
+		_sep_x.append(0.0)
+		_sep_z.append(0.0)
+		_steering.append(0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -411,6 +436,10 @@ func step(dt: float) -> void:
 	for i in range(n):
 		if entities.alive[i] == 0:
 			continue
+		# Cleared here and set only by a _decide() that reaches its end, so
+		# every path that halts, arrives or declines the unit also stops
+		# apply_kinematics() from touching it.
+		_steering[i] = 0
 		# Anything with no mobility profile is not ours. Skipping it rather than
 		# zeroing its velocity matters: aircraft and ships in the sensing tests
 		# are given a velocity directly and never a destination, and a movement
@@ -445,7 +474,7 @@ func step(dt: float) -> void:
 			else:
 				plans_deferred += 1
 
-		_steer(i, dt)
+		_decide(i, dt)
 	_in_step = false
 
 
@@ -513,7 +542,7 @@ func _replan(i: int) -> void:
 # STEERING
 # ═══════════════════════════════════════════════════════════════════════════
 
-func _steer(i: int, dt: float) -> void:
+func _decide(i: int, dt: float) -> void:
 	var px := entities.pos_x[i]
 	var pz := entities.pos_z[i]
 	var speed := entities.speed_ms[i]
@@ -540,7 +569,14 @@ func _steer(i: int, dt: float) -> void:
 			_near_dest[i] += 1
 			crowded_in = _near_dest[i] >= crowd_arrive_ticks
 		else:
-			_near_dest[i] = 0
+			# DECAY, not reset. The bucket sweep is a point sample of a moving
+			# crowd, and a unit loitering at the edge of a press flickers
+			# between one neighbour and none from one decision to the next.
+			# Zeroing on a single empty sample means the counter can never
+			# reach crowd_arrive_ticks, and the unit circles its objective
+			# forever with 38 of its friends parked on it -- which is the very
+			# failure crowd arrival exists to prevent.
+			_near_dest[i] = maxi(_near_dest[i] - 1, 0)
 	else:
 		_near_dest[i] = 0
 
@@ -574,62 +610,30 @@ func _steer(i: int, dt: float) -> void:
 	else:
 		_needs_replan[i] = 1
 
-	# ── turn at a finite rate
-	var desired := atan2(tx - px, tz - pz)
-	var heading := entities.heading_rad[i]
-	var err := wrapf(desired - heading, -PI, PI)
-	var max_turn := maxf(entities.turn_rate_rads[i], 0.05) * dt
-	if absf(err) <= max_turn:
-		heading = desired
-		err = 0.0
-	else:
-		heading += max_turn * signf(err)
-		heading = wrapf(heading, -PI, PI)
-		err = wrapf(desired - heading, -PI, PI)
-	entities.heading_rad[i] = heading
+	# ── everything below is a DECISION, cached for apply_kinematics() to spend
+	# across the ticks until the next one. Nothing here writes heading, speed
+	# or velocity: that is physics, and physics runs on the tick.
+	_des_head[i] = atan2(tx - px, tz - pz)
 
-	# ── how fast the ground allows
+	# ── how fast the ground allows. The terrain sample is the reason this is
+	# decided rather than integrated -- it is the expensive half.
 	var top := entities.max_speed_ms[i] * speed_multiplier(i, px, pz)
-	# A unit that is badly misaligned crawls until it has turned. Without this a
-	# tank drives a long arc sideways past its destination and comes back --
-	# which reads as oscillation and is really a steering bug.
-	var align: float = clampf(1.0 - absf(err) / (PI * 0.5), 0.0, 1.0)
-	var turn_cap := top * (0.15 + 0.85 * align)
-	# ── and how fast arriving allows: brake so that v^2 = 2*a*d lands on the
-	# destination. This is what stops the oscillation at the end of a move.
-	var decel := maxf(entities.accel_ms2[i], 0.1) * 2.0
-	var brake_dist := maxf(dest_dist - arrive_radius_m * 0.5, 0.0)
-	var arrive_cap := sqrt(2.0 * decel * brake_dist)
-	var target := minf(minf(top, turn_cap), arrive_cap)
-
-	var rate := entities.accel_ms2[i] if target > speed else decel
-	speed = move_toward(speed, target, maxf(rate, 0.1) * dt)
-	speed = clampf(speed, 0.0, top)
-	entities.speed_ms[i] = speed
-
-	var vx := sin(heading) * speed
-	var vz := cos(heading) * speed
+	_top_speed[i] = top
 
 	# ── crowding. A lateral nudge only; it never rewrites the heading, so the
 	# unit still follows its path and simply does not stand where a neighbour
-	# is already standing.
+	# is already standing. Held between decisions: the bucket sweep is the
+	# other expensive half, and a nudge that lags 50 ms is still a nudge.
 	if separation_enabled and speed > 0.05:
 		var sep := _separation(i, px, pz, top)
-		vx += sep.x
-		vz += sep.y
-		var mag := sqrt(vx * vx + vz * vz)
-		if mag > top and mag > 0.0:
-			vx = vx / mag * top
-			vz = vz / mag * top
-
-	entities.vel_x[i] = vx
-	entities.vel_z[i] = vz
-	entities.vel_y[i] = _vertical_velocity(i, px + vx * dt, pz + vz * dt, dt)
-
-	if entities.move_state[i] == SimTypes.MoveState.IDLE:
-		entities.move_state[i] = SimTypes.MoveState.MOVING
+		_sep_x[i] = sep.x
+		_sep_z[i] = sep.y
+	else:
+		_sep_x[i] = 0.0
+		_sep_z[i] = 0.0
 
 	# ── stall watchdog. Something is in the way, or the route was nonsense.
+	# Counted per DECISION, which is what stall_ticks was tuned against.
 	if speed < 0.25 * top:
 		_stall[i] += 1
 		if _stall[i] >= stall_ticks:
@@ -637,6 +641,80 @@ func _steer(i: int, dt: float) -> void:
 			_needs_replan[i] = 1
 	else:
 		_stall[i] = 0
+
+	_steering[i] = 1
+
+
+## THE PHYSICS HALF, every tick, immediately before SimWorld._integrate().
+##
+## Turn at turn_rate_rads and accelerate at accel_ms2 -- both per SECOND, and
+## now both actually spent per second rather than in one lump per decision.
+## Cheap by construction: no terrain sampling, no neighbour buckets, no
+## pathfinding. It reads the cache _decide() left and does arithmetic.
+func apply_kinematics(dt: float) -> void:
+	if dt <= 0.0:
+		return
+	var n := mini(entities.count(), _steering.size())
+	for i in range(n):
+		if _steering[i] == 0 or entities.alive[i] == 0:
+			continue
+
+		# ── turn at a finite rate, toward the heading the decision chose
+		var heading := entities.heading_rad[i]
+		var err := wrapf(_des_head[i] - heading, -PI, PI)
+		var max_turn := maxf(entities.turn_rate_rads[i], 0.05) * dt
+		if absf(err) <= max_turn:
+			heading = _des_head[i]
+			err = 0.0
+		else:
+			heading += max_turn * signf(err)
+			heading = wrapf(heading, -PI, PI)
+			err = wrapf(_des_head[i] - heading, -PI, PI)
+		entities.heading_rad[i] = heading
+
+		# A unit that is badly misaligned crawls until it has turned. Without
+		# this a tank drives a long arc sideways past its destination and comes
+		# back -- which reads as oscillation and is really a steering bug.
+		# Recomputed here, not cached, because it follows the turn as it happens.
+		var top := _top_speed[i]
+		var align: float = clampf(1.0 - absf(err) / (PI * 0.5), 0.0, 1.0)
+
+		# Brake so that v^2 = 2*a*d lands on the destination. Recomputed every
+		# tick against the distance ACTUALLY remaining: cached at decision rate
+		# it goes stale by up to an interval of closing, the unit brakes late,
+		# and it sails through its own arrival radius between two decisions --
+		# which is how a slalom ends with 38 of 40 units still driving.
+		var speed := entities.speed_ms[i]
+		var decel := maxf(entities.accel_ms2[i], 0.1) * 2.0
+		var dx := entities.dest_x[i] - entities.pos_x[i]
+		var dz := entities.dest_z[i] - entities.pos_z[i]
+		var brake_dist := maxf(sqrt(dx * dx + dz * dz) - arrive_radius_m * 0.5, 0.0)
+		var target := minf(minf(top, top * (0.15 + 0.85 * align)),
+			sqrt(2.0 * decel * brake_dist))
+
+		var rate := entities.accel_ms2[i] if target > speed else decel
+		speed = move_toward(speed, target, maxf(rate, 0.1) * dt)
+		speed = clampf(speed, 0.0, top)
+		entities.speed_ms[i] = speed
+
+		var vx := sin(heading) * speed
+		var vz := cos(heading) * speed
+		if _sep_x[i] != 0.0 or _sep_z[i] != 0.0:
+			vx += _sep_x[i]
+			vz += _sep_z[i]
+			var mag := sqrt(vx * vx + vz * vz)
+			if mag > top and mag > 0.0:
+				vx = vx / mag * top
+				vz = vz / mag * top
+
+		entities.vel_x[i] = vx
+		entities.vel_z[i] = vz
+		var px := entities.pos_x[i]
+		var pz := entities.pos_z[i]
+		entities.vel_y[i] = _vertical_velocity(i, px + vx * dt, pz + vz * dt, dt)
+
+		if entities.move_state[i] == SimTypes.MoveState.IDLE:
+			entities.move_state[i] = SimTypes.MoveState.MOVING
 
 
 ## Hold ground and surface units on the surface by writing VELOCITY, so that
@@ -1429,7 +1507,70 @@ func is_implemented() -> bool:
 	return true
 
 
+# ── SAVE / LOAD (SimSave) ────────────────────────────────────────────────────
+# The order queues and every per-unit watchdog counter. What is deliberately
+# NOT here, and why it is safe: the terrain memo (_pass_cache/_speed_cache) is
+# a pure function of the saved heightfield and the category; the A* scratch is
+# generation-stamped, and a fresh generation matches no stale stamp exactly as
+# an incremented one matches none; _buckets is rebuilt at the top of every
+# step; _pool/_in_step/_last_plan_deferred/last_goal_* live inside one tick or
+# one plan_path() call. The rng is saved even though steering never draws from
+# it, so the stream stays exact if anything ever does.
+
+func to_dict() -> Dictionary:
+	return {
+		"q_kind": SimSave.b64_i32(_q_kind),
+		"q_x": SimSave.b64_f32(_q_x),
+		"q_z": SimSave.b64_f32(_q_z),
+		"q_len": SimSave.b64_i32(_q_len),
+		"needs_replan": SimSave.b64_i32(_needs_replan),
+		"cooldown": SimSave.b64_i32(_cooldown),
+		"fail": SimSave.b64_i32(_fail),
+		"stall": SimSave.b64_i32(_stall),
+		"hold": SimSave.b64_i32(_hold),
+		"near_dest": SimSave.b64_i32(_near_dest),
+		"combat_set": SimSave.b64_i32(_combat_set),
+		"des_head": SimSave.b64_f32(_des_head),
+		"top_speed": SimSave.b64_f32(_top_speed),
+		"sep_x": SimSave.b64_f32(_sep_x),
+		"sep_z": SimSave.b64_f32(_sep_z),
+		"steering": SimSave.b64_i32(_steering),
+		"rng": str(rng.state()),
+		"counters": [plans_run, plans_failed, plans_partial, plans_truncated,
+			plans_deferred, orders_issued, orders_completed, orders_abandoned],
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	_q_kind = SimSave.un_i32(String(d["q_kind"]))
+	_q_x = SimSave.un_f32(String(d["q_x"]))
+	_q_z = SimSave.un_f32(String(d["q_z"]))
+	_q_len = SimSave.un_i32(String(d["q_len"]))
+	_needs_replan = SimSave.un_i32(String(d["needs_replan"]))
+	_cooldown = SimSave.un_i32(String(d["cooldown"]))
+	_fail = SimSave.un_i32(String(d["fail"]))
+	_stall = SimSave.un_i32(String(d["stall"]))
+	_hold = SimSave.un_i32(String(d["hold"]))
+	_near_dest = SimSave.un_i32(String(d["near_dest"]))
+	_combat_set = SimSave.un_i32(String(d["combat_set"]))
+	# The decision cache is state, not scratch: it is what the ticks between
+	# two decisions are still spending. A restore that dropped it would leave
+	# every moving unit coasting on a zeroed heading for up to a decision.
+	_des_head = SimSave.un_f32(String(d["des_head"]))
+	_top_speed = SimSave.un_f32(String(d["top_speed"]))
+	_sep_x = SimSave.un_f32(String(d["sep_x"]))
+	_sep_z = SimSave.un_f32(String(d["sep_z"]))
+	_steering = SimSave.un_i32(String(d["steering"]))
+	rng.restore_state(int(String(d["rng"])))
+	var c: Array = d["counters"]
+	plans_run = int(c[0]); plans_failed = int(c[1]); plans_partial = int(c[2])
+	plans_truncated = int(c[3]); plans_deferred = int(c[4])
+	orders_issued = int(c[5]); orders_completed = int(c[6])
+	orders_abandoned = int(c[7])
+
+
 func describe() -> String:
 	return "movement: %d plans (%d failed, %d partial, %d truncated, %d deferred), %d orders issued, %d completed, %d abandoned" % [
 		plans_run, plans_failed, plans_partial, plans_truncated, plans_deferred,
 		orders_issued, orders_completed, orders_abandoned]
+

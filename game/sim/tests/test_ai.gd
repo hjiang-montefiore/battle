@@ -902,8 +902,9 @@ func _suite_symmetry() -> void:
 		"%d vs %d engagement order(s)" % [a.orders_attacked, b.orders_attacked])
 	_ok("and neither out-fought the other by more than the sensor stagger",
 		attack_gap <= maxi(2, int(0.1 * float(a.orders_attacked))),
-		"gap %d" % attack_gap)
-	_ok("with the same manoeuvre volume", move_gap <= 3, "gap %d" % move_gap)
+		"gap %d (%d vs %d)" % [attack_gap, a.orders_attacked, b.orders_attacked])
+	_ok("with the same manoeuvre volume", move_gap <= 3,
+		"gap %d (%d vs %d)" % [move_gap, a.orders_moved, b.orders_moved])
 	_ok("and neither could see the other's picture",
 		a.view.tracks.faction == 0 and b.view.tracks.faction == 1)
 	_ok("nor reached for a unit it does not own",
