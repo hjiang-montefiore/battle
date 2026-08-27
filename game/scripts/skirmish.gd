@@ -33,7 +33,13 @@ const COL_BAR_BG := Color(0.05, 0.05, 0.05, 0.75)
 const COL_PANEL := Color(0.04, 0.05, 0.06, 0.82)
 
 # ── the simulation ───────────────────────────────────────────────────────────
+const GameAudioScript := preload("res://scripts/audio.gd")
+
 var _match: SimMatch
+var _audio: Node3D
+var _seen_impacts := 0
+var _seen_kills := 0
+var _seen_shots := 0
 var _me: int = 0
 var _my_team: int = 0
 
@@ -82,6 +88,8 @@ func _ready() -> void:
 
 	_build_environment()
 	_build_terrain_mesh()
+	_audio = GameAudioScript.new()
+	add_child(_audio)
 	_build_hud()
 	_sync_proxies()
 	_frame_on_base()
@@ -299,12 +307,61 @@ func _process(dt: float) -> void:
 	if not _paused and not _match.is_finished():
 		_match.step(dt * _speed)
 	_follow_ground()
+	_audio_tick()
 	_sync_proxies()
 	_prune_selection()
 	_project_tracks()
 	_update_hud(dt)
 	if _overlay:
 		_overlay.queue_redraw()
+
+
+## Sound. Reads what the simulation DID this tick and asks the mixer to voice
+## it; the mixer decides what actually survives distance, coalescing and the
+## voice cap. Nothing here writes simulation state, so a match sounds different
+## with the camera in a different place and PLAYS identically.
+##
+## Everything below is driven by a counter the sim already maintains, so there
+## is no parallel event bus to keep in sync -- if the sim did not record it,
+## there is no sound for it.
+func _audio_tick() -> void:
+	if _audio == null or _match == null:
+		return
+	var w := _match.world
+
+	# 1. ARRIVALS. munitions.last_impacts is exactly this tick's, already.
+	for im in w.munitions.last_impacts:
+		if not im.is_arrival():
+			continue
+		var x: float = im.x if "x" in im else 0.0
+		var y: float = im.y if "y" in im else 0.0
+		var z: float = im.z if "z" in im else 0.0
+		_audio.at("impact_blast" if im.blast_fraction > 0.5
+			else "impact_penetration", x, y, z)
+	_seen_impacts = w.munitions.last_impacts.size()
+
+	# 2. LAUNCHES. Only the DELTA since last frame, so a pause or a speed-up
+	#    cannot replay the whole war.
+	var shots: int = w.munitions.launched
+	if shots > _seen_shots:
+		var fresh := mini(shots - _seen_shots, 6)   # a frame cannot fire 200
+		for k in range(fresh):
+			var cam := _camera_ground()
+			_audio.at("fire_gun", cam.x, cam.y, cam.z, -4.0)
+		_seen_shots = shots
+
+	# 3. DEATHS.
+	var kills: int = w.damage.kills if w.damage != null else 0
+	if kills > _seen_kills:
+		for k in range(mini(kills - _seen_kills, 4)):
+			var cam := _camera_ground()
+			_audio.at("destroy_catastrophic", cam.x, cam.y, cam.z, -2.0)
+		_seen_kills = kills
+
+
+func _camera_ground() -> Vector3:
+	var cam := get_viewport().get_camera_3d()
+	return cam.global_position if cam != null else Vector3.ZERO
 
 
 ## Create, move and retire the visible representation of the entity store.
@@ -1116,7 +1173,50 @@ func _run_headless_check() -> void:
 		print("[skirmish] last kill          " + str(cl[-1]))
 
 	print("[skirmish] " + _match.victory.describe().replace("\n", "\n[skirmish] "))
+	_check_audio()
 	get_tree().quit(1 if _headless_failures > 0 else 0)
+
+
+## Audio can be verified WITHOUT a sound device: the interesting thing is not
+## whether a speaker moved but whether the mixing POLICY held -- that a battle
+## firing over a thousand rounds did not commit a thousand voices.
+func _check_audio() -> void:
+	if _audio == null:
+		_check("audio", false, "no mixer")
+		return
+	_check("audio bank", _audio.clip_count() >= 20,
+		"%d clips loaded" % _audio.clip_count())
+
+	# Drive a burst far louder than any real frame and confirm it is filtered.
+	#
+	# Place it AT THE CAMERA. Putting it at the origin made this assertion pass
+	# for the wrong reason: the camera sits over the player's base 4.9 km away,
+	# so every request was distance-culled and "400 requests -> 0 voices"
+	# proved only that the distance filter worked. A cap that is never reached
+	# is not a cap that has been tested.
+	var cam := _camera_ground()
+	var before: int = _audio.played
+	var coal_before: int = _audio.coalesced
+	for k in range(400):
+		# spread them past the coalesce radius so this exercises the CAP
+		_audio.at("fire_gun", cam.x + k * 30.0, cam.y, cam.z)
+	var committed: int = _audio.played - before
+	_check("audio voice cap", committed > 0 and committed <= _audio.max_voices,
+		"400 requests at the camera -> %d voices, %d coalesced"
+			% [committed, _audio.coalesced - coal_before])
+
+	# And that something 40 km away is silent rather than merely quiet.
+	var far_before: int = _audio.culled_distance
+	_audio.at("impact_blast", cam.x + 40000.0, cam.y, cam.z + 40000.0)
+	_check("audio distance cull", _audio.culled_distance > far_before,
+		"a blast 40 km away is not voiced")
+
+	# Priority cues must survive a saturated mixer.
+	var p_before: int = _audio.played
+	_audio.at("missile_warning", cam.x, cam.y, cam.z)
+	_check("audio priority", _audio.played > p_before,
+		"a launch warning is voiced even with every voice busy")
+	print("[skirmish] audio            %s" % _audio.stats())
 
 
 func _check(label: String, ok: bool, detail := "") -> void:
