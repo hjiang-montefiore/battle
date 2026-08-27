@@ -1,0 +1,40 @@
+{
+	"format": "battle-map",
+	"version": 1,
+	"meta": {
+		"name": "First Light",
+		"size_m": 12800,
+		"cell_m": 100,
+		"author": "hjiang"
+	},
+	"water_level": 0.0,
+	"height": [
+		{"op": "fill", "h": 60},
+
+		{"op": "ridge", "x0": 0, "z0": -5400, "x1": 0, "z1": -2100, "peak_m": 250, "half_width_m": 1100},
+		{"op": "ridge", "x0": 0, "z0": -1000, "x1": 0, "z1": 1000, "peak_m": 280, "half_width_m": 1100},
+		{"op": "ridge", "x0": 0, "z0": 2100, "x1": 0, "z1": 5400, "peak_m": 250, "half_width_m": 1100},
+
+		{"op": "ridge", "x0": -2200, "z0": -1900, "x1": -1400, "z1": -1300, "peak_m": 230, "half_width_m": 650},
+		{"op": "ridge", "x0": 2200, "z0": 1900, "x1": 1400, "z1": 1300, "peak_m": 230, "half_width_m": 650},
+
+		{"op": "plateau", "x": -3900, "z": -1200, "radius_m": 750, "h": 34, "blend_m": 500},
+		{"op": "plateau", "x": 3900, "z": 1200, "radius_m": 750, "h": 34, "blend_m": 500},
+
+		{"op": "sea_coast", "x0": -6400, "z0": -6400, "x1": -5300, "z1": 6400, "depth_m": 45, "seed": 11, "wobble_m": 500, "wavelength_cells": 10},
+
+		{"op": "noise", "seed": 20260827, "amplitude_m": 24, "feature_cells": 9},
+		{"op": "smooth", "passes": 1}
+	],
+	"bases": [
+		{"player": 0, "x": -3400, "z": -3400},
+		{"player": 1, "x": 3400, "z": 3400}
+	],
+	"deposits": [
+		{"x": -4050, "z": -1350},
+		{"x": -3750, "z": -1000},
+		{"x": 4050, "z": 1350},
+		{"x": 3750, "z": 1000}
+	],
+	"decor": []
+}
