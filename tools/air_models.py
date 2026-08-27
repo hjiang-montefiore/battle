@@ -934,7 +934,11 @@ def cas():
                      offset_x=s * 2.80))
     use("gun")
     for s in (-1, 1):                             # podded TF34s + their pylons
-        p += turbofan(N - 13.25, 0.68, 3.60, x=s * 1.62, z=0.86,
+        # N - 9.65 is the nacelle's FRONT face: the pod runs 9.65 to 13.25 m
+        # aft of the nose, matching the station list above. Passing the rear
+        # face here instead put both engines 3.6 m behind where they belong
+        # and made the aeroplane 16.85 m against a published 16.26.
+        p += turbofan(N - 9.65, 0.68, 3.60, x=s * 1.62, z=0.86,
                       name="a10_pod_%d" % s)
         p.append(cube((s * 1.10, N - 11.45, 0.50), (1.20, 2.40, 0.60)))
     # GAU-8/A. The gun is on the centreline but the barrel that FIRES is the
@@ -994,10 +998,25 @@ def bomber():
     and they are now attached to something."""
     L, SPAN = 48.5, 56.4
     N = L / 2.0
-    p = fuselage(L, 1.72,
-                 stations=((0.00, 0.22), (0.02, 0.78), (0.05, 1.00),
-                           (0.12, 1.00), (0.62, 1.00), (0.80, 0.92),
-                           (0.92, 0.62), (1.00, 0.40)))
+    # A B-52 is NOT an airliner tube, which is what it was being drawn as. The
+    # fuselage is slab-sided and much deeper than it is wide -- 3.44 m across
+    # against 4.10 m tall, because a bomb bay runs down the middle of it -- and
+    # the section is a rounded rectangle (sq 0.84), not a circle. Getting that
+    # proportion the wrong way round is why it read as a fat airliner with
+    # bombs. The nose is blunt because the flight deck sits right at the front.
+    p = [loft([(24.20, 0.30, 0.42, 0.30),
+               (23.20, 0.78, 0.92, 0.28),
+               (21.80, 1.20, 1.38, 0.22, 0.95),
+               (19.80, 1.52, 1.74, 0.14, 0.90),
+               (17.00, 1.68, 1.96, 0.06, 0.86),
+               (13.00, 1.72, 2.05, 0.00, 0.84),
+               (4.00, 1.72, 2.05, 0.00, 0.84),
+               (-6.00, 1.72, 2.02, 0.00, 0.85),
+               (-12.00, 1.64, 1.88, 0.06, 0.86),
+               (-16.50, 1.42, 1.62, 0.26, 0.88),
+               (-20.00, 1.08, 1.24, 0.58, 0.92),
+               (-22.60, 0.68, 0.80, 0.92),
+               (-24.30, 0.34, 0.42, 1.16)], v=24, name="b52_fus")]
     p += wings(N - 9.05, SPAN, 9.90, 4.40, 20.40, 0.62, -0.55, "w")
     p += wings(N - 35.40, 16.40, 8.20, 1.70, 6.40, 0.44, 0.0, "h")
     p.append(fin(N - 39.20, 9.6, 9.0, 3.0, 6.2, 0.46, 1.2))
@@ -1006,8 +1025,8 @@ def bomber():
         for px, py, ply in ((9.65, N - 14.70, 6.90),
                             (17.55, N - 20.20, 1.30)):
             for e in range(2):
-                p.append(cyl((s * (px + e * 1.70), py, -1.55), 0.85, 5.50,
-                             rot=(R(90), 0, 0), v=12))
+                p += turbofan(py + 2.75, 0.85, 5.50, x=s * (px + e * 1.70),
+                              z=-1.55, v=12, name="b52_pod_%d_%d" % (s, e))
             # the pylon that carries the pair up to the wing. Between the two
             # nacelles and straddling the leading edge, so from above it reads
             # as one dark finger per pod instead of two floating tubes.
@@ -1446,7 +1465,26 @@ def aewc():
     re-engined with the fat CFM56 (2.15 m).
     """
     L, SPAN = 46.61, 44.42
-    p = fuselage(L, 1.88, 0.52, 0.52)
+    # A 707 fuselage is a pressurised TUBE: circular, constant for most of its
+    # length, and that part fuselage() actually got right. What it could not
+    # do is the TAILCONE UPSWEEP -- every airliner's tail rises to clear the
+    # runway on rotation, 1.52 m here over the last 11 m, and drawing it as
+    # coaxial cones left the E-3 with a tail that tapered to a point on the
+    # centreline like a dart. From the side that upsweep is most of what says
+    # "airliner" rather than "missile".
+    p = [loft([(23.30, 0.10, 0.14, 0.10),
+               (22.60, 0.55, 0.60, 0.10),
+               (21.40, 1.05, 1.05, 0.08),
+               (19.80, 1.50, 1.45, 0.05),
+               (18.00, 1.78, 1.74, 0.02),
+               (15.50, 1.88, 1.88, 0.00),
+               (2.00, 1.88, 1.88, 0.00),
+               (-8.00, 1.88, 1.88, 0.00),
+               (-12.50, 1.84, 1.86, 0.06),
+               (-16.00, 1.62, 1.70, 0.32),
+               (-19.20, 1.20, 1.32, 0.78),
+               (-21.60, 0.72, 0.84, 1.22),
+               (-23.30, 0.28, 0.36, 1.52)], v=24, name="e3_fus")]
     # semispan 22.21, panel root at x=0.30, so sweep 15.35 => LE 35.1 deg.
     p += wings(7.4, SPAN, 9.2, 3.0, 15.35, 0.60, -0.62, "w")
     p += wings(-16.2, 14.35, 4.8, 1.9, 4.4, 0.44, 0.0, "h")
@@ -1454,8 +1492,8 @@ def aewc():
     use("gun")
     for s in (-1, 1):                              # four TF33 pods on pylons
         for k, (x, y) in enumerate(((5.9, 1.6), (10.6, -1.6))):
-            p.append(cyl((s * x, y, -1.55), 0.78, 5.60,
-                         rot=(R(90), 0, 0), v=14))
+            p += turbofan(y + 2.80, 0.78, 5.60, x=s * x, z=-1.55, v=14,
+                          name="e3_pod_%d_%d" % (s, k))
             p.append(cube((s * x, y + 1.90, -1.05), (0.34, 2.20, 0.95)))
     use("deck")
     # THE ROTODOME. Real AN/APY-1 dimensions: 9.14 m diameter, 1.83 m deep,
@@ -1579,10 +1617,22 @@ def electronic_attack():
     N = L / 2.0
     # Blunt radome nose and a body that stays full-width back to the wing —
     # the A-6 forward fuselage is a wide box, not the fighter's needle.
-    p = fuselage(L, 1.22, 0.0, 0.0,
-                 stations=((0.00, 0.42), (0.05, 0.74), (0.17, 0.96),
-                           (0.46, 1.00), (0.74, 0.90), (0.89, 0.62),
-                           (1.00, 0.32)))
+    # The A-6 is the bulbous one: a big blunt radome, a forward fuselage made
+    # wide and flat to seat its crew SIDE BY SIDE, and then a long taper to a
+    # slender tail. 2.44 m across at the cockpit against 2.16 m deep, falling
+    # to 0.64 m at the tailcone -- a 3.8:1 taper that a constant-ratio cone
+    # stack could only approximate by shrinking both axes together.
+    p = [loft([(8.40, 0.42, 0.44, 0.10),
+               (7.80, 0.72, 0.74, 0.10),
+               (6.90, 1.00, 0.96, 0.10, 0.92),
+               (5.60, 1.18, 1.06, 0.08, 0.86),
+               (3.80, 1.22, 1.08, 0.02, 0.84),
+               (1.40, 1.20, 1.06, -0.02, 0.86),
+               (-1.40, 1.10, 1.00, -0.02, 0.88),
+               (-4.00, 0.92, 0.86, 0.00, 0.92),
+               (-6.20, 0.68, 0.66, 0.04),
+               (-7.80, 0.44, 0.44, 0.06),
+               (-8.50, 0.32, 0.32, 0.06)], v=22, name="a6_fus")]
     # OWNED: high-aspect attack wing at the real A-6 taper. Area
     # 16.15*(4.66+1.44)/2 = 49.3 m^2 against the published 49.1, AR 5.29
     # against 5.31. sead()'s wing is 10.65 x (5.05+1.55)/2 = 36.2 m^2 at AR
@@ -1659,7 +1709,24 @@ def tanker():
         again as wide.
     """
     L, SPAN = 41.53, 39.88
-    p = fuselage(L, 1.88, 0.52, 0.50)
+    # Same 707 lineage as the E-3 and the same tailcone upsweep, but the
+    # KC-135's tube is genuinely NARROWER: 3.66 m against the 707-320B's 3.76.
+    # The two sit next to each other in the lineup and shared a radius before,
+    # so the one real proportional difference between them was being thrown
+    # away. It is 0.10 m of half-width and it is free to keep.
+    p = [loft([(20.76, 0.10, 0.13, 0.10),
+               (20.10, 0.52, 0.56, 0.10),
+               (19.00, 1.00, 1.00, 0.08),
+               (17.50, 1.45, 1.42, 0.05),
+               (15.80, 1.74, 1.70, 0.02),
+               (13.50, 1.83, 1.83, 0.00),
+               (1.00, 1.83, 1.83, 0.00),
+               (-7.00, 1.83, 1.83, 0.00),
+               (-11.00, 1.79, 1.81, 0.06),
+               (-14.20, 1.58, 1.66, 0.32),
+               (-17.20, 1.16, 1.28, 0.76),
+               (-19.40, 0.70, 0.82, 1.16),
+               (-20.77, 0.26, 0.34, 1.44)], v=24, name="kc135_fus")]
     # semispan 19.94, panel root at x=0.30, so sweep 13.75 => LE 35.0 deg.
     p += wings(6.6, SPAN, 8.8, 2.9, 13.75, 0.56, -0.58, "w")
     p += wings(-14.6, 12.90, 4.5, 1.8, 4.1, 0.42, 0.0, "h")
@@ -1667,14 +1734,20 @@ def tanker():
     use("gun")
     for s in (-1, 1):                              # four fat CFM56 nacelles
         for x, y in ((5.6, 1.4), (10.1, -1.5)):
-            p.append(cyl((s * x, y, -1.42), 1.07, 4.90,
-                         rot=(R(90), 0, 0), v=14))
+            p += turbofan(y + 2.45, 1.07, 4.90, x=s * x, z=-1.42, v=14,
+                          name="kc135_pod_%d_%.0f" % (s, x))
             p.append(cube((s * x, y + 1.80, -0.95), (0.34, 2.10, 0.90)))
     use("deck")
     # THE BOOM, stowed: down and aft from under the tail, with its ruddevators.
-    p.append(cyl((0, -L * 0.505, -1.35), 0.34, 8.60, rot=(R(74), 0, 0), v=12))
-    p.append(cyl((0, -L * 0.585, -2.65), 0.20, 3.20, rot=(R(80), 0, 0), v=10))
-    p += wings(-L * 0.545, 4.60, 1.55, 0.85, 0.60, 0.20, -2.20, "bv")
+    # It used to be centred at -0.505 L, which put HALF of an 8.6 m boom behind
+    # the tailcone and made the whole aeroplane measure 46.67 m against a
+    # published 41.53 -- 12 % long, all of it a boom hanging in space. Stowed,
+    # the boom retracts against the lower rear fuselage and its ruddevators sit
+    # about level with the tailcone, so it is now centred at -0.404 L and the
+    # aircraft measures its own length. Found by measuring, not by looking.
+    p.append(cyl((0, -L * 0.404, -1.35), 0.34, 8.60, rot=(R(74), 0, 0), v=12))
+    p.append(cyl((0, -L * 0.462, -2.65), 0.20, 3.20, rot=(R(80), 0, 0), v=10))
+    p += wings(-L * 0.436, 4.60, 1.55, 0.85, 0.60, 0.20, -2.20, "bv")
     p.append(cube((0, -L * 0.40, -1.85), (1.30, 4.20, 0.80)))    # boomer pod
     for s in (-1, 1):                              # MPRS wingtip drogue pods
         p.append(cyl((s * (SPAN * 0.5 - 0.42), -8.40, -0.62), 0.42, 3.60,
@@ -1706,10 +1779,21 @@ def isr():
     the roster is either unmanned (V-tail, AR 17-25) or multi-engined.
     """
     L, SPAN = 19.20, 31.39
-    p = fuselage(L, 0.76, 0.50, 0.45,
-                 stations=((0.00, 0.06), (0.08, 0.42), (0.20, 0.72),
-                           (0.34, 0.94), (0.52, 1.00), (0.74, 0.92),
-                           (0.90, 0.68), (1.00, 0.30)))
+    # A U-2 fuselage is a slender near-constant tube -- it is a powered glider,
+    # and almost all of its 31.39 m span is wing. The body barely changes for
+    # 8 m of its middle, so what little shape it has is the long sensor nose
+    # and the taper aft; nothing here wants squareness.
+    p = [loft([(9.55, 0.10, 0.10, 0.00),
+               (8.90, 0.34, 0.34, 0.00),
+               (7.80, 0.56, 0.55, 0.02),
+               (6.40, 0.70, 0.68, 0.04),
+               (4.60, 0.76, 0.74, 0.04),
+               (1.60, 0.76, 0.75, 0.02),
+               (-2.00, 0.74, 0.73, 0.02),
+               (-5.00, 0.64, 0.64, 0.04),
+               (-7.20, 0.48, 0.48, 0.06),
+               (-8.80, 0.30, 0.30, 0.08),
+               (-9.60, 0.16, 0.16, 0.08)], v=20, name="u2_fus")]
     # semispan 15.70, panel root at x=0.30, so sweep 1.62 => LE 6.0 deg.
     # area 31.39 * (4.30 + 1.62) / 2 = 92.9 m^2, the real wing area.
     p += wings(3.30, SPAN, 4.30, 1.62, 1.62, 0.34, 0.28, "w")
@@ -1764,10 +1848,23 @@ def maritime_patrol():
     """
     L, SPAN = 35.57, 30.37
     NOSE = 16.03                                   # 32.06 m of loft, then MAD
-    p = fuselage(32.06, 1.72, 0.52, 0.48,
-                 stations=((0.00, 0.16), (0.05, 0.58), (0.13, 0.88),
-                           (0.24, 1.00), (0.63, 1.00), (0.80, 0.84),
-                           (0.92, 0.60), (1.00, 0.32)))
+    # Electra tube, 3.44 m across, with the airliner tailcone upsweep. Note the
+    # loft spans 16.03 to -16.03 and NOT the declared 35.57 m: that figure is
+    # measured over the MAD boom, which is a separate spike aft of the
+    # tailcone, and building the fuselage to it would have added 3.5 m of
+    # pressurised aeroplane that does not exist.
+    p = [loft([(16.03, 0.24, 0.30, 0.06),
+               (15.30, 0.72, 0.78, 0.06),
+               (14.20, 1.16, 1.16, 0.04),
+               (12.80, 1.50, 1.48, 0.02),
+               (11.00, 1.68, 1.66, 0.00),
+               (8.50, 1.72, 1.72, 0.00),
+               (-2.00, 1.72, 1.72, 0.00),
+               (-7.50, 1.70, 1.71, 0.04),
+               (-10.60, 1.52, 1.60, 0.28),
+               (-13.00, 1.16, 1.28, 0.66),
+               (-15.00, 0.70, 0.82, 1.02),
+               (-16.03, 0.30, 0.38, 1.26)], v=24, name="p3_fus")]
     # semispan 15.185, panel root at x=0.30, so sweep 2.09 => LE 8.0 deg.
     # area 30.37 * (5.60 + 2.36) / 2 = 120.9 m^2, the real wing area.
     p += wings(4.20, SPAN, 5.60, 2.36, 2.09, 0.52, -1.02, "w")
@@ -1857,11 +1954,25 @@ def attack_helo():
     L, ROTOR = 15.06, 14.63
     N = L / 2.0                                   # nose at +7.53
     HUB = N - 5.00                                # mast 5.0 m aft of the nose
-    p = fuselage(L, 0.95, 0.55, 0.42, z=1.55,
-                 stations=((0.00, 0.05), (0.04, 0.47), (0.08, 0.65),
-                           (0.11, 0.84), (0.15, 1.00), (0.27, 1.00),
-                           (0.38, 0.84), (0.50, 0.66), (0.58, 0.56),
-                           (0.92, 0.53), (1.00, 0.44)))
+    # This one was not merely round, it was the WRONG WIDTH. An Apache's
+    # defining proportion is that it is extremely narrow -- 0.97 m across the
+    # fuselage, seating its two crew in tandem rather than side by side, so
+    # that it presents almost nothing head-on. The old body was built on a
+    # 0.95 m RADIUS, i.e. 1.90 m wide, near enough double, which quietly threw
+    # away the single most recognisable thing about the airframe. It is now
+    # 1.08 m across and 1.88 m deep: taller than it is wide, which is the
+    # right way round and was previously impossible to say.
+    p = [loft([(7.50, 0.16, 0.20, 1.42),
+               (7.00, 0.32, 0.42, 1.46),
+               (6.20, 0.46, 0.62, 1.50, 0.92),
+               (5.00, 0.52, 0.80, 1.55, 0.88),
+               (3.40, 0.54, 0.92, 1.60, 0.85),
+               (1.60, 0.54, 0.94, 1.62, 0.85),
+               (-0.60, 0.52, 0.86, 1.60, 0.88),
+               (-2.60, 0.44, 0.66, 1.58, 0.92),
+               (-4.40, 0.32, 0.44, 1.58),
+               (-6.20, 0.22, 0.30, 1.58),
+               (-7.53, 0.16, 0.22, 1.58)], v=20, name="ah64_fus")]
     p += wings(N - 4.95, 5.23, 1.30, 1.05, 0.15, 0.24, 1.35, "stub")
     use("deck")
     for s in (-1, 1):                             # engine nacelle over the wing
@@ -2052,10 +2163,22 @@ def recon_uav():
       an UPRIGHT V-TAIL over a plain tailcone, with nothing behind it.
     """
     L, SPAN = 13.54, 35.42
-    p = fuselage(L, 0.70, 0.55, 0.40,
-                 stations=((0.00, 0.55), (0.07, 0.96), (0.18, 1.00),
-                           (0.34, 0.96), (0.60, 0.86), (0.82, 0.66),
-                           (1.00, 0.30)))
+    # The Global Hawk's whole identity from the side is the SATCOM hump: a nose
+    # that is DEEPER than it is wide (1.60 m against 1.40 m) and sits 0.22 m
+    # above the body's centreline, then a slim boom aft. A stack of circles
+    # cannot make a hump -- it can only make a bigger circle -- which is why
+    # this aircraft used to read as a fat glider.
+    p = [loft([(6.75, 0.30, 0.34, 0.16),
+               (6.30, 0.52, 0.62, 0.20),
+               (5.60, 0.66, 0.80, 0.22),
+               (4.60, 0.70, 0.82, 0.20),
+               (3.20, 0.70, 0.74, 0.14),
+               (1.40, 0.68, 0.66, 0.08),
+               (-0.80, 0.62, 0.60, 0.06),
+               (-3.00, 0.52, 0.50, 0.06),
+               (-5.00, 0.36, 0.35, 0.06),
+               (-6.30, 0.22, 0.22, 0.06),
+               (-6.77, 0.14, 0.14, 0.06)], v=20, name="rq4_fus")]
     # semispan 17.71, panel root at x=0.30, so sweep 1.83 => LE 6.0 deg.
     # area 35.42 * (2.06 + 0.78) / 2 = 50.3 m^2, the real wing area.
     p += wings(1.90, SPAN, 2.06, 0.78, 1.83, 0.22, 0.34, "w")
@@ -2066,9 +2189,7 @@ def recon_uav():
     # The whale nose: wider than the fuselage, and it IS the front of the plan.
     p.append(dome((0, 4.52, 0.30), 1.16, 2.22, 0.92, v=20))
     # Dorsal engine nacelle and its inlet lip, on the spine.
-    p.append(cyl((0, -3.20, 1.02), 0.62, 4.00, rot=(R(90), 0, 0), v=16))
-    p.append(cyl((0, -1.05, 1.02), 0.66, 0.55, rot=(R(90), 0, 0), v=16,
-                 taper=0.92))
+    p += turbofan(-1.20, 0.64, 4.00, z=1.02, v=16, name="rq4_pod")
     use("body")
     return p, dict(top=0.7, hull_l=L, hull_w=SPAN, turret_top=1.7,
                    gun_z=0.2, gun_y=L * 0.30)
@@ -2090,10 +2211,21 @@ def armed_uav():
       a shallower nose bulge on a proportionally longer, thinner boom.
     """
     L, SPAN = 11.00, 20.12
-    p = fuselage(L, 0.56, 0.55, 0.42,
-                 stations=((0.00, 0.30), (0.07, 0.78), (0.18, 1.00),
-                           (0.40, 0.96), (0.66, 0.72), (0.86, 0.52),
-                           (1.00, 0.44)))
+    # Same trick as the Global Hawk one size down: the Reaper's nose bulge is
+    # taller than it is wide and rides above the centreline, and the body
+    # tapers to a slim tail boom carrying the pusher prop. The last station
+    # stays open at 0.36 m rather than closing to a point, because there is a
+    # spinner there.
+    p = [loft([(5.48, 0.16, 0.20, 0.06),
+               (5.10, 0.34, 0.44, 0.10),
+               (4.50, 0.48, 0.58, 0.12),
+               (3.60, 0.55, 0.60, 0.10),
+               (2.20, 0.56, 0.54, 0.06),
+               (0.40, 0.54, 0.50, 0.04),
+               (-1.60, 0.46, 0.42, 0.04),
+               (-3.20, 0.36, 0.33, 0.04),
+               (-4.40, 0.26, 0.24, 0.04),
+               (-5.50, 0.18, 0.17, 0.04)], v=18, name="mq9_fus")]
     # semispan 10.06, panel root at x=0.30, so sweep 1.06 => LE 6.2 deg.
     # area 20.12 * (1.62 + 0.68) / 2 = 23.1 m^2.
     p += wings(1.45, SPAN, 1.62, 0.68, 1.06, 0.20, 0.22, "w")
@@ -2131,9 +2263,16 @@ def loitering_munition():
     aircraft when the player looks closely.
     """
     L, SPAN = 2.50, 3.00
-    p = fuselage(L, 0.19, 0.6, 0.5,
-                 stations=((0.00, 0.34), (0.10, 0.86), (0.22, 1.00),
-                           (0.62, 1.00), (0.84, 0.86), (1.00, 0.56)))
+    # 2.5 m of aeroplane. A plain round body is correct here and there is
+    # nothing to add but the taper at each end.
+    p = [loft([(1.24, 0.05, 0.05, 0.00),
+               (1.10, 0.12, 0.12, 0.00),
+               (0.90, 0.17, 0.17, 0.00),
+               (0.40, 0.19, 0.19, 0.00),
+               (-0.40, 0.19, 0.19, 0.00),
+               (-0.85, 0.17, 0.17, 0.00),
+               (-1.15, 0.12, 0.12, 0.00),
+               (-1.25, 0.08, 0.08, 0.00)], v=14, name="harop_fus")]
     # semispan 1.50, panel root at x=0.30, so sweep 0.54 => LE 24.2 deg.
     # area 3.00 * (0.95 + 0.35) / 2 = 1.95 m^2, AR 4.6.
     p += wings(0.30, SPAN, 0.95, 0.35, 0.54, 0.07, 0.0, "w")
