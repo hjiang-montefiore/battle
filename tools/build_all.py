@@ -39,6 +39,42 @@ happened to emit.
 This matters because art/blockout/ is tracked in git: without reproducibility,
 every rebuild rewrites ~315 binaries with different bytes for identical geometry
 and the repository grows by the full art payload each time, permanently.
+
+TEXTURE-PNG NONDETERMINISM (measured, 2026-08-27)
+-------------------------------------------------
+The judge's report of "first-build nondeterminism" on aad_e4_us_spaag (three
+builds: 2 and 3 byte-identical, build 1's LOD0 body.png different) is the SAME
+Blender-side mechanism, not a warm-up and not our compose:
+
+    3 builds of one unit inside ONE process     -> all byte-identical
+    4..7 separate processes, art_e4_us_towed    -> all byte-identical
+    4 separate processes, aad_e4_us_spaag       -> 3 distinct body.png
+    hash pin (3 spaag processes): runs 1 and 3 identical on every stage;
+    run 2 differed in the UV1 `bake` layout hash AND pos/nrm/AO/PNG —
+    with loop and vertex counts IDENTICAL in every run.
+
+Root cause pinned one level deeper (7 more spaag processes, GLB attribute
+diffs): the trigger is not smart_project itself — the body MESH differs first.
+The 4 observed body.png variants cluster into 2 families; between families
+exactly TWO body vertices (a symmetric pair) differ by ONE FLOAT ULP
+(1.19e-07 m) out of 7584, i.e. an order-of-operations wobble in Blender's
+C++ mesh ops (address-ordered containers + ASLR — vertex/loop COUNTS are
+identical, the bytes are not). smart_project then packs that microscopically
+different mesh into a different atlas; within a family (bit-identical mesh)
+UV1 is byte-identical too, so the packer looks deterministic given identical
+input. Every bake (world pos/nrm, AO) and the composed albedo are keyed to
+mesh+layout, so their bytes all flip together — only the big body group has
+enough islands to reroute; small groups never flip.
+The COMPOSE itself is deterministic: all of its layers are functions of world
+position, so a permuted atlas stores the same colour for the same surface
+point and the unit LOOKS identical — only the PNG/GLB bytes differ. Measured
+render A/B (identical camera/rig, noise floor 1 px): 0.7% of frame pixels
+differ, all sub-texel margin speckle, invisible until amplified x8. Which
+runs coincide is allocator roulette, so "first build differs" was a
+coincidence of draws, not a cache warming. A real fix needs Blender's mesh
+ops to be order-stable (not ours to make); until then an occasional rebuild
+rewrites the textured body PNGs/GLBs of big-island units with
+equivalent-looking bytes. Full measurement: tools/textures.py header.
 """
 import argparse
 import concurrent.futures as cf

@@ -294,8 +294,99 @@ def ssbn():
 STRATEGIC = [
     ("str_e2_us_silo",     missile_silo, "camo_us"),
     ("str_e5_us_tel",      mobile_tel,   "camo_us"),
-    ("str_e3_us_ssbn",     ssbn,         "air_dark"),
+    # sub_dark, not air_dark: same reasoning as the navy submarines — the
+    # aircraft scheme's baked panel speckle reads as stone masonry at a
+    # 170 m hull's camo scale, and tone is the sub-vs-surface cue.
+    ("str_e3_us_ssbn",     ssbn,         "sub_dark"),
 ]
+
+
+# ── texture pass (2026-08): composed-texture REQUESTS, roster data only ──
+# Build-space metres, Z-up, forward = -Y. Three basing modes, three surface
+# languages, each borrowed from the module that owns that language:
+#   silo  -> structure_models: weathered concrete, near-flat, faction star
+#            stencilled on the apron (its position is public knowledge — the
+#            marking gives the flat pad an owner at gameplay zoom)
+#   tel   -> army_models: dusty wheeled vehicle, panel seams, subdued star
+#            on the cab side; the canister keeps its stiffener pitch as the
+#            deck-group panel spacing so the bands read as real seams
+#   ssbn  -> navy_models _sub_tex: dark, near-uniform, tight 3.5 m tile,
+#            subtle scupper streaking off the missile casing, hull number
+#            on the sail — nothing else, a boomer is FEATURELESS by design
+_STAR = (0.14, 0.13, 0.12)          # subdued CARC-black star
+_DUST = (0.50, 0.44, 0.34)          # desert dust
+_STENCIL = (0.90, 0.90, 0.87)
+
+# silo: the apron IS the unit. Concrete mottle on the up-facing pour, rain
+# streaks down the (few) vertical faces, grime pooled where the AO bake is
+# already dark (door rails, collar base), and the star on open apron clear
+# of the door rails, valves and headworks.
+H.texture_features(
+    "str_e2_us_silo",
+    size_class="structure", groups=("body", "deck"),
+    panels=dict(spacing=4.0, strength=0.34, jitter=0.08, seams=0.40),
+    concrete=dict(roof_above=2.0, gravel=0.0, wall=0.13, apron=0.10),
+    weathering=dict(
+        dust=dict(height=0.55, strength=0.26, tint=(0.36, 0.33, 0.26)),
+        ao_grime=dict(strength=0.34, threshold=0.55),
+        edge_wear=dict(strength=0.30)),
+    groups_override={"deck": dict(
+        # the headworks cap, collar and closure door: first render came out
+        # a jet-black slab — smooth pour at the 0.098 deck albedo has no
+        # paintable variation. Give the up-facing pour the structures' roof
+        # treatment instead (gravel grain + mean lift, structure_models
+        # _TEX_GRAVEL scale), and the fortification family's pale lime
+        # rain-wash on the vertical door sides — a dark streak on near-black
+        # concrete is unpaintable.
+        panels=dict(spacing=3.0, strength=0.30, jitter=0.06, seams=0.36),
+        concrete=dict(roof_above=0.4, gravel=0.13, gravel_lift=1.55,
+                      gravel_scale=0.40, wall=0.14, apron=0.22,
+                      apron_lift=1.30),
+        weathering=dict(
+            ao_grime=dict(strength=0.36, threshold=0.58,
+                          tint=(0.052, 0.050, 0.046)),
+            streaks=dict(z0=2.30, length=2.2, density=0.36, strength=0.28,
+                         tint=(0.155, 0.150, 0.135)),
+            edge_wear=dict(strength=0.24)))},
+    insignia=[dict(kind="star_us", center=(-2.3, -7.6, 0.19),
+                   normal=(0, 0, 1), up=(0, -1, 0), size=3.0,
+                   alpha=0.80, color=_STAR)])
+
+# TEL: an army vehicle request (cf. army_models._us_ground), plus a deck
+# override that pins the canister's panel spacing to its 2.85 m stiffener
+# pitch so the compose seams land between the modelled bands.
+H.texture_features(
+    "str_e5_us_tel",
+    size_class="vehicle", groups=("body", "deck"),
+    panels=dict(spacing=2.0, strength=0.50, jitter=0.12, seams=0.55),
+    weathering=dict(
+        dust=dict(height=1.7, strength=0.60, tint=_DUST),
+        edge_wear=dict(strength=0.5)),
+    groups_override={"deck": dict(
+        panels=dict(spacing=2.85, strength=0.45, jitter=0.03, seams=0.50))},
+    insignia=[dict(kind="star_us", center=( 1.70, -10.35, 1.70),
+                   normal=( 1, 0, 0), size=0.50, alpha=0.85, color=_STAR),
+              dict(kind="star_us", center=(-1.70, -10.35, 1.70),
+                   normal=(-1, 0, 0), size=0.50, alpha=0.85, color=_STAR)])
+
+# SSBN: navy_models._sub_tex verbatim, with this hull's stations. Sail body
+# spans y 44.2..54.0, x half-width 1.70, cap at 21.3; casing top at 15.0.
+# Streaks run from the casing edge, not the sail top — the missile deck is
+# what weathers on an Ohio's turtleback.
+H.texture_features(
+    "str_e3_us_ssbn",
+    size_class="ship", res=1024, groups=("body",),
+    camo_scale=3.5,
+    panels=dict(spacing=3.0, strength=0.28, jitter=0.04, seams=0.25,
+                width=0.22),
+    weathering=dict(
+        streaks=[dict(z0=15.35, length=3.0, density=0.30,
+                      strength=0.35, tint=(0.26, 0.18, 0.12))],
+        edge_wear=dict(strength=0.30)),
+    insignia=[dict(kind="pennant", text="726", color=_STENCIL, alpha=0.96,
+                   center=( 1.70, 49.1, 18.1), normal=( 1, 0, 0), size=2.4),
+              dict(kind="pennant", text="726", color=_STENCIL, alpha=0.96,
+                   center=(-1.70, 49.1, 18.1), normal=(-1, 0, 0), size=2.4)])
 
 if __name__ == "__main__":
     H.set_out(os.path.join(ROOT, "art", "blockout", "e4_strategic"))

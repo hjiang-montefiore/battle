@@ -12,6 +12,32 @@ build time. Everything is seeded and deterministic; nothing is downloaded.
 The compose inputs are world-space POSITION and NORMAL maps baked over the
 unit's unique `bake` UV, so every layer works in metres, not in UV space:
 a dust gradient is "the bottom 1.1 m", a decal is "0.9 m wide at this point".
+
+REBUILD NONDETERMINISM (measured 2026-08-27, aad_e4_us_spaag x7 processes)
+--------------------------------------------------------------------------
+The compose itself is deterministic — same pos/nrm/AO in, same bytes out —
+but a rebuild of a big-island unit does not always reproduce the PNG/GLB
+bytes, and the mechanism is Blender-internal, upstream of this module:
+
+  * 7 separate single-process builds gave 4 distinct body.png byte-variants
+    that cluster into 2 FAMILIES. Between families, exactly TWO body
+    vertices (a symmetric pair at x=+/-1.616) differ by ONE FLOAT ULP
+    (1.19e-07 m) out of 7584 unique vertices — an order-of-operations
+    wobble in Blender's C++ mesh ops (address-ordered containers + ASLR;
+    our Python drives no hash-ordered iteration in the geometry path).
+    That single-ULP mesh difference reroutes smart_project's island
+    packing, so UV1, both EMIT bakes, the AO bake, the composed PNG and
+    the GLB bytes all flip together — 12.8k of 1024^2 PNG px differ.
+  * Within a family the mesh bytes are identical and so is UV1; the
+    residue is one 1-LSB pixel in the PNG (Cycles bake rounding) and 60
+    triangles emitted in a different order (same triangle SET).
+
+Visually meaningless: rendering family-A and family-B LOD0 GLBs with an
+identical camera/light rig (noise floor measured at 1 px, delta 1) differs
+in 0.7% of frame pixels, all sub-texel speckle at island margins, max
+channel delta 76 on isolated dots — invisible until amplified x8. Given a
+bit-identical mesh the texture pipeline IS byte-reproducible; a real fix
+would need Blender's mesh ops (not ours) to be order-stable.
 """
 import bpy, math, numpy as np, os
 
