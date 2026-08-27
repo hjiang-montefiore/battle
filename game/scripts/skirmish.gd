@@ -1528,12 +1528,42 @@ func _production_menu() -> PackedStringArray:
 	return out
 
 
+## The picture on a build card. Rendered from the SAME model the game spawns
+## (tools/icon_render.py), so the card and the thing that appears on the
+## ground are recognisably one object -- a sidebar of names alone makes a
+## player read six words to find a shape they already know.
+##
+## Cached: a Button holds its own reference, but the same role appears on
+## every panel rebuild and load_icon is called on each one.
+static var _icon_cache: Dictionary = {}
+
+
+func _role_icon(role: String) -> Texture2D:
+	if _icon_cache.has(role):
+		return _icon_cache[role]
+	var tex: Texture2D = null
+	var stem := SimFactionData.model_stem_for(role,
+		(_match.setup.players[_me] as SimPlayerSetup).faction, _match.epoch(_me))
+	if stem != "":
+		var path := "res://assets/icons/%s.png" % stem
+		if ResourceLoader.exists(path):
+			tex = load(path) as Texture2D
+	_icon_cache[role] = tex
+	return tex
+
+
 func _role_button(role: String, is_build: bool) -> Button:
 	var d := _match.world.economy.def_for(_me, role)
 	var b := Button.new()
 	b.text = "%s   %.0f" % [d.name if d else role, d.cost if d else 0.0]
 	b.add_theme_font_size_override("font_size", 12)
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var ico := _role_icon(role)
+	if ico != null:
+		b.icon = ico
+		b.expand_icon = true
+		b.custom_minimum_size = Vector2(0, 44)
+		b.add_theme_constant_override("h_separation", 8)
 	b.tooltip_text = "%s\n%.0f credits, %.0f s%s" % [
 		d.name if d else role, d.cost if d else 0.0,
 		d.build_seconds if d else 0.0,

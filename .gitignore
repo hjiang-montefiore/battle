@@ -52,6 +52,8 @@ art/renders/
 art/silhouettes/
 art/verify/
 game/assets/units/
+game/assets/icons/
+art/icons/
 
 .dem_cache/
 

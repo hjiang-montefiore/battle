@@ -82,9 +82,13 @@ func _process(dt: float) -> void:
 func _bake_terrain() -> ImageTexture:
 	var t := _match.terrain
 	var img := Image.create(t.cells_x, t.cells_z, false, Image.FORMAT_RGB8)
+	# Written ROTATED, to agree with _to_map below. See the note there: the
+	# camera's screen-right is world -X and its screen-up is world +Z, so a map
+	# baked cell-for-pixel comes out upside down and back to front.
 	for cz in range(t.cells_z):
 		for cx in range(t.cells_x):
-			img.set_pixel(cx, cz, _terrain_colour(t.height_at_cell(cx, cz)))
+			img.set_pixel(t.cells_x - 1 - cx, t.cells_z - 1 - cz,
+				_terrain_colour(t.height_at_cell(cx, cz)))
 	return ImageTexture.create_from_image(img)
 
 
@@ -104,16 +108,26 @@ func _terrain_colour(h: float) -> Color:
 
 # ── coordinates ──────────────────────────────────────────────────────────────
 
+## World metres -> minimap pixels, MATCHING WHAT THE SCREEN SHOWS.
+##
+## The mapping is inverted on both axes, and that is not arbitrary. The rig
+## parks the camera at target + (-sin(yaw), 0, -cos(yaw)) * dist, so at the
+## default yaw it sits at negative Z looking toward POSITIVE Z: the far
+## distance up the screen is +Z, and screen-right works out to -X. A minimap
+## drawn the obvious way -- +X rightward, +Z downward -- is therefore rotated
+## a half turn from the battle the player is looking at, and every drag of the
+## view sends the marker the wrong way. Both axes flip here, in one place,
+## and the terrain bake and _to_world follow.
 func _to_map(x: float, z: float) -> Vector2:
 	var t := _match.terrain
-	return Vector2((x / t.extent_x_m() + 0.5) * size.x,
-		(z / t.extent_z_m() + 0.5) * size.y)
+	return Vector2((0.5 - x / t.extent_x_m()) * size.x,
+		(0.5 - z / t.extent_z_m()) * size.y)
 
 
 func _to_world(p: Vector2) -> Vector2:
 	var t := _match.terrain
-	var wx := (clampf(p.x / size.x, 0.0, 1.0) - 0.5) * t.extent_x_m()
-	var wz := (clampf(p.y / size.y, 0.0, 1.0) - 0.5) * t.extent_z_m()
+	var wx := (0.5 - clampf(p.x / size.x, 0.0, 1.0)) * t.extent_x_m()
+	var wz := (0.5 - clampf(p.y / size.y, 0.0, 1.0)) * t.extent_z_m()
 	return Vector2(wx, wz)
 
 
