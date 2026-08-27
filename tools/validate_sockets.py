@@ -107,7 +107,7 @@ ROLE_LIMITS = {
     # people. An engineer with arms out and a tool is 2.2 m across
     "inf": ((0.3, 1.3), (0.5, 3.2), (1.2, 3.4)),
     # reconnaissance aircraft
-    "isr": ((20.0, 44), (23, 49), (5.0, 11.0)),
+    "isr": ((14.0, 44), (23, 49), (5.0, 11.0)),
     # fuel / ammo truck
     "log": ((5.3, 14.7), (1.7, 4.2), (1.8, 5.2)),
     # main battle tank
@@ -117,7 +117,7 @@ ROLE_LIMITS = {
     # ballistic / coastal
     "msl": ((5.4, 17.1), (2.0, 4.7), (2.4, 7.5)),
     # surface ships, corvette to supercarrier
-    "nav": ((16.9, 483), (5.1, 125), (3.7, 66)),
+    "nav": ((16.9, 483), (5.1, 125), (3.7, 78)),
     # search / illuminator / counter-battery
     "rad": ((4.8, 14.2), (1.8, 7.8), (2.4, 7.4)),
     # reconnaissance

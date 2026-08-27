@@ -38,6 +38,127 @@ def plate(pts_xy, thick, z, name="plate"):
     return tag(obj)
 
 
+
+def _dist_to_outline(x, y, poly):
+    """Shortest distance from a point to a closed polygon's edges."""
+    best = 1e30
+    n = len(poly)
+    for i in range(n):
+        ax, ay = poly[i]
+        bx, by = poly[(i + 1) % n]
+        dx, dy = bx - ax, by - ay
+        L2 = dx * dx + dy * dy
+        t = 0.0 if L2 < 1e-12 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / L2))
+        px, py = ax + dx * t, ay + dy * t
+        d = math.hypot(x - px, y - py)
+        if d < best:
+            best = d
+    return best
+
+
+def aerofoil(poly, peak, name="foil", cuts=5, under=0.34, power=0.62,
+             extra=None):
+    """A planform given a continuous, tapered SECTION.
+
+    plate() extrudes an outline straight up at constant thickness, so every
+    surface it makes is horizontal or vertical and a wing built by stacking
+    plates is a wedding cake with square risers. This keeps the outline exactly
+    -- span, length and plan area are untouched, which matters because the B-2
+    planform was verified against its published 478 m2 wing area -- and gives
+    it a section instead: thickness falls to nothing at the edges and swells
+    inboard, so leading edge, trailing edge and tips all come to a taper.
+
+    Thickness is driven by distance to the outline rather than by span station,
+    which thins the leading and trailing edges as well as the tips without
+    needing to know where the local chord runs.
+
+    `extra` adds thickness at a place: (x, y, radius, height), used for a
+    centre-body or a cockpit fairing that has to grow OUT of the surface rather
+    than sit on top of it.
+    """
+    me = bpy.data.meshes.new(name)
+    obj = bpy.data.objects.new(name, me)
+    bpy.context.collection.objects.link(obj)
+    bm = bmesh.new()
+    vs = [bm.verts.new((x, y, 0.0)) for (x, y) in poly]
+    face = bm.faces.new(vs)
+    bmesh.ops.triangulate(bm, faces=[face])
+    for _ in range(cuts):
+        bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=1,
+                                  use_grid_fill=False)
+    bm.verts.ensure_lookup_table()
+
+    dmax = 0.0
+    for v in bm.verts:
+        d = _dist_to_outline(v.co.x, v.co.y, poly)
+        v.tag = False
+        dmax = max(dmax, d)
+    if dmax < 1e-6:
+        dmax = 1.0
+
+    def thickness(x, y):
+        t = peak * (_dist_to_outline(x, y, poly) / dmax) ** power
+        if extra:
+            for (ex, ey, er, eh) in extra:
+                r = math.hypot(x - ex, y - ey) / er
+                if r < 1.0:
+                    t += eh * (0.5 + 0.5 * math.cos(math.pi * r))
+        return t
+
+    top = list(bm.verts)
+    dup = bmesh.ops.duplicate(bm, geom=list(bm.verts) + list(bm.edges) + list(bm.faces))
+    bottom = [g for g in dup["geom"] if isinstance(g, bmesh.types.BMVert)]
+    for v in top:
+        v.co.z = thickness(v.co.x, v.co.y)
+    for v in bottom:
+        v.co.z = -under * thickness(v.co.x, v.co.y)
+
+    top_rim = [e for e in bm.edges if e.is_boundary and e.verts[0] in set(top)]
+    bot_set = set(bottom)
+    bot_rim = [e for e in bm.edges if e.is_boundary and e.verts[0] in bot_set]
+    if top_rim and bot_rim:
+        bmesh.ops.bridge_loops(bm, edges=top_rim + bot_rim)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    bm.to_mesh(me)
+    bm.free()
+    return tag(obj)
+
+
+
+def shell(stations, name="shell"):
+    """Continuous surface through outlines that already correspond.
+
+    Every outline must have the same vertex count and the same winding, which
+    is true whenever they are interpolated from one another -- the F-117's
+    facet tiers are built exactly that way. Bridging them gives SLOPING walls
+    between stations instead of the vertical risers plate() leaves, so the
+    result reads as facets rather than as a staircase, which is the difference
+    between a faceted aircraft and a stack of trays.
+    """
+    n = len(stations[0][0])
+    for poly, _ in stations:
+        if len(poly) != n:
+            raise ValueError("shell() needs matching vertex counts: %d vs %d"
+                             % (len(poly), n))
+    me = bpy.data.meshes.new(name)
+    obj = bpy.data.objects.new(name, me)
+    bpy.context.collection.objects.link(obj)
+    bm = bmesh.new()
+    rings = [[bm.verts.new((x, y, z)) for (x, y) in poly] for poly, z in stations]
+    bm.verts.ensure_lookup_table()
+    for a, b in zip(rings, rings[1:]):
+        for i in range(n):
+            j = (i + 1) % n
+            if len({a[i], a[j], b[j], b[i]}) == 4:
+                bm.faces.new((a[i], a[j], b[j], b[i]))
+    bm.faces.new(list(reversed(rings[0])))
+    bm.faces.new(rings[-1])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    bm.to_mesh(me)
+    bm.free()
+    return tag(obj)
+
+
 def wings(root_y, span, root_c, tip_c, sweep, thick, z, name="wing"):
     """Mirrored swept tapered panels. sweep = how far back the tip sits."""
     out = []
@@ -656,16 +777,28 @@ def stealth_bomber():
     centre = mirror([(0.00, 9.40), (4.20, 0.60), (3.60, -6.20),
                      (0.00, -8.60)])
     use("body")
-    p = [plate(plan, 1.00, 0.00, "b2_plan"),
-         plate(tier2, 1.30, 0.60, "b2_tier2"),
-         plate(centre, 1.30, 1.55, "b2_centre")]
+    # ONE continuous tapered shell, not three stacked plates. The planform is
+    # untouched -- span, length and the 478 m2 plan area all still hold -- but
+    # it now has a section: thickness falls to a taper at the leading edge,
+    # the trailing edge and the tips, and swells over the centre-body. The old
+    # 1.00 / 1.30 / 1.30 m constant-thickness tiers had vertical risers between
+    # them, and a stack of slabs is what reads as a toy brick from every angle
+    # except directly overhead.
+    #
+    # The centre-body and the cockpit fairing are bumps ADDED to the section
+    # rather than objects sitting on it, which is how they are on the aircraft:
+    # the crown swells out of the wing with no seam anywhere.
+    p = [aerofoil(plan, 1.05, "b2_shell", cuts=5, under=0.34, power=0.58,
+                  extra=[(0.0, -0.60, 12.0, 0.95),      # centre-body
+                         (0.0, 6.10, 4.20, 0.55)])]     # cockpit fairing
     for s in (-1, 1):
         # one serpentine intake per side, each feeding two F118s, buried in
         # the UPPER surface where no ground radar and no RTS camera looks up.
         # The fairing is in the airframe's own material; only the mouth and
         # the exhaust slot are dark, because four pale rectangles on a grey
         # wing read as decals rather than as structure.
-        p.append(cube((s * 5.60, 1.60, 1.35), (4.30, 3.60, 0.48),
+        # settled into the crown rather than perched on it
+        p.append(cube((s * 5.60, 1.60, 1.12), (4.30, 3.60, 0.42),
                       rot=(R(-8), 0, 0)))
     use("gunbore")
     for s in (-1, 1):
@@ -690,7 +823,9 @@ def stealth_bomber():
     # — the only break in the leading-edge slope and the only thing on the
     # upper surface with a horizon in it. It was a 0.95 m dome, invisible on a
     # 52 m wing; the real canopy is 2.6 m across.
-    p.append(dome((0, 6.55, 1.92), 1.30, 2.60, 0.52, v=16))
+    # Sunk INTO the fairing that is now part of the shell, so only the glass
+    # shows. It used to be a disc floating clear of the surface.
+    p.append(dome((0, 6.30, 1.66), 1.14, 2.30, 0.30, v=16))
     use("body")
     return p, dict(top=2.20, hull_l=L, hull_w=SPAN, turret_top=2.6,
                    gun_z=0.5, gun_y=6.0)
@@ -915,17 +1050,24 @@ def stealth_strike():
     ridge = mirror([(0.00, 7.40), (2.10, -0.55), (1.95, -5.55),
                     (1.60, -8.55), (0.00, -6.55)])
     use("body")
-    # SIX interpolated facet tiers between the planform and the ridge, not
-    # three stacked slabs. Three slabs gave a wedding-cake profile with 0.5 m
-    # vertical risers; six shallow steps read as the F-117's chined facets
-    # from every angle and cost 24 extra triangles at LOD1.
-    p = []
-    for i, (t, thick, z) in enumerate(((0.00, 0.38, 0.00), (0.22, 0.46, 0.36),
-                                       (0.44, 0.50, 0.72), (0.66, 0.52, 1.10),
-                                       (0.85, 0.52, 1.46), (1.00, 0.50, 1.78))):
-        poly = [(a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+    # ONE faceted shell through the same stations, not six stacked plates.
+    # The stations were always right -- plan and ridge correspond vertex for
+    # vertex, so they interpolate cleanly -- but plate() extrudes each one
+    # straight up at constant thickness, which left a 0.4-0.5 m VERTICAL riser
+    # between every tier. Six risers is a staircase, and a staircase is what
+    # reads as a toy brick. Bridging the stations instead gives sloping walls,
+    # which is what a facet is.
+    #
+    # The underside is a shallow inverted vee rather than a flat pan, because
+    # the real aircraft's lower surface is faceted too and a flat bottom shows
+    # as a hard bright edge all round the planform.
+    def at(t):
+        return [(a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
                 for a, b in zip(plan, ridge)]
-        p.append(plate(poly, thick, z, f"f117_t{i}"))
+
+    p = [shell([(at(0.10), -0.30), (at(0.00), -0.08), (at(0.00), 0.19),
+                (at(0.22), 0.59), (at(0.44), 0.97), (at(0.66), 1.36),
+                (at(0.85), 1.72), (at(1.00), 2.03)], "f117_hull")]
     # OWNED: a V-TAIL and no other vertical surface. Two all-moving
     # ruddervators canted 40 deg off vertical, so from directly above they
     # read as two blades splaying aft-outboard from the tail -- not the
