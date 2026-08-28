@@ -746,7 +746,16 @@ func _suite_munitions() -> void:
 	w2.run_ticks(60)
 	var was_guided := m2.alive and not m2.went_ballistic
 	w2.entities.kill(sh2)                 # illuminator destroyed mid-flight
-	w2.run_ticks(600)
+	# Run until the round actually ENDS rather than for a fixed 600 ticks. The
+	# old count was a guess at how long a ballistic missile takes to fall out of
+	# the sky, and it stopped being true the moment motion tempo changed -- the
+	# round was still coasting, unguided and about to miss, and the test called
+	# that a failure. What is under test is that it never hits, not when it
+	# stops moving.
+	var guard := 0
+	while m2.alive and guard < 40:
+		w2.run_ticks(120)
+		guard += 1
 	_ok("a SARH round was guiding while the illuminator lived", was_guided)
 	_ok("killing the illuminator mid-flight defeats it",
 		not m2.alive and m2.termination != SimMunitionDef.Termination.HIT,

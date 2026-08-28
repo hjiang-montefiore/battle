@@ -13,7 +13,16 @@ extends RefCounted
 ## commands to it; that is the whole contract.
 
 const SIM_HZ := 20.0        ## docs/06 tick budget: simulation 20-30 Hz
-const SENSOR_HZ := 5.0      ## docs/06 tick budget: sensor solve 5-10 Hz
+## docs/06 tick budget: sensor solve 5-10 Hz -- SCALED BY MOTION TEMPO.
+##
+## This is the half of time compression that is easy to forget and fatal to
+## omit. Doubling how fast things move without doubling how often you LOOK
+## means every target crosses a sensor envelope in half the solves, and a
+## contact that needs a few consecutive looks to promote never promotes. The
+## measured result was two armies sitting in opposite corners of the map with
+## 976 sensor pairs evaluated and zero detections between them, for a hundred
+## simulated minutes.
+const SENSOR_HZ := 5.0 * SimTypes.MOTION_TEMPO
 ## docs/06: "Logistics & AI, 1-2 Hz". Income, upkeep, fuel burn and production
 ## timers do not need to be resolved twenty times a second, and running them
 ## slowly is what leaves the frame budget for the sensor solve.
@@ -31,7 +40,9 @@ const ECONOMY_HZ := 1.0
 ## 10 Hz is a decision every 100 ms. A tank turning at 30 deg/s turns 3 degrees
 ## in that time, which is well inside the arrival tolerance, and the separation
 ## force it applies is a smoothing term rather than a hard constraint.
-const MOVEMENT_HZ := 10.0
+## Scaled with the tempo for the same reason: deciding where to go at 10 Hz
+## while travelling twice as fast is half the decisions per metre.
+const MOVEMENT_HZ := 10.0 * SimTypes.MOTION_TEMPO
 
 var entities: SimEntities
 var terrain: SimTerrain = null

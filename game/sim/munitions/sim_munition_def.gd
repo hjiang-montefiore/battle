@@ -158,11 +158,35 @@ func _init(p: Dictionary = {}) -> void:
 	for k in p.keys():
 		if k in self:
 			set(k, p[k])
+	_apply_tempo()
 	# Available g is scaled by (speed / optimum_speed)^2, so an optimum far
 	# above what the round can ever reach silently crushes its manoeuvre
 	# authority -- an ATGM with a 900 m/s optimum has ~0.1 g and lawn-darts.
 	if not p.has("optimum_speed"):
 		optimum_speed = max_speed * 0.72
+
+
+## SimTypes.MOTION_TEMPO, applied to the round's kinematics ONLY.
+##
+## Speeds multiply and the durations that spend them divide, so a shell flies
+## twice as fast for half as long and lands in exactly the same place. That
+## pairing is the whole trick: scaling speed alone would have doubled every
+## weapon's reach and silently rewritten the engagement envelopes docs/03 and
+## docs/10 are built on, turning a pacing change into a balance change nobody
+## asked for.
+func _apply_tempo() -> void:
+	var k: float = SimTypes.MOTION_TEMPO
+	if k == 1.0:
+		return
+	max_speed *= k
+	muzzle_velocity *= k
+	run_speed_ms *= k
+	reference_speed_ms *= k
+	boost_seconds /= k
+	sustain_seconds /= k
+	endurance_at_reference_s /= k
+	if optimum_speed > 0.0:
+		optimum_speed *= k
 
 
 ## docs/10 §3: "In range" is not "will hit." The no-escape zone is typically

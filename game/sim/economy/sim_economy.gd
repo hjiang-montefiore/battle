@@ -1065,6 +1065,41 @@ func _step_construction(dt: float) -> void:
 		var site := s as Site
 		_forget_site(site)
 		_log("player %d completed %s" % [entities.owner[site.unit], site.role])
+		_gift_harvester(site.unit)
+
+
+## A REFINERY ARRIVES WITH ITS FIRST HARVESTER, the way Red Alert's does.
+##
+## Without it the ore economy cannot start itself: a player builds the refinery,
+## nothing happens, and they have to work out unaided that the miner is a
+## separate job in a different building's queue. One free miner makes the
+## refinery a complete economic decision rather than half of one, and it is
+## also the honest way to price the building -- the refinery's cost has always
+## implied a working ore line.
+##
+## Only the FIRST refinery gifts one. Otherwise a player could farm miners by
+## building and selling refineries, which is both an exploit and a silly thing
+## to have to think about.
+func _gift_harvester(structure: int) -> void:
+	if not entities.is_alive(structure):
+		return
+	var d := def_of(structure)
+	if d == null or d.refine_capacity <= 0.0:
+		return
+	var owner_id: int = entities.owner[structure]
+	for i in range(entities.count()):
+		if entities.alive[i] == 1 and entities.owner[i] == owner_id:
+			var od := def_of(i)
+			if od != null and od.ore_capacity > 0.0:
+				return                      # they already have one
+	var miner := SimRoster.make("ore_miner", epoch_of(owner_id),
+		(_purses[owner_id] as Purse).nation if _purses.has(owner_id) else -1)
+	if miner == null:
+		return
+	var spot := _exit_point(structure, miner)
+	if _place(owner_id, miner, spot.x, spot.y,
+			entities.heading_rad[structure], false) >= 0:
+		_log("player %d received an ore miner with the refinery" % owner_id)
 
 
 func _forget_site(site: Site) -> void:

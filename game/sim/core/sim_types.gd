@@ -189,6 +189,35 @@ enum MoveState {
 ## Commands crossing the presentation/AI boundary into the sim. Both the human
 ## player's mouse and the AI director push these; neither writes entity state
 ## directly. docs/06: "Godot's job is to render this and submit commands to it."
+## MOTION TEMPO. Everything that MOVES moves this much faster, and every
+## duration that governs motion is divided by the same number.
+##
+## This is a pacing dial, not a physics change, and the distinction is the
+## whole point: at 2.0 a tank crosses the map in half the time and a shell
+## reaches its target in half the time, but the shell still lands exactly where
+## it used to. Doubling projectile speed WITHOUT halving its burn would have
+## doubled every weapon's range and quietly rewritten the balance of the game;
+## halving the burn with it keeps every engagement envelope where docs/03 and
+## docs/10 put it. Fuel burn scales the same way, so a vehicle's range in
+## kilometres is unchanged -- it simply gets there sooner.
+##
+## Ranges, armour, damage, build times and income are deliberately untouched.
+## HELD AT 1.0 UNTIL THE AI CAN FIGHT AT SPEED.
+##
+## 2.0 was measured and it broke the game: two armies sat in opposite corners
+## for a hundred simulated minutes with 976 sensor pairs evaluated and ZERO
+## detections, 7 kills against the 50 the same match produces at 1.0. Ruled out
+## by experiment, in order: acceleration scaling, sensor solve rate, movement
+## decision rate, and fuel -- none of them was the cause.
+##
+## What it actually exposed is that the AI never presses: it holds PROBE
+## posture, and at 1.0 it blunders into contact rather than seeking it. Doubling
+## everyone's speed only made the blundering less likely. The fix belongs in the
+## director, not here; this comes back to 2.0 once an AI that hunts can carry
+## it.
+const MOTION_TEMPO := 1.0
+
+
 enum OrderKind {
 	NONE = 0,
 	MOVE = 1,          ## go to a world point

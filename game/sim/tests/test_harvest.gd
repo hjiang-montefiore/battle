@@ -16,6 +16,7 @@ func _initialize() -> void:
 	_suite_cycle()
 	_suite_depletion()
 	_suite_rules()
+	_suite_gift()
 	print("  " + "-".repeat(58))
 	print("  %d passed, %d FAILED\n" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
@@ -125,6 +126,38 @@ func _suite_rules() -> void:
 		w2.harvest_system.state_name(m2) != "seeking"
 			or w2.entities.harvest_load[m2] > 0.0,
 		w2.harvest_system.state_name(m2))
+
+
+## Red Alert gives you a harvester with the refinery, and so do we -- without
+## it the ore economy cannot start itself and a player is left to work out
+## unaided that the miner is a separate job in another building's queue.
+func _suite_gift() -> void:
+	var w := _world()
+	var before := 0
+	for i in range(w.entities.count()):
+		if w.harvest_system.is_harvester(i):
+			before += 1
+	_ok("no miner before the refinery exists", before == 0)
+
+	var r := w.economy.spawn_unit(0, "refinery", 0.0, 0.0)
+	_ok("the refinery goes up", r >= 0)
+	# It arrives with the building, so the site has to finish first.
+	w.run_ticks(2000)
+	var after := 0
+	for i in range(w.entities.count()):
+		if w.harvest_system.is_harvester(i):
+			after += 1
+	_ok("a finished refinery arrives with one miner", after == 1, "%d" % after)
+
+	# A SECOND refinery must not gift another, or a player farms miners by
+	# building and selling refineries.
+	w.economy.spawn_unit(0, "refinery", 700.0, 700.0)
+	w.run_ticks(2000)
+	var third := 0
+	for i in range(w.entities.count()):
+		if w.harvest_system.is_harvester(i):
+			third += 1
+	_ok("a second refinery does not gift another", third == 1, "%d" % third)
 
 
 func _ok(what: String, cond: bool, note := "") -> void:

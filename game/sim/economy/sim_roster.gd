@@ -191,14 +191,21 @@ static func _stamp(role: String, r: Dictionary, e: int, faction: int) -> SimUnit
 	for req in r.get("requires", []):
 		d.requires.append(String(req))
 
-	d.speed_kmh = float(r.get("speed_kmh", 0.0)) * SPEED_MULT[k]
-	d.accel_ms2 = float(r.get("accel_ms2", 1.5))
-	d.turn_rate_rads = float(r.get("turn_rate_rads", 0.6))
+	d.speed_kmh = float(r.get("speed_kmh", 0.0)) * SPEED_MULT[k] * SimTypes.MOTION_TEMPO
+	# Acceleration scales by the SQUARE of the tempo and turn rate linearly,
+	# which is what keeps handling identical rather than merely faster: a unit
+	# that doubles its speed without doubling its turn rate corners on twice the
+	# radius, which is exactly the "orbits its objective forever" failure this
+	# project already fixed once.
+	d.accel_ms2 = float(r.get("accel_ms2", 1.5)) * SimTypes.MOTION_TEMPO
+	d.turn_rate_rads = float(r.get("turn_rate_rads", 0.6)) * SimTypes.MOTION_TEMPO
 
 	d.fuel_capacity = float(r.get("fuel", 0.0))
-	d.burn_idle = float(r.get("burn_idle", 0.0)) * BURN_MULT[k]
-	d.burn_cruise = float(r.get("burn_cruise", 0.0)) * BURN_MULT[k]
-	d.burn_combat = float(r.get("burn_combat", 0.0)) * BURN_MULT[k]
+	# Burn scales WITH the tempo so range in kilometres is unchanged: a unit
+	# moving twice as fast for half as long covers the same ground.
+	d.burn_idle = float(r.get("burn_idle", 0.0)) * BURN_MULT[k] * SimTypes.MOTION_TEMPO
+	d.burn_cruise = float(r.get("burn_cruise", 0.0)) * BURN_MULT[k] * SimTypes.MOTION_TEMPO
+	d.burn_combat = float(r.get("burn_combat", 0.0)) * BURN_MULT[k] * SimTypes.MOTION_TEMPO
 	d.nuclear = bool(r.get("nuclear", false))
 	d.nuclear_from_epoch = int(r.get("nuclear_from_epoch", 99))
 	# docs/04: nuclear propulsion removes the constraint outright.

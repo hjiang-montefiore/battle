@@ -1,5 +1,5 @@
 {
- "_comment": "The art pipeline's contract with the game: which GLB stem a faction fields for a role at an epoch. Keyed by the GAME's role names, because the stems' own shortnames (btr60, 2s3, sovremenny) cannot be derived from a role and the previous heuristic could therefore only ever find MBTs. Written by tools/, read by SimFactionData.",
+ "_comment": "The art pipeline's contract with the game: which GLB stem a faction fields for a role at an epoch. Keyed by the GAME's role names, because the stems' own shortnames (btr60, 2s3, sovremenny) cannot be derived from a role and the previous heuristic could therefore only ever find MBTs. Written by tools/, read by SimFactionData. MBT rows point at the NATIONAL models rather than the plain mbt_e4_<code> stems: those are 41 KB untextured blockouts, and the resolver's 'an exact stem beats a variant-suffixed one' rule made them win over the finished 3 MB models sitting beside them. Every tank in the game was a white box.",
  "cn": {
   "air_defence_destroyer": {
    "6": "nav_e6_cn_052d"
@@ -13,8 +13,16 @@
   }
  },
  "de": {
+  "mbt": {
+   "4": "mbt_e4_de_leopard2a6"
+  },
   "submarine": {
    "7": "sub_e7_de_aip"
+  }
+ },
+ "fr": {
+  "mbt": {
+   "4": "mbt_e4_fr_leclerc"
   }
  },
  "kp": {
@@ -55,6 +63,21 @@
   },
   "submarine": {
    "2": "sub_e2_ru_kilo"
+  }
+ },
+ "tw": {
+  "mbt": {
+   "4": "mbt_e4_tw_m1a2t"
+  }
+ },
+ "uk": {
+  "mbt": {
+   "4": "mbt_e4_uk_challenger2"
+  }
+ },
+ "us": {
+  "mbt": {
+   "4": "mbt_e4_us_m1_abrams"
   }
  }
 }
