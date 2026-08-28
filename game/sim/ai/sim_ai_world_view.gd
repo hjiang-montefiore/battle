@@ -144,6 +144,39 @@ func tracks_at_least(quality: int) -> Array:
 	return tracks.tracks_at_least(quality) if tracks != null else []
 
 
+## WHERE THE GROUND IS WORTH SOMETHING: ore and oil field positions, merged
+## and in a fixed order.
+##
+## These are MAP FEATURES on exactly the footing docs/09 §1 gives the terrain:
+## holes in the ground at published coordinates, the same ones the player's
+## minimap draws. Positions ONLY -- nothing here says who is working a field,
+## who has a derrick on one, or whether anybody is standing there, because
+## those are facts about the other player and are not reachable from this
+## bundle. What the AI does with them is inference: an economy has to be where
+## the resources are, so that is ground worth sweeping and ground worth taking.
+## It can be wrong about it, which is what makes it reconnaissance.
+func resource_points() -> Array:
+	var out: Array = []
+	if economy == null:
+		return out
+	for p in economy.ore_fields:
+		out.append(p)
+	for p in economy.oil_fields:
+		out.append(p)
+	return out
+
+
+## Oil field positions alone, in a fixed order -- the ones a derrick can stand
+## on. Same footing as above: coordinates, and nothing about who holds them.
+func oil_points() -> Array:
+	var out: Array = []
+	if economy == null:
+		return out
+	for p in economy.oil_fields:
+		out.append(p)
+	return out
+
+
 ## Contacts observed radiating -- the anti-radiation target set, and what
 ## home-on-jam gives away for free.
 func emitters() -> Array:

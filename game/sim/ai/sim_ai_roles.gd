@@ -27,6 +27,7 @@ enum Unit {
 	SAM,
 	SENSOR,      ## ground radar, ESM mast, jammer
 	SUPPLY,      ## the interdiction target set (docs/04, docs/09 §5)
+	HARVESTER,   ## unarmed, drives itself, and must never be given an order
 	NAVAL,
 	SUBMARINE,
 	PRODUCTION,  ## a structure that builds things
@@ -37,7 +38,8 @@ enum Unit {
 const NAMES := {
 	Unit.ARMOR: "armor", Unit.INFANTRY: "infantry", Unit.SCOUT: "scout",
 	Unit.AIR: "air", Unit.AEW: "aew", Unit.SAM: "sam", Unit.SENSOR: "sensor",
-	Unit.SUPPLY: "supply", Unit.NAVAL: "naval", Unit.SUBMARINE: "submarine",
+	Unit.SUPPLY: "supply", Unit.HARVESTER: "harvester",
+	Unit.NAVAL: "naval", Unit.SUBMARINE: "submarine",
 	Unit.PRODUCTION: "production", Unit.BASE: "base", Unit.UNKNOWN: "unknown",
 }
 
@@ -51,6 +53,16 @@ const NAMES := {
 ## shoot. A classifier that is wrong in that direction hands the AI a weapon it
 ## does not have, which looks exactly like cheating from the other side.
 const KEYWORDS := [
+	# HARVESTERS FIRST, and they are first for a reason that cost a match.
+	# "Ore Miner" fell through every rule below to the kinematic fallback and
+	# came out ARMOR, so the director put the AI's own harvesters in a
+	# manoeuvre group and drove them at the enemy -- which also SUSPENDS the
+	# ore cycle (SimHarvest.interrupt), because a move order is a player order.
+	# Measured on skirmish_valley: both AIs finished a six-minute match with
+	# zero harvesters, an idle refinery and about 100 credits, producing rifle
+	# squads because nothing else was affordable. The classifier was the bug.
+	["harvester", Unit.HARVESTER], ["harvest", Unit.HARVESTER],
+	["miner", Unit.HARVESTER], ["mining", Unit.HARVESTER],
 	["aew", Unit.AEW], ["awacs", Unit.AEW], ["sentry", Unit.AEW],
 	["mainstay", Unit.AEW],
 	["tanker", Unit.SUPPLY], ["supply", Unit.SUPPLY], ["fuel", Unit.SUPPLY],
@@ -143,7 +155,14 @@ static func is_line(role: int) -> bool:
 ## other side, exactly what an Interdiction doctrine hunts.
 static func is_enabler(role: int) -> bool:
 	return role in [Unit.AEW, Unit.SENSOR, Unit.SUPPLY, Unit.SAM,
-		Unit.PRODUCTION]
+		Unit.PRODUCTION, Unit.HARVESTER]
+
+
+## Roles that earn money rather than fight. The director never puts one in a
+## manoeuvre group and never gives it a destination: a harvester runs its own
+## cycle in SimHarvest and any order at all stops it working.
+static func is_economic(role: int) -> bool:
+	return role == Unit.HARVESTER
 
 
 static func is_sensor_platform(role: int) -> bool:

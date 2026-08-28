@@ -74,10 +74,34 @@ const REENGAGE_PERIOD_S := 3.0
 const RANKED_LIMIT := 24
 ## Fraction of its own weapon reach a group closes to when probing.
 const STANDOFF_FRACTION := 0.75
+## A standoff may never eat more than this share of the distance a group still
+## has to cover, so "hold at gun range" can never become "drive backwards".
+## See _manoeuvre() for the measurement that made this constant necessary.
+const STANDOFF_MAX_SHARE := 0.5
 ## Structure fraction below which a unit breaks contact.
 const BASE_WITHDRAW_HP := 0.40
 ## Group strength ratio below which the whole group pulls back.
 const BASE_GROUP_BREAK := 0.55
+
+## How much ground one of the AI's own units is credited with having COVERED by
+## driving through it. Deliberately small -- a vehicle that drove past a hill
+## has not searched behind it -- because an optimistic number marks the map
+## swept without anybody having looked at it.
+const SWEEP_RADIUS_M := 700.0
+
+## Close enough to a search objective to call that piece of ground done and ask
+## for the next one.
+const SEARCH_ARRIVE_M := 500.0
+
+## A remembered position of something that did not move. A structure does not
+## drive away, so where one was seen stays worth attacking long after the track
+## has decayed -- this is the AI knowing where it scouted the enemy base.
+const SITE_MERGE_M := 500.0
+const SITE_STATIC_SPEED_MS := 1.5
+const SITE_CONFIRM_S := 12.0
+const MAX_SITES := 12
+## A site the army has stood on and found nothing at is gone.
+const SITE_CLEAR_M := 650.0
 
 var view: SimAiWorldView
 var rng: SimRng
@@ -122,8 +146,24 @@ var _next_group_id: int = 1
 var _role_cache: Dictionary = {}
 var _last_move: Dictionary = {}       ## unit -> [x, z, time]
 var _assigned: Dictionary = {}        ## unit -> [track_id, time]
-var _search_points: PackedFloat32Array = PackedFloat32Array()
-var _search_cursor: int = 0
+## The coverage map: which ground this AI has already looked at, and when.
+var search: SimAiSearch = SimAiSearch.new()
+## Per-unit destinations for units that search ALONE rather than in formation.
+## Two scouts in one formation cover one scout's worth of ground.
+var _solo_obj: Dictionary = {}
+## group id -> search cell it is currently sweeping, so a group finishes a
+## piece of ground instead of re-choosing every 0.67 s.
+var _group_cell: Dictionary = {}
+## Places something was seen that did not move: [x, z, last_seen_s]. Not a
+## track and not a belief -- a remembered map location, which is why it
+## outlives the memory horizon. Structures do not drive away.
+var _sites: Array = []
+## When the current ATTACK was entered. Commitment has to be sticky or an army
+## turns for home the moment a track decays.
+var _attack_since_s: float = -1.0e9
+## Seconds spent in PROBE while actually holding something worth attacking.
+## When this runs out the AI attacks anyway -- see _choose_posture().
+var _pressure_s: float = 0.0
 var _peak_live_tracks: int = 0
 var _prev_own_total: int = -1
 var _prev_sensor_count: int = -1
@@ -202,9 +242,11 @@ func strategic_tick(dt: float) -> void:
 func operational_tick(dt: float) -> void:
 	if view == null or view.forces == null:
 		return
+	_ensure_search()
 	_observe()
+	_record_sweep(dt)
 	_update_groups()
-	_choose_posture()
+	_choose_posture(dt)
 	_assign_objectives()
 	_manage_emcon()
 	_manoeuvre()
@@ -399,16 +441,28 @@ func _economy() -> void:
 	var counts := {"sensors": 0, "air_defence": 0, "supply": 0, "line": 0}
 	var factories := PackedInt32Array()
 	var own_structure_names := {}
+	var harvesters := 0
+	var scouts := 0
+	var refineries := 0
 	for i in view.forces.indices():
 		var role := _role_of(i)
 		if view.forces.is_structure(i):
 			own_structure_names[view.forces.unit_name(i)] = true
 			if role == SimAiRoles.Unit.PRODUCTION:
 				factories.append(i)
+			if view.forces.unit_name(i).to_lower().contains("refinery"):
+				refineries += 1
 			continue
+		if SimAiRoles.is_economic(role):
+			harvesters += 1
+			continue
+		if role == SimAiRoles.Unit.SCOUT:
+			scouts += 1
 		var bucket := SimAiPlan.bucket_of(role)
 		if bucket != "":
 			counts[bucket] = int(counts[bucket]) + 1
+	counts["economy"] = harvesters
+	counts["recon"] = scouts
 
 	# 3. THE BASE. One structure per strategic tick at most: an AI that queues
 	# its whole build order in one frame is an AI with no build order.
@@ -420,7 +474,7 @@ func _economy() -> void:
 		if options.is_empty():
 			continue
 		var key := SimAiPlan.choose_production(view, doctrine, skill, options,
-			counts, credits)
+			counts, credits, _wanted_harvesters(refineries), _wanted_scouts())
 		if key == "":
 			continue
 		var d := view.def_for(key)
@@ -432,6 +486,31 @@ func _economy() -> void:
 		counts[SimAiPlan.bucket_of_def(d)] = \
 			int(counts.get(SimAiPlan.bucket_of_def(d), 0)) + 1
 		log_decision("producing %s at %d (%.0f cr)" % [key, f, d.cost])
+
+
+## HOW MANY HARVESTERS. Measured, the AI built none at all: "Ore Miner" fell
+## through the role classifier to ARMOR, and once it was line it was never the
+## bucket it was shortest of. Both sides finished a six-minute peer match with
+## an idle refinery and about a hundred credits, producing the cheapest
+## infantry squad on the list because nothing else was affordable, while a
+## 9,000-credit ore field sat 400 m from the base untouched.
+##
+## Two per refinery is the genre's answer and it is the right one here: a
+## harvester costs 900 and carries 700 a load, so the second load is profit and
+## the refinery is the thing that throttles.
+func _wanted_harvesters(refineries: int) -> int:
+	if refineries <= 0:
+		return 0
+	return mini(6, 2 * refineries)
+
+
+## HOW MANY SCOUTS. The first job of an army that cannot see is to buy eyes,
+## and one reconnaissance vehicle in a thirty-unit force -- which is what a
+## peer match actually fielded -- cannot sweep a 6.4 km map before the match is
+## decided. Skill buys more of them, because docs/09 §2 makes sensor share the
+## clearest expression of competence there is.
+func _wanted_scouts() -> int:
+	return 2 + int(round(2.0 * SimSkill.sensor_share(skill)))
 
 
 ## Put up the next building in this doctrine's order that it does not already
@@ -485,6 +564,122 @@ func _build_site(ordinal: int) -> PackedFloat32Array:
 func _observe() -> void:
 	memory.observe(view.tracks_at_least(SimTypes.TrackQuality.CONTACT), elapsed_s)
 	memory.forget_expired(elapsed_s)
+	_remember_sites()
+
+
+## Lay the coverage map over the public terrain, once, the first time this AI
+## thinks. Deferred rather than done in _init because the terrain and the
+## resource fields are attached to the view by the match layer, and an AI
+## constructed before either exists would grid an empty world.
+func _ensure_search() -> void:
+	if search.built:
+		return
+	var ex := 40000.0
+	var ez := 40000.0
+	var water := Callable()
+	if view.terrain != null:
+		ex = view.terrain.extent_x_m()
+		ez = view.terrain.extent_z_m()
+		water = Callable(view.terrain, "is_water")
+	search.build(ex, ez, rng, water)
+	search.mark_resources(view.resource_points())
+	log_decision(search.describe())
+
+
+## "I have looked there." Written from the positions of THIS AI'S OWN UNITS and
+## from nothing else -- the purest own-information there is, and the record
+## that stops the army re-searching the ground it is standing on.
+func _record_sweep(_dt: float) -> void:
+	if not search.built:
+		return
+	for i in view.forces.indices():
+		if view.forces.is_structure(i):
+			continue
+		var p := view.forces.position(i)
+		search.mark_seen(p[0], p[2], SWEEP_RADIUS_M, elapsed_s)
+
+
+## SOMETHING THAT DOES NOT MOVE IS SOMEWHERE, not something. A contact held for
+## a while at effectively zero speed is a building, an emplacement or a parked
+## army -- and where it stands stays true after the track has decayed, because
+## buildings do not drive away.
+##
+## This is the AI knowing where it scouted your base, and it is earned: every
+## site here was observed by its own sensors, at the position its own track
+## table reported, which may be wrong. Nothing creates a site except an
+## observation, and a site the army walks onto and finds empty is deleted.
+func _remember_sites() -> void:
+	for b in memory.live_beliefs():
+		var belief := b as SimAiMemory.Belief
+		if belief.bearing_only or belief.known_for(elapsed_s) < SITE_CONFIRM_S:
+			continue
+		if sqrt(belief.vx * belief.vx + belief.vz * belief.vz) > SITE_STATIC_SPEED_MS:
+			continue
+		var merged := false
+		for row in _sites:
+			if sqrt(pow(float(row[0]) - belief.x, 2.0)
+					+ pow(float(row[1]) - belief.z, 2.0)) <= SITE_MERGE_M:
+				row[2] = elapsed_s
+				merged = true
+				break
+		if merged:
+			continue
+		if _sites.size() >= MAX_SITES:
+			continue
+		_sites.append([belief.x, belief.z, elapsed_s])
+		log_decision("remembering a fixed position at %.0f, %.0f" % [belief.x, belief.z])
+
+
+## Drop a site the army has stood on and found nothing at. Without this the AI
+## drives at a razed base forever; with it, "I cleared that" is a fact it can
+## learn the same way it learned the site existed.
+func _forget_cleared_sites() -> void:
+	if _sites.is_empty():
+		return
+	var live := memory.live_beliefs()
+	var keep: Array = []
+	for row in _sites:
+		var occupied := false
+		for b in live:
+			var belief := b as SimAiMemory.Belief
+			if belief.bearing_only:
+				continue
+			if sqrt(pow(belief.x - float(row[0]), 2.0)
+					+ pow(belief.z - float(row[1]), 2.0)) <= SITE_CLEAR_M:
+				occupied = true
+				break
+		if occupied:
+			keep.append(row)
+			continue
+		var stood_on := false
+		for g in groups:
+			var group := g as SimAiGroup
+			if group.role != SimAiGroup.Role.MAIN or group.is_empty():
+				continue
+			var c := _group_centre(group)
+			if sqrt(pow(c[0] - float(row[0]), 2.0)
+					+ pow(c[1] - float(row[1]), 2.0)) <= SITE_CLEAR_M:
+				stood_on = true
+				break
+		if stood_on:
+			log_decision("%.0f, %.0f is clear -- nothing there any more"
+				% [float(row[0]), float(row[1])])
+			continue
+		keep.append(row)
+	_sites = keep
+
+
+## The remembered fixed position most worth going at from here: nearest first,
+## which is how a force rolls up a position rather than crossing the map twice.
+func _nearest_site(from_x: float, from_z: float) -> Array:
+	var best: Array = []
+	var best_d := INF
+	for row in _sites:
+		var d := sqrt(pow(float(row[0]) - from_x, 2.0) + pow(float(row[1]) - from_z, 2.0))
+		if d < best_d:
+			best_d = d
+			best = row
+	return best
 
 
 ## Membership. Units are assigned to groups and stay there: a group that is
@@ -515,6 +710,13 @@ func _update_groups() -> void:
 			continue
 		var role := _role_of(i)
 		if role == SimAiRoles.Unit.BASE or role == SimAiRoles.Unit.PRODUCTION:
+			continue
+		# A HARVESTER IS NEVER IN A GROUP, because a group gets move orders and
+		# a move order is a player order: SimHarvest.interrupt() suspends the
+		# ore cycle until the unit is idle again. An AI that put its harvesters
+		# in the line stopped its own economy AND sent unarmed vehicles at the
+		# enemy. They earn; they do not manoeuvre.
+		if SimAiRoles.is_economic(role):
 			continue
 		var target_role := SimAiGroup.Role.MAIN
 		if role == SimAiRoles.Unit.SCOUT:
@@ -588,54 +790,140 @@ func _new_group(role: int) -> SimAiGroup:
 
 
 ## The stance the whole force fights under this tick.
-func _choose_posture() -> void:
+##
+## ── WHY THIS LADDER WAS REBUILT ────────────────────────────────────────────
+##
+## The previous one was decided by two numbers, NEITHER OF WHICH WAS ABOUT THE
+## ENEMY: whether any belief cleared the skill's commit threshold, and this
+## army's cohesion against its own high-water mark. ATTACK required cohesion
+## above 1.05 - 0.55*aggression, which for the DEFAULT Combined Arms doctrine
+## is 0.775 -- so an army that had taken a quarter of a casualty could never
+## attack again for the rest of the match, whatever it could see. Everything
+## else fell through to PROBE, and PROBE had no exit. Measured on a peer match:
+## both directors sat in PROBE for twelve simulated minutes.
+##
+## What replaces it is the thing an RTS commander actually asks: DO I HAVE
+## ENOUGH FOR WHAT I CAN SEE? That question needs an estimate of the enemy, and
+## the only honest one available is the size of its own picture -- how many
+## distinct contacts it is holding. That number is earned (it is what its
+## sensors built), it is wrong in interesting ways (a decoy inflates it, EMCON
+## deflates it), and it costs nothing to fetch.
+##
+## Three ways into ATTACK, and the second and third are why PROBE can no longer
+## be permanent:
+##
+##   ODDS      own committed strength per contact held, over the doctrine's bar
+##   COMMITMENT once attacking, keep attacking for a fixed window. An army that
+##             turns round the instant a track decays never arrives anywhere,
+##             and tracks decay seconds after contact
+##   PATIENCE  time spent in PROBE while holding something worth attacking.
+##             When it runs out, go in on the odds available. This is the
+##             stalemate breaker, and its length is the skill dial: about 90 s
+##             for a Recruit, 25 s for an Elite, off the docs/09 §2 reaction row
+func _choose_posture(dt: float) -> void:
 	var committable := _committable_beliefs()
 	var aggression: float = clampf(doctrine.aggression, 0.0, 1.0)
 	var force_ratio := _force_strength_ratio()
 	var previous := posture
 
-	# COHESION, not a force comparison: _force_strength_ratio() is this army's
-	# strength against its OWN peak, so 1.0 means intact and 0.5 means half
-	# destroyed. Aggression therefore sets WILLINGNESS and cohesion sets
-	# CAPABILITY, and the commit threshold is where the two meet.
-	#
-	# The previous ladder gated ATTACK on `aggression >= 0.55` alone, which made
-	# four of the eight doctrines structurally incapable of ever attacking --
-	# including COMBINED_ARMS at exactly 0.50, which is the DEFAULT. Two default
-	# opponents therefore produced a permanent stalemate: measured, a peer match
-	# ran 30 simulated minutes, made contact once at t+240 s, took two
-	# casualties, withdrew to its start line and sat there while both sides
-	# built units forever. The victory condition could never fire because
-	# neither side ever threatened the other's production.
-	#
-	# Now every doctrine can attack; they differ in how intact they insist on
-	# being first. Blitz commits at 0.53 cohesion (it will attack while losing),
-	# Combined Arms at 0.78, Fortress at 0.99 (effectively only when untouched).
-	var commit_at := 1.05 - 0.55 * aggression
+	# PRESSURE. Only accumulates while it is looking at something it could go
+	# and attack; a blind AI is not being patient, it is being blind.
+	if posture == Posture.PROBE and not committable.is_empty():
+		_pressure_s += dt
+	elif posture != Posture.PROBE or committable.is_empty():
+		_pressure_s = 0.0
+
+	var odds := _odds()
+	var bar := _odds_to_commit()
+	var patience := _patience_s()
+	var out_of_patience := _pressure_s >= patience
+	var reason := ""
+
 	if force_ratio < BASE_GROUP_BREAK - 0.25 * aggression:
 		posture = Posture.WITHDRAW
+		reason = "cohesion %.2f" % force_ratio
+	elif posture == Posture.ATTACK and elapsed_s - _attack_since_s < _commit_hold_s():
+		# COMMITMENT. Deliberately ABOVE the "nothing to shoot at" branch: an
+		# attack that has already started does not stop because the picture
+		# went dark, it presses on to the last known position. Losing contact
+		# and driving home is the failure this project has fixed once already.
+		posture = Posture.ATTACK
+		reason = "committed for another %.0f s" % (_commit_hold_s() - (elapsed_s - _attack_since_s))
 	elif committable.is_empty():
 		# Nothing to shoot at is a reason to go LOOKING, not a reason to sit at
-		# home. Losing contact used to drop a 0.5-aggression AI to DEFEND
-		# permanently, because its beliefs expired after 240 s and nothing ever
-		# refreshed them -- the AI blinded itself and then declined to scout.
-		# 0.25, not 0.35. Only a doctrine that genuinely wants to be attacked
-		# should sit at home with no contacts: FORTRESS (0.10) is "nothing comes
-		# to you, you have to go in", and TECH_RUSH (0.20) is buying time on
-		# purpose. DENIAL is 0.30 and is about making the ENEMY fight blind, not
-		# about refusing to manoeuvre -- at 0.35 it never left its start line and
-		# a peer match against it could not end.
+		# home -- and PROBE now means a systematic sweep of ground this AI has
+		# not covered, not a drive to the middle and back.
 		posture = Posture.PROBE if aggression >= 0.25 else Posture.DEFEND
-	elif force_ratio >= commit_at:
+		reason = "nothing committable"
+	elif odds >= bar or out_of_patience:
 		posture = Posture.ATTACK
+		reason = ("odds %.2f over %.2f" % [odds, bar]) if odds >= bar \
+			else "out of patience after %.0f s of probing" % _pressure_s
 	elif aggression >= 0.30:
 		posture = Posture.PROBE
+		reason = "odds %.2f under %.2f, %.0f/%.0f s of patience left" % [
+			odds, bar, _pressure_s, patience]
 	else:
 		posture = Posture.HOLD
+		reason = "odds %.2f under %.2f" % [odds, bar]
+
+	if posture == Posture.ATTACK and previous != Posture.ATTACK:
+		_attack_since_s = elapsed_s
+		_pressure_s = 0.0
 	if previous != posture:
-		log_decision("posture %s -> %s (cohesion %.2f, commit at %.2f, %d committable)" % [
+		log_decision("posture %s -> %s (%s; cohesion %.2f, %d committable)" % [
 			POSTURE_NAMES.get(previous, "?"), POSTURE_NAMES.get(posture, "?"),
-			force_ratio, commit_at, committable.size()])
+			reason, force_ratio, committable.size()])
+
+
+## HOW MUCH ARMY THERE IS PER THING IT CAN SEE.
+##
+## The numerator is its own manoeuvre strength, which it knows exactly. The
+## denominator is the size of its own PICTURE -- the count of live contacts --
+## which is an estimate and a poor one: it counts a decoy, it misses everything
+## under EMCON, and it says nothing about what any of those contacts is. That
+## is the correct amount of information to attack on, and being wrong about it
+## is how a commander loses a battle rather than how an AI cheats.
+func _odds() -> float:
+	var mine := 0.0
+	for g in groups:
+		var group := g as SimAiGroup
+		if group.role == SimAiGroup.Role.MAIN:
+			mine += group.strength
+	var seen := 0
+	for b in memory.live_beliefs():
+		if not (b as SimAiMemory.Belief).bearing_only:
+			seen += 1
+	return mine / maxf(1.0, float(seen))
+
+
+## Own units wanted per contact held before committing. Doctrine sets the
+## appetite -- Blitz goes in level, a Fortress wants to be two to one -- and
+## skill sharpens it, because judging when you have enough IS competence and
+## docs/09 §2 puts competence, not information, on the difficulty slider.
+func _odds_to_commit() -> float:
+	var aggression: float = clampf(doctrine.aggression, 0.0, 1.0)
+	var caution: float = clampf(
+		SimSkill.reaction_seconds(skill) / 10.0, 0.0, 1.0)
+	return (1.55 - 0.85 * aggression) * (0.88 + 0.32 * caution)
+
+
+## How long an attack stays an attack whatever the picture does. Long enough to
+## cross the ground between the two armies at least once.
+func _commit_hold_s() -> float:
+	return 30.0 + 45.0 * clampf(doctrine.aggression, 0.0, 1.0)
+
+
+## How long this AI will look at something it could attack before attacking it
+## anyway. THE STALEMATE BREAKER: with a finite patience, PROBE cannot be a
+## terminal state, which is the property the old ladder lacked.
+##
+## Scaled off the published docs/09 §2 reaction row so the difficulty ladder
+## keeps its shape: Recruit 10 s reaction -> ~92 s of dithering, Elite 1.5 s ->
+## ~25 s, and an aggressive doctrine shortens both.
+func _patience_s() -> float:
+	var base := 12.0 + 8.0 * SimSkill.reaction_seconds(skill)
+	return base * (1.35 - 0.7 * clampf(doctrine.aggression, 0.0, 1.0))
 
 
 func _force_strength_ratio() -> float:
@@ -706,6 +994,9 @@ func _threat_sort(a: Array, b: Array) -> bool:
 ## attack rather than one column.
 func _assign_objectives() -> void:
 	memory.clear_claims()
+	search.clear_claims()
+	_forget_cleared_sites()
+	_solo_obj.clear()
 	var committable := _committable_beliefs()
 	var cursor := 0
 
@@ -763,45 +1054,88 @@ func _assign_objectives() -> void:
 		# next 25 simulated minutes building units at opposite corners of a
 		# 12.8 km map. Two kills, and the victory condition could never fire
 		# because neither side ever came near the other's production again.
-		var stale := memory.stale_beliefs(elapsed_s)
 		var pressing := posture == Posture.ATTACK or posture == Posture.PROBE
-		if pressing and not stale.is_empty() and not _at_objective(group):
-			# An attacking force presses on to where it last saw something. It
-			# does not need a live track to keep going -- that is what an axis
-			# of advance IS.
-			var last_known := stale[stale.size() - 1] as SimAiMemory.Belief
-			var pt2 := last_known.predicted(elapsed_s, SimSkill.prediction(skill))
-			group.set_objective_point(pt2[0], pt2[1])
-			group.state = SimAiGroup.State.SEARCHING
-		elif pressing:
-			# Either nothing is remembered, or the group has ARRIVED where it was
-			# sent and found nothing. Both mean the same thing: keep sweeping.
-			#
-			# Stopping here is what a previous version did, and it deadlocked
-			# beautifully -- after a real battle the two armies drove to their
-			# last-known-contact points, arrived, found empty ground and stood
-			# there. Measured: both sides frozen 5,233 m apart for 25 simulated
-			# minutes, shots fixed at 228, while production rebuilt both armies.
-			# "Search" has to mean a pattern, not a single waypoint.
-			#
-			# The sweep runs through the CENTRE and then past it. It deliberately
-			# never targets the enemy's base: mirroring our own start position
-			# would find them on a symmetric map, and that is knowledge this AI
-			# has not earned. The middle assumes nothing about where anyone is,
-			# and it works precisely because the other side is sweeping it too.
-			var c := _group_centre(group)
-			var to_centre := sqrt(c[0] * c[0] + c[1] * c[1])
-			if to_centre > 1500.0:
-				group.set_objective_point(0.0, 0.0)
-			else:
-				# Already in the middle with nothing found: push on across, so
-				# the sweep covers the far half instead of orbiting the centre.
-				var away := 1.0 if home_x < 0.0 else -1.0
-				group.set_objective_point(away * absf(home_x), -home_z)
-			group.state = SimAiGroup.State.SEARCHING
+		if pressing:
+			_press_on(group)
 		else:
 			group.set_objective_point(home_x, home_z)
 			group.state = SimAiGroup.State.HOLDING
+
+
+## AN ADVANCE WITH NOTHING LIVE TO ADVANCE ON. Getting this wrong is the single
+## reason no match in this game could ever end, so the order of the four
+## fallbacks is the whole behaviour:
+##
+##  1. THE LAST PLACE SOMETHING WAS. A track decays seconds after contact; an
+##     axis of advance does not. Press to where it was last believed to be.
+##  2. A REMEMBERED FIXED POSITION. Something that was seen and did not move is
+##     still there, and it is the closest thing to "their base" this AI is
+##     allowed to know -- because it scouted it.
+##  3. GROUND IT HAS NOT LOOKED AT. The systematic sweep: nearest cell of the
+##     coverage map that is unswept or has gone stale, CLAIMED so a second
+##     group takes a different one. Three groups sent to the same waypoint are
+##     one group with extra steps, and that is what the old code did -- every
+##     manoeuvre group was sent to (0, 0).
+##  4. Failing all of that, the middle, which assumes nothing about anybody.
+##
+## Note what is absent: any use of this AI's own start position to guess where
+## the enemy started. On a symmetric map that finds the enemy base with no
+## sensors at all, and it is exactly the knowledge docs/09 §1.1 forbids.
+func _press_on(group: SimAiGroup) -> void:
+	group.state = SimAiGroup.State.SEARCHING
+	var stale := memory.stale_beliefs(elapsed_s)
+	if not stale.is_empty() and not _at_objective(group):
+		var last_known := stale[stale.size() - 1] as SimAiMemory.Belief
+		var pt := last_known.predicted(elapsed_s, SimSkill.prediction(skill))
+		group.set_objective_point(pt[0], pt[1])
+		return
+	var c := _group_centre(group)
+	if not stale.is_empty():
+		# Arrived where it was last seen and found nothing. Take the newest
+		# memory that is not the one just walked onto, else fall through to the
+		# sweep -- which starts from HERE, so the search continues forward
+		# rather than restarting from home.
+		var last_known2 := stale[stale.size() - 1] as SimAiMemory.Belief
+		var pt2 := last_known2.predicted(elapsed_s, SimSkill.prediction(skill))
+		if sqrt(pow(pt2[0] - c[0], 2.0) + pow(pt2[1] - c[1], 2.0)) > 900.0:
+			group.set_objective_point(pt2[0], pt2[1])
+			return
+	var site := _nearest_site(c[0], c[1])
+	if not site.is_empty():
+		group.set_objective_point(float(site[0]), float(site[1]))
+		return
+	var cell := _sweep_cell_for(group, c[0], c[1])
+	if cell >= 0:
+		var p := search.centre_of(cell)
+		group.set_objective_point(p[0], p[1])
+		return
+	group.set_objective_point(0.0, 0.0)
+
+
+## The piece of ground this group is sweeping. A group KEEPS its cell until it
+## gets there, so an army does not re-plan its search every two thirds of a
+## second and stand still doing it; and cells are claimed, so two groups sweep
+## two different squares.
+func _sweep_cell_for(group: SimAiGroup, x: float, z: float) -> int:
+	var held: int = int(_group_cell.get(group.id, -1))
+	if held >= 0 and held < search.size() and not search.is_claimed(held):
+		var c := search.centre_of(held)
+		var arrived: bool = sqrt(pow(c[0] - x, 2.0) + pow(c[1] - z, 2.0)) \
+			<= SEARCH_ARRIVE_M
+		# Somebody else may have driven through it in the meantime, in which
+		# case that ground is done and this group should be somewhere else.
+		var already_covered: bool = elapsed_s - search.swept[held] \
+			< SimAiSearch.RESWEEP_S
+		if not arrived and not already_covered:
+			search.claim(held)
+			return held
+	var next_cell := search.next_cell(x, z, elapsed_s)
+	if next_cell < 0:
+		_group_cell.erase(group.id)
+		return -1
+	search.claim(next_cell)
+	_group_cell[group.id] = next_cell
+	return next_cell
 
 
 ## Where a group actually is, from its OWN units. Uses the whitelisted forces
@@ -848,35 +1182,47 @@ func _place_sensors(group: SimAiGroup) -> void:
 	group.state = SimAiGroup.State.HOLDING
 
 
-## Scouts answer cues. docs/09 §3: "TQ1 bearing-only contact -> cue a sensor. Do
-## not commit forces to a bearing." This is that rule with legs on it, and it is
-## also the blackout behaviour -- with no picture at all, scouts search.
+## SCOUTS. docs/09 §3: "TQ1 bearing-only contact -> cue a sensor. Do not commit
+## forces to a bearing." This is that rule with legs on it, and it is also the
+## blackout behaviour -- with no picture at all, scouts search.
+##
+## THE CHANGE THAT MATTERS: scouts are tasked ONE AT A TIME, each to its own
+## cell of the coverage map. They used to be driven as a formation, which meant
+## that however many an AI built, they covered exactly one scout's worth of
+## ground in a five-vehicle diamond. Reconnaissance is the one job where
+## spreading out IS the job.
 func _task_scouts(group: SimAiGroup) -> void:
+	group.state = SimAiGroup.State.SEARCHING
 	var cue: SimAiMemory.Belief = null
 	for b in _ranked_beliefs():
 		var belief := b as SimAiMemory.Belief
 		if belief.quality <= SimTypes.TrackQuality.CONTACT and _actionable(belief):
 			cue = belief
 			break
-	if cue != null:
-		var pt := _cue_point(cue)
-		group.set_objective_point(pt[0], pt[1])
-		group.state = SimAiGroup.State.SEARCHING
-		return
-	var stale := memory.stale_beliefs(elapsed_s)
-	if not stale.is_empty():
-		var b2 := stale[0] as SimAiMemory.Belief
-		var p2 := b2.predicted(elapsed_s, SimSkill.prediction(skill))
-		group.set_objective_point(p2[0], p2[1])
-		group.state = SimAiGroup.State.SEARCHING
-		return
-	# Nothing at all. Sweep the map on a fixed, seeded route that owes nothing
-	# to where the enemy actually is -- which is what makes the docs/09 §1.5
-	# null-sensor test pass rather than merely not fail.
-	if not group.has_objective or _reached(group):
-		var p3 := _next_search_point()
-		group.set_objective_point(p3[0], p3[1])
-	group.state = SimAiGroup.State.SEARCHING
+	var first := true
+	for i in group.members:
+		if not view.forces.owns(i):
+			continue
+		var p := view.forces.position(i)
+		var target: PackedFloat32Array
+		if first and cue != null:
+			# The nearest scout answers the cue; the rest keep sweeping, because
+			# an army that stops searching the moment it holds one contact is an
+			# army that gets flanked.
+			target = _cue_point(cue)
+		else:
+			var cell := search.next_cell(p[0], p[2], elapsed_s)
+			if cell < 0:
+				target = PackedFloat32Array([home_x, home_z])
+			else:
+				search.claim(cell)
+				target = search.centre_of(cell)
+		_solo_obj[i] = target
+		if first:
+			group.set_objective_point(target[0], target[1])
+			first = false
+	if first:
+		group.set_objective_point(home_x, home_z)
 
 
 ## Where to look for a bearing-only contact: down the bearing from home, or at
@@ -944,24 +1290,64 @@ func _manage_emcon() -> void:
 func _manoeuvre() -> void:
 	for g in groups:
 		var group := g as SimAiGroup
-		if group.is_empty() or not group.has_objective:
+		if group.is_empty():
+			continue
+		# Units searching alone -- scouts -- each have their own destination.
+		if group.role == SimAiGroup.Role.SCOUT:
+			for i in group.members:
+				if not view.forces.can_move(i) or _withdrawn.has(i):
+					continue
+				var t: PackedFloat32Array = _solo_obj.get(i,
+					PackedFloat32Array([group.obj_x, group.obj_z]))
+				_order_move_if_needed(i, t[0], t[1])
+			group.last_order_s = elapsed_s
+			continue
+		if not group.has_objective:
 			continue
 		var gx := group.obj_x
 		var gz := group.obj_z
-		# Standoff: everything except a committed attack stops short of the
-		# objective, at a fraction of its own weapon reach.
+		# ── STANDOFF, and the bug that lived here ──────────────────────────
+		#
+		# "Stop short of the objective at a fraction of my own weapon reach"
+		# was measured back from HOME, and applied to every objective including
+		# a search waypoint. On skirmish_valley the bases are 2.56 km apart, a
+		# tank's assumed reach is 4 km, so the standoff was 3 km: a group told
+		# to sweep the map centre 1.8 km away had 3 km subtracted along the
+		# outward axis and was sent to a point 1.2 km BEHIND ITS OWN BASE.
+		# Measured, both armies drove into opposite corners and stayed there --
+		# 976 sensor pairs evaluated over twelve simulated minutes and zero
+		# detections between them. The AI was not failing to find the enemy; it
+		# was ordered away from him.
+		#
+		# Two rules fix it and both are about what standoff MEANS. It is a
+		# distance from a THING YOU CAN SEE, so it applies only to a live
+		# contact and never to a piece of empty ground you are going to look
+		# at. And it is measured back along the axis FROM THE GROUP, capped at
+		# half the distance still to cover, so it can shorten an advance and
+		# can never reverse one.
 		if group.role == SimAiGroup.Role.MAIN \
+				and group.objective_track >= 0 \
 				and group.state != SimAiGroup.State.WITHDRAWING \
 				and posture != Posture.ATTACK:
-			var reach := _group_reach_m(group) * STANDOFF_FRACTION
-			var away := _unit_vector(gx - home_x, gz - home_z)
-			gx -= away[0] * reach
-			gz -= away[1] * reach
+			var c := _group_centre(group)
+			var dx := gx - c[0]
+			var dz := gz - c[1]
+			var to_go := sqrt(dx * dx + dz * dz)
+			if to_go > 1.0:
+				var standoff: float = minf(
+					_group_reach_m(group) * STANDOFF_FRACTION,
+					to_go * STANDOFF_MAX_SHARE)
+				gx -= dx / to_go * standoff
+				gz -= dz / to_go * standoff
 		_move_formation(group, gx, gz)
 
 
 func _move_formation(group: SimAiGroup, gx: float, gz: float) -> void:
-	var dir := _unit_vector(gx - home_x, gz - home_z)
+	# The formation faces the way the group is actually going. Taking the axis
+	# from home instead put the ranks side-on to the advance as soon as an
+	# objective was anywhere but straight out from base.
+	var c := _group_centre(group)
+	var dir := _unit_vector(gx - c[0], gz - c[1])
 	var px := -dir[1]
 	var pz := dir[0]
 	for k in range(group.members.size()):
@@ -998,6 +1384,10 @@ func _break_contact_if_hurt() -> void:
 	var withdraw_at: float = BASE_WITHDRAW_HP - 0.20 * clampf(doctrine.aggression, 0.0, 1.0)
 	for i in view.forces.indices():
 		if view.forces.is_structure(i) or not view.forces.can_move(i):
+			continue
+		if SimAiRoles.is_economic(_role_of(i)):
+			# Harvesters run themselves. Ordering one home would suspend the
+			# ore cycle, which is the opposite of protecting the economy.
 			continue
 		var hp := view.forces.structure_fraction(i)
 		var lost_firepower := (view.forces.components_lost(i)
@@ -1178,43 +1568,26 @@ func _unit_vector(dx: float, dz: float) -> PackedFloat32Array:
 	return PackedFloat32Array([dx / m, dz / m])
 
 
-## A search route over the PUBLIC map, shuffled from this AI's own seeded
-## stream. It is a function of the seed and the terrain and of nothing else --
-## which is the property the null-sensor test in test_ai.gd measures.
+## THE NEXT POINT ON THIS AI'S SEARCH ROUTE, off the coverage map, marking it
+## covered as it goes so successive calls walk a route rather than returning one
+## answer forever.
+##
+## It used to be a sixteen-point lattice shuffled once from the seed, which had
+## two problems: the route owed nothing to what the AI had already looked at,
+## and it was a SECOND search implementation that only the determinism test in
+## test_ai.gd ever exercised. Now the test and the AI walk the same ground, so
+## "a different seed produces a different search route" measures the thing the
+## army actually does. The seed enters through SimAiSearch's per-cell jitter,
+## drawn once per cell in index order from this AI's own stream -- docs/06
+## forbids randf() anywhere in the sim.
 func _next_search_point() -> PackedFloat32Array:
-	if _search_points.is_empty():
-		_build_search_route()
-	if _search_points.is_empty():
+	_ensure_search()
+	var cell := search.next_cell(home_x, home_z, elapsed_s, false)
+	if cell < 0:
 		return PackedFloat32Array([home_x, home_z])
-	var n := _search_points.size() / 2
-	var k := _search_cursor % n
-	_search_cursor += 1
-	return PackedFloat32Array([_search_points[k * 2], _search_points[k * 2 + 1]])
-
-
-func _build_search_route() -> void:
-	var half_x := 20000.0
-	var half_z := 20000.0
-	if view.terrain != null:
-		half_x = view.terrain.extent_x_m() * 0.35
-		half_z = view.terrain.extent_z_m() * 0.35
-	var pts: Array = []
-	for gx in range(4):
-		for gz in range(4):
-			pts.append(Vector2(
-				lerpf(-half_x, half_x, float(gx) / 3.0),
-				lerpf(-half_z, half_z, float(gz) / 3.0)))
-	# Fisher-Yates from the seeded stream. docs/06 forbids randf() in the sim,
-	# and a shuffle is exactly where somebody reaches for it.
-	for k in range(pts.size() - 1, 0, -1):
-		var j := rng.next_int(0, k)
-		var tmp: Vector2 = pts[k]
-		pts[k] = pts[j]
-		pts[j] = tmp
-	_search_points = PackedFloat32Array()
-	for p in pts:
-		_search_points.append((p as Vector2).x)
-		_search_points.append((p as Vector2).y)
+	var p := search.centre_of(cell)
+	search.mark_seen(p[0], p[1], SWEEP_RADIUS_M, elapsed_s)
+	return p
 
 
 ## How likely this contact is an ENABLER rather than part of the army, judged
@@ -1289,8 +1662,11 @@ func to_dict() -> Dictionary:
 		"next_group_id": _next_group_id,
 		"last_move": last_move,
 		"assigned": assigned,
-		"search_points": SimSave.b64_f32(_search_points),
-		"search_cursor": _search_cursor,
+		"coverage": search.to_dict(),
+		"group_cell_v": _group_cell_values(),
+		"sites": _sites_out(),
+		"attack_since_s": SimSave.enc_float(_attack_since_s),
+		"pressure_s": SimSave.enc_float(_pressure_s),
 		"adapt": [_peak_live_tracks, _prev_own_total, _prev_sensor_count,
 			_losses_since_strategic, _sensor_losses_since_strategic],
 		"datalink_up": _datalink_up,
@@ -1332,8 +1708,20 @@ func from_dict(d: Dictionary) -> void:
 	for k in (d["assigned"] as Dictionary):
 		var e: Array = d["assigned"][k]
 		_assigned[int(String(k))] = [int(e[0]), SimSave.dec_float(e[1])]
-	_search_points = SimSave.un_f32(String(d["search_points"]))
-	_search_cursor = int(d["search_cursor"])
+	search = SimAiSearch.new()
+	if d.has("coverage"):
+		search.from_dict(d["coverage"])
+	_group_cell.clear()
+	for k in (d.get("group_cell_v", {}) as Dictionary):
+		_group_cell[int(String(k))] = int(d["group_cell_v"][k])
+	_sites.clear()
+	for row in (d.get("sites", []) as Array):
+		var r: Array = row
+		_sites.append([SimSave.dec_float(r[0]), SimSave.dec_float(r[1]),
+			SimSave.dec_float(r[2])])
+	_attack_since_s = SimSave.dec_float(d.get("attack_since_s", -1.0e9))
+	_pressure_s = SimSave.dec_float(d.get("pressure_s", 0.0))
+	_solo_obj.clear()
 	var ad: Array = d["adapt"]
 	_peak_live_tracks = int(ad[0]); _prev_own_total = int(ad[1])
 	_prev_sensor_count = int(ad[2]); _losses_since_strategic = int(ad[3])
@@ -1341,6 +1729,26 @@ func from_dict(d: Dictionary) -> void:
 	_datalink_up = bool(d["datalink_up"])
 	_last_build_s = SimSave.dec_float(d["last_build_s"])
 	_withdrawn = SimSave.dec_ib(d["withdrawn"])
+
+
+## Group-cell assignments and remembered sites, in the encodings SimSave takes.
+## Both are ordinary AI state: which square a group is sweeping, and where it
+## saw something that did not move.
+func _group_cell_values() -> Dictionary:
+	var out := {}
+	var keys: Array = _group_cell.keys()
+	keys.sort()
+	for k in keys:
+		out[str(k)] = int(_group_cell[k])
+	return out
+
+
+func _sites_out() -> Array:
+	var out: Array = []
+	for row in _sites:
+		out.append([SimSave.enc_float(float(row[0])),
+			SimSave.enc_float(float(row[1])), SimSave.enc_float(float(row[2]))])
+	return out
 
 
 ## The debug view docs/09 §1.6 asks for: what this AI believes, beside what it
@@ -1355,6 +1763,8 @@ func describe() -> String:
 			memory.live_count(), memory.count()])
 	lines.append("  orders: %d move, %d attack, %d emcon, %d production"
 		% [orders_moved, orders_attacked, orders_emcon, orders_production])
+	lines.append("  " + search.describe()
+		+ "   %d remembered fixed position(s)" % _sites.size())
 	for g in groups:
 		lines.append("  " + (g as SimAiGroup).describe())
 	return "\n".join(lines)

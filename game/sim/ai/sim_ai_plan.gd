@@ -52,6 +52,11 @@ static func desired_mix(doctrine: SimDoctrine, skill: int) -> Dictionary:
 
 ## Which of the four buckets a role counts toward.
 static func bucket_of(role: int) -> String:
+	if SimAiRoles.is_economic(role):
+		# Deliberately outside the four combat buckets: a harvester is not a
+		# share of the force, it is what pays for the force. It gets its own
+		# target count in choose_production() instead.
+		return ""
 	if SimAiRoles.is_sensor_platform(role):
 		return "sensors"
 	if role == SimAiRoles.Unit.SAM:
@@ -103,9 +108,32 @@ static func bucket_of_def(d: SimUnitDef) -> String:
 ## reasonable commander.
 static func choose_production(view: SimAiWorldView, doctrine: SimDoctrine,
 		skill: int, options: PackedStringArray, counts: Dictionary,
-		credits: float) -> String:
+		credits: float, harvester_target := 0, scout_target := 0) -> String:
 	if options.is_empty():
 		return ""
+
+	# TWO THINGS COME BEFORE THE MIX, and both are answers to a measurement
+	# rather than to the doctrine table.
+	#
+	# HARVESTERS, because the mix is a mix of SHOOTERS and a share-of-force
+	# rule can never ask for the thing that pays for the force. An AI with no
+	# harvester has one income -- its starting trickle -- and a measured peer
+	# match ended with both sides at ~100 credits producing the cheapest
+	# infantry on the list. Money first.
+	#
+	# SCOUTS, because the mix counts a reconnaissance vehicle as "line" and it
+	# is never short of line. The first job is to find the enemy, and an army
+	# that buys no eyes does not get to.
+	var early := _first_of_kind(view, options, credits,
+		SimAiRoles.Unit.HARVESTER, int(counts.get("economy", 0)), harvester_target,
+		false)
+	if early != "":
+		return early
+	early = _first_of_kind(view, options, credits,
+		SimAiRoles.Unit.SCOUT, int(counts.get("recon", 0)), scout_target, true)
+	if early != "":
+		return early
+
 	var mix := desired_mix(doctrine, skill)
 	var want := biggest_deficit(counts, mix)
 
@@ -137,6 +165,43 @@ static func choose_production(view: SimAiWorldView, doctrine: SimDoctrine,
 	# Nothing in the bucket is affordable here; take the cheapest thing this
 	# factory makes rather than stalling the line.
 	return fallback if fallback_cost <= credits else ""
+
+
+## The thing this factory makes that best fills a role the AI is short of.
+##
+## `fastest` picks the quickest rather than the cheapest, and the distinction is
+## the whole difference between a scout and a harvester. A harvester is a
+## harvester: pay the least. A scout is GROUND COVERED PER MINUTE, and the
+## cheapest thing the classifier calls a scout is a foot recon team that cannot
+## cross a 6.4 km map before the match is over. Ties break on cost, then on the
+## key, so the choice is identical on every run.
+static func _first_of_kind(view: SimAiWorldView, options: PackedStringArray,
+		credits: float, role: int, have: int, want: int,
+		fastest: bool) -> String:
+	if have >= want or want <= 0:
+		return ""
+	var best := ""
+	var best_cost := INF
+	var best_speed := -1.0
+	for key in options:
+		var d := view.def_for(key)
+		if d == null or d.is_structure or d.cost > credits:
+			continue
+		var speed := d.max_speed_ms()
+		if SimAiRoles.classify(d.name, d.category, false, speed) != role:
+			continue
+		var better := false
+		if fastest:
+			better = speed > best_speed \
+				or (speed == best_speed and d.cost < best_cost)
+		else:
+			better = d.cost < best_cost \
+				or (d.cost == best_cost and speed > best_speed)
+		if better:
+			best_cost = d.cost
+			best_speed = speed
+			best = key
+	return best
 
 
 ## The order a base gets built in. A doctrine changes what goes up early --
