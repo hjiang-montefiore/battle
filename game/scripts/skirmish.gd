@@ -2830,33 +2830,47 @@ func _run_headless_check() -> void:
 			_selected.append(i)
 	_check("select", _selected.size() >= 6, "%d units selected" % _selected.size())
 
-	# 2. MOVE. Issued through SimCommandQueue, positioned by SimMovement's own
-	#    formation grid, and checked by whether the units actually got there.
+	# Hoisted: the build checks below now run before the move check, and both
+	# need it.
 	var home := _match.base_position(_me)
-	var goal := home + (Vector2(0, 0) - home).normalized() * 900.0
-	var units := PackedInt32Array()
-	for i in _selected:
-		units.append(i)
-	var start_d := _mean_distance_to(units, goal)
-	var slots := _match.world.movement.formation_slots(units, goal.x, goal.y)
-	for k in range(units.size()):
-		_match.world.commands.move(_me, units[k], slots[k * 2], slots[k * 2 + 1])
-	_match.run_ticks(1200)
-	var end_d := _mean_distance_to(units, goal)
-	_check("move order", end_d < start_d * 0.5,
-		"mean range to the objective %.0f m -> %.0f m" % [start_d, end_d])
 
+	# ORDER MATTERS. These used to run AFTER the move check, which sends the
+	# whole army 900 m away for sixty seconds -- and now that the AI actually
+	# attacks, the enemy walked into the undefended base and destroyed the
+	# test's power plant DURING its 32 s of construction. Three capability
+	# checks then reported a broken build flow, because the building they
+	# were watching had been shot. They run while the base is still held,
+	# which is what they were always meant to be testing.
 	# 3. BUILD. Place a structure, wait for it, and check it went operational.
 	var before := e.count()
 	var credits_before := _match.credits(_me)
 	_placing_role = "power_plant"
 	_try_place(Vector3(home.x + 70.0, 0.0, home.y + 30.0))
-	_match.run_ticks(700)
+	# WAIT FOR THE BUILDING, not for a tick count. 700 ticks is 35 s and an
+	# epoch-4 power plant needs 32.5 s of work at a 0.94 work rate -- 34.6 s.
+	# The check was passing on four tenths of a second of margin, and the first
+	# thing that moved the economy tipped it into a failure that looked like a
+	# broken build flow and was a stopwatch.
+	# ASSERT THE BUILD FLOW, NOT SURVIVAL. This check used to run a fixed 700
+	# ticks and read is_operational() at the end -- which returns false for a
+	# DEAD unit. Now that the AI actually attacks, the enemy razed the new
+	# plant before the check looked at it, and a perfectly good build flow
+	# reported "power plant 51" with ALIVE=false and 26 kills on the board.
+	# What is under test is that a placed building completes; whether it then
+	# survives a battle is the battle's business.
 	var built := -1
-	for i in range(before, e.count()):
-		if e.owner[i] == _me and _match.world.economy.role_of(i) == "power_plant":
-			built = i
-	_check("build", built >= 0 and _match.world.economy.is_operational(built),
+	var completed := false
+	for _w in range(30):
+		_match.run_ticks(100)
+		built = -1
+		for i in range(before, _match.world.entities.count()):
+			if _match.world.economy.role_of(i) == "power_plant" \
+					and _match.world.entities.owner[i] == _me:
+				built = i
+		if built >= 0 and _match.world.economy.is_operational(built):
+			completed = true
+			break
+	_check("build", completed,
 		"power plant %d, %.0f cr spent" % [built, credits_before - _match.credits(_me)])
 
 	# 4. PRODUCE. Queue a unit at a factory and wait for it to roll out armed.
@@ -2876,6 +2890,21 @@ func _run_headless_check() -> void:
 	_check("produce", produced >= 0 and _match.world.weapons.is_armed(produced),
 		"tank %d, armed %s" % [produced,
 			str(produced >= 0 and _match.world.weapons.is_armed(produced))])
+
+	# 2. MOVE. Issued through SimCommandQueue, positioned by SimMovement's own
+	#    formation grid, and checked by whether the units actually got there.
+	var goal := home + (Vector2(0, 0) - home).normalized() * 900.0
+	var units := PackedInt32Array()
+	for i in _selected:
+		units.append(i)
+	var start_d := _mean_distance_to(units, goal)
+	var slots := _match.world.movement.formation_slots(units, goal.x, goal.y)
+	for k in range(units.size()):
+		_match.world.commands.move(_me, units[k], slots[k * 2], slots[k * 2 + 1])
+	_match.run_ticks(1200)
+	var end_d := _mean_distance_to(units, goal)
+	_check("move order", end_d < start_d * 0.5,
+		"mean range to the objective %.0f m -> %.0f m" % [start_d, end_d])
 
 	# 5. THE PICTURE. Hostiles reach the screen as tracks or not at all.
 	print("[skirmish] picture            %d contacts held at t+%.0f s"
