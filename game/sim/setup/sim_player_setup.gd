@@ -287,6 +287,13 @@ func describe() -> String:
 	return "\n".join(lines)
 
 
+## A nation's display name. Public because readers outside the sim -- the
+## setup screen and the field manual -- need to name a faction without
+## duplicating the table and drifting from it.
+static func faction_name(f: int) -> String:
+	return _faction_name(f)
+
+
 static func _faction_name(f: int) -> String:
 	match f:
 		Faction.US: return "US"

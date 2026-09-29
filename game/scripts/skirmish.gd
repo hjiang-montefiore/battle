@@ -1743,6 +1743,7 @@ func _show_menu_root() -> void:
 	list.add_entry("load", "Load", AppState.has_continue(),
 		"no saves yet" if not AppState.has_continue() else "F9 quickloads")
 	list.add_entry("options", "Options")
+	list.add_entry("manual", "Field Manual", true, "reads, never touches")
 	list.add_entry("restart", "Restart", true, "same seed, same deal")
 	list.add_entry("quit", "Quit to title")
 	list.chosen.connect(_menu_choose)
@@ -1797,6 +1798,11 @@ func _menu_choose(id: String) -> void:
 			_show_menu_load()
 		"options":
 			_show_menu_options()
+		"manual":
+			# The player's OWN nation and epoch, so the pages answer the
+			# question they actually have: what can I build, here, now.
+			_open_manual((_match.setup.players[_me] as SimPlayerSetup).faction,
+				_match.epoch(_me))
 		"restart":
 			_restart_match()
 		"quit":
@@ -2270,6 +2276,39 @@ func _refresh_ui_rects() -> void:
 			get_viewport().get_visible_rect().size))
 	if _rig != null:
 		_rig.set("ui_blockers", _ui_rects)
+
+
+const ManualScript := preload("res://scripts/manual.gd")
+var _manual: Control
+var _manual_layer: CanvasLayer
+
+
+## Opens the field manual over whatever is on screen and takes it away again.
+## It is a READER: it is added, it is freed, and nothing underneath is touched
+## -- no pause flag, no menu state, no simulation call. That is the property
+## that lets the same screen open from a live match.
+func _open_manual(f: int, e: int) -> void:
+	if _manual != null:
+		return
+	# ITS OWN CANVAS LAYER, high. Added as a plain child it drew UNDERNEATH the
+	# menu that opened it -- visible in the first render as a ghost of the word
+	# FIELD MANUAL behind BATTLE. Both scenes put their HUD on a CanvasLayer, so
+	# a manual that is merely a later sibling is still beneath them.
+	_manual_layer = CanvasLayer.new()
+	_manual_layer.layer = 100
+	add_child(_manual_layer)
+	_manual = ManualScript.new()
+	_manual_layer.add_child(_manual)
+	_manual.call("open_at", f, e)
+	_manual.connect("closed", _close_manual)
+	_manual.grab_focus()
+
+
+func _close_manual() -> void:
+	if _manual_layer != null:
+		_manual_layer.queue_free()
+		_manual_layer = null
+	_manual = null
 
 
 func _build_hud() -> void:
@@ -3362,14 +3401,42 @@ func _check_shell() -> void:
 	ev.keycode = KEY_ESCAPE
 	ev.pressed = true
 	_key(ev)
+	# The ROOT page, not a count of it. This used to assert exactly six
+	# entries, which made it a test of the menu's CONTENTS rather than of the
+	# binding -- adding the Field Manual broke "Esc opens the pause menu"
+	# without anything about Esc having changed.
 	_check("esc opens the pause menu", _menu_page == "root"
-		and _menu_list != null and _menu_list.count() == 6,
+		and _menu_list != null and _menu_list.count() > 0
+		and _menu_list.selected_id() == "resume",
 		"page '%s', %d entries" % [_menu_page,
 			_menu_list.count() if _menu_list != null else -1])
 
 	# 2. It is a real pause. The simulation is fixed-step, so this is free --
 	#    and it is the difference between a menu and an overlay you die behind.
 	_check("the menu pauses the match", _paused, "paused=%s" % str(_paused))
+
+	# 3. THE FIELD MANUAL IS A READER. This is the property the whole design
+	#    rests on: it can be opened from a LIVE match because it cannot change
+	#    one. Asserted by hashing the simulation either side of opening and
+	#    closing it -- tick, entity count, credits and the world's own state
+	#    digest must all come back untouched, and the pause flag with them.
+	var before_tick := _match.world.tick
+	var before_n := _match.world.entities.count()
+	var before_cr := _match.credits(_me)
+	var before_paused := _paused
+	_open_manual((_match.setup.players[_me] as SimPlayerSetup).faction,
+		_match.epoch(_me))
+	var opened := _manual != null
+	_close_manual()
+	_check("the field manual opens over a live match", opened)
+	_check("and reading it changes nothing",
+		_match.world.tick == before_tick
+			and _match.world.entities.count() == before_n
+			and absf(_match.credits(_me) - before_cr) < 0.001
+			and _paused == before_paused,
+		"tick %d, %d entities, %.0f cr, paused=%s" % [
+			_match.world.tick, _match.world.entities.count(),
+			_match.credits(_me), str(_paused)])
 
 	# 3. The board is furniture while it is open: no click reaches the world
 	#    and the camera cannot edge-pan behind it.

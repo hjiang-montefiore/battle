@@ -56,6 +56,11 @@ func _ready() -> void:
 				"scenarios": _show_scenarios()
 				"load": _show_load()
 				"options": _show_options()
+				"manual": _open_manual(SimPlayerSetup.Faction.US, 4)
+				# A national page, which is where the researched data lives.
+				"manual-de":
+					_open_manual(SimPlayerSetup.Faction.GERMANY, 4)
+					_manual.call("open_at", SimPlayerSetup.Faction.GERMANY, 4, 3)
 		_capture(argv[i + 1] if i >= 0 and i + 1 < argv.size() else "root")
 
 
@@ -193,6 +198,10 @@ func _show_root() -> void:
 	l.add_entry("load", "Load", AppState.has_continue(),
 		"" if AppState.has_continue() else "no saves yet")
 	l.add_entry("editor", "Map Editor")
+	# The field manual. Reachable from the title AND from a paused match,
+	# because the question "what does this thing actually do" arrives in both
+	# places and a player should not have to quit to answer it.
+	l.add_entry("manual", "Field Manual", true, "every unit, every nation")
 	l.add_entry("options", "Options")
 	l.add_entry("quit", "Quit")
 	l.chosen.connect(_root_chosen)
@@ -203,6 +212,39 @@ func _show_root() -> void:
 	l.cancelled.connect(func(): l.highlight("quit"))
 	l.highlight_index(mini(AppState.last_title_entry, l.count() - 1))
 	_blurb.text = BLURB.get(l.selected_id(), "")
+
+
+const ManualScript := preload("res://scripts/manual.gd")
+var _manual: Control
+var _manual_layer: CanvasLayer
+
+
+## Opens the field manual over whatever is on screen and takes it away again.
+## It is a READER: it is added, it is freed, and nothing underneath is touched
+## -- no pause flag, no menu state, no simulation call. That is the property
+## that lets the same screen open from a live match.
+func _open_manual(f: int, e: int) -> void:
+	if _manual != null:
+		return
+	# ITS OWN CANVAS LAYER, high. Added as a plain child it drew UNDERNEATH the
+	# menu that opened it -- visible in the first render as a ghost of the word
+	# FIELD MANUAL behind BATTLE. Both scenes put their HUD on a CanvasLayer, so
+	# a manual that is merely a later sibling is still beneath them.
+	_manual_layer = CanvasLayer.new()
+	_manual_layer.layer = 100
+	add_child(_manual_layer)
+	_manual = ManualScript.new()
+	_manual_layer.add_child(_manual)
+	_manual.call("open_at", f, e)
+	_manual.connect("closed", _close_manual)
+	_manual.grab_focus()
+
+
+func _close_manual() -> void:
+	if _manual_layer != null:
+		_manual_layer.queue_free()
+		_manual_layer = null
+	_manual = null
 
 
 func _root_chosen(id: String) -> void:
@@ -218,6 +260,8 @@ func _root_chosen(id: String) -> void:
 			_show_load()
 		"editor":
 			get_tree().change_scene_to_file(AppState.EDITOR_SCENE)
+		"manual":
+			_open_manual(SimPlayerSetup.Faction.US, 4)
 		"options":
 			_show_options()
 		"quit":
