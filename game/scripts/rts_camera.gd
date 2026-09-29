@@ -91,7 +91,8 @@ func _process(dt: float) -> void:
 	var vp := get_viewport().get_visible_rect().size
 	var m := get_viewport().get_mouse_position()
 	var boost := 1.0
-	if m.x >= 0.0 and m.y >= 0.0 and m.x <= vp.x and m.y <= vp.y \
+	if AppState.edge_pan and m.x >= 0.0 and m.y >= 0.0 \
+			and m.x <= vp.x and m.y <= vp.y \
 			and not pointer_over_ui():
 		# Depth INTO the band scales speed: brushing the edge drifts, pinning
 		# the pointer against it moves properly.

@@ -7,7 +7,12 @@ config_version=5
 [application]
 config/name="Battle"
 config/description="Sensor-first RTS. See ../docs/"
-run/main_scene="res://scenes/skirmish.tscn"
+; THE GAME BOOTS TO THE TITLE, not straight into a battle. The match scene is
+; still launchable on its own -- every headless check runs
+; `res://scenes/skirmish.tscn -- --test` and gets its own default setup -- but
+; a person opening the executable now arrives somewhere they can choose from
+; and, more to the point, somewhere they can leave.
+run/main_scene="res://scenes/title.tscn"
 config/features=PackedStringArray("4.5", "Forward Plus")
 
 [display]

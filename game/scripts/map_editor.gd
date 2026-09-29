@@ -103,6 +103,9 @@ var _minimap_dirty := true
 var _minimap_accum := 0.0
 var _flash_msg := ""
 var _flash_until := 0.0
+## When Esc was last pressed with nothing to cancel. A second press inside
+## three seconds is what actually leaves.
+var _leave_armed_t := -9.0
 
 # ── headless test bookkeeping ────────────────────────────────────────────────
 var _t_passed := 0
@@ -732,8 +735,18 @@ func _key(k: InputEventKey) -> void:
 			if k.ctrl_pressed or k.meta_pressed:
 				do_save()
 		KEY_ESCAPE:
-			_stroking = false
-			_update_previews()
+			# Esc puts down the brush first. With the brush already down it
+			# leaves -- but not on one keypress: the editor holds unsaved
+			# sculpting, and the menu that now reaches this screen would
+			# otherwise be one stray key away from throwing it away.
+			if _stroking:
+				_stroking = false
+				_update_previews()
+			elif Time.get_ticks_msec() / 1000.0 - _leave_armed_t < 3.0:
+				get_tree().change_scene_to_file(AppState.TITLE_SCENE)
+			else:
+				_leave_armed_t = Time.get_ticks_msec() / 1000.0
+				_flash("Esc again to leave the editor -- Cmd+S saves first")
 
 
 func _set_tool(t: int) -> void:

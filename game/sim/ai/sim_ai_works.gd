@@ -88,6 +88,22 @@ const TOWARD_STEP_M := 1.5 * TILE_M     ## 45 m
 const TOWARD_MIN_M := 2.0 * TILE_M      ## 60 m
 const TOWARD_LATERAL_M: Array[float] = [0.0, 45.0, -45.0, 90.0, -90.0]
 
+## THE CREEP, and the number that stops it being a spam of sheds.
+##
+## A relay is a building bought for its build radius rather than for itself,
+## so the only question that matters is whether it moved the frontier. One
+## TOWARD_STEP_M is the smallest gain worth 1,080 credits; below that the
+## chain has stalled against terrain or against its own footprints and asking
+## again on the next tick just buys the same non-answer.
+const CREEP_MIN_GAIN_M := TOWARD_STEP_M     ## 45 m
+
+## How many relays one AI will string out. Ironfront's rimYardSpot has no
+## explicit cap because its build radius is global; ours needs one, because a
+## chain is a base strung along a line and a base strung along a line dies to
+## one raid. Four relays carry a 340 m headquarters ring out past 1,100 m,
+## which is further than any field on any shipped arena.
+const CREEP_MAX_RELAYS := 4
+
 ## spotNear's `r <= R` with `6 + r * 2` bearings a ring. Ironfront passes R = 7
 ## for a refinery on an ore field.
 const NEAR_RINGS := 7
@@ -329,7 +345,14 @@ static func toward(pic: Array, terrain: SimTerrain, d: SimUnitDef,
 			src = y
 	if src == null:
 		return PackedFloat32Array()
-	var l := maxf(sqrt(sd), 1.0)
+	return walk_from(pic, terrain, d, src, fx, fz)
+
+
+## THE WALK ITSELF, shared by toward() and creep(). They differ only in which
+## building they start at, and that difference is the whole of rimYardSpot.
+static func walk_from(pic: Array, terrain: SimTerrain, d: SimUnitDef,
+		src: Yard, fx: float, fz: float) -> PackedFloat32Array:
+	var l := maxf(sqrt(pow(fx - src.x, 2.0) + pow(fz - src.z, 2.0)), 1.0)
 	var ux := (fx - src.x) / l
 	var uz := (fz - src.z) / l
 	# Ironfront caps the walk at CFG.BUILD_RADIUS - 1; ours is per-building, so
@@ -366,3 +389,154 @@ static func near(pic: Array, terrain: SimTerrain, d: SimUnitDef,
 			if legal(pic, terrain, d, x, z):
 				return PackedFloat32Array([x, z])
 	return PackedFloat32Array()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# THE CREEP: how a base walks to money it does not start next to
+#
+# THE MEASUREMENT THIS IS AN ANSWER TO. On skirmish_valley the two oil fields
+# a player can call its own sit about 500 m from its headquarters, and the
+# contested ring is 1,400 m out. The whole build envelope of a start is the
+# headquarters' own 340 m ring. So every oil field on the map was outside the
+# only ground the AI could build on, for the entire match, on every arena --
+# it never placed a derrick, its income never moved off the 520 credits a
+# minute its two starting derricks pump, and its epoch was 4 at the first tick
+# and 4 at the last.
+#
+# THE KEY FACT is that the envelope is the UNION of every operational
+# structure's own build_radius_m, not the headquarters' alone -- SimEconomy's
+# placement test walks all of them. So a building placed at the rim EXTENDS
+# the envelope by its own radius, and a chain of them creeps outward. 340, a
+# relay at the rim, 532; another, 724; another, 916. The human player has had
+# this the whole time. This is the AI learning to use it.
+#
+# Nothing here is new information. shortfall() reads the same rings the HUD
+# draws for its owner, and the target is a published map coordinate.
+# ═══════════════════════════════════════════════════════════════════════════
+
+## HOW FAR SHORT OF A POINT THE BUILD ENVELOPE FALLS, in metres. Zero when the
+## point is already inside somebody's ring, INF when this player owns no ring
+## at all (which is a base of one unfinished building, not a base).
+##
+## Only OPERATIONAL rings count, because only operational rings count in the
+## engine -- a relay still going up projects nothing, and a creep that forgot
+## that would site its next relay on top of the last one.
+static func shortfall(pic: Array, fx: float, fz: float) -> float:
+	var best := INF
+	for row in pic:
+		var y := row as Yard
+		if not y.operational or y.radius_m <= 0.0:
+			continue
+		var d := sqrt(pow(y.x - fx, 2.0) + pow(y.z - fz, 2.0)) - y.radius_m
+		best = minf(best, maxf(0.0, d))
+	return best
+
+
+## THE CREEP ITSELF. toward() already walks the line from the rim building
+## nearest the target and takes the furthest legal point on it -- that part is
+## Ironfront's spotToward and it was already here. What was missing is the
+## question that makes a chain terminate: DID THAT ACTUALLY GAIN GROUND?
+##
+## Ironfront's rimYardSpot records the same lesson from the other side. Its
+## first version swept outward from the home marker, found nothing legal, and
+## left a 3,000-credit rig idle for a whole match -- expansion has to be sited
+## against what is held at the RIM, not against the courtyard. toward() picks
+## the rim yard by construction (the nearest own ring to the target); this
+## adds the refusal, so a relay that lands beside the one before it and moves
+## the frontier by nothing is reported as no site rather than bought.
+##
+## Returns [x, z], or an empty array meaning "this will not get us closer" --
+## which the caller must treat as a real answer and stop, exactly as it treats
+## a spiral with nowhere legal left.
+## WHICH BUILDING THE CHAIN LEAVES FROM. Ironfront's rimYardSpot: expansion
+## goes on the RIM of what is held, around the buildings furthest out, and its
+## comment records the measurement that forced it -- the first version swept
+## from the home marker, found nothing, and left a 3,000-credit rig idle for a
+## whole match.
+##
+## OURS PICKS THE YARD THAT REACHES FURTHEST, not the one that stands closest,
+## and that is a real departure from spotToward rather than a translation of
+## it. Ironfront can use "nearest" because its build radius is a global
+## constant -- every building reaches the same distance, so the nearest one
+## reaches furthest by definition. Ours is per-building: a headquarters
+## projects 340 m and a refinery 160. Measured, "nearest" started the walk at
+## a refinery 390 m from the well when the headquarters 500 m away would have
+## carried the relay 180 m further, and the AI paid for TWO supply depots to
+## cover ground one would have covered.
+##
+## So the rule is the one shortfall() already states: the yard that leaves the
+## least ground between its own ring and the target. Ties break on the unit
+## index, which is creation order, so the walk is identical on every run.
+static func rim_yard(pic: Array, fx: float, fz: float) -> Yard:
+	var best: Yard = null
+	var best_gap := INF
+	for row in pic:
+		var y := row as Yard
+		if not y.operational or y.radius_m <= 0.0:
+			continue
+		var gap := sqrt(pow(y.x - fx, 2.0) + pow(y.z - fz, 2.0)) - y.radius_m
+		if gap < best_gap:
+			best_gap = gap
+			best = y
+	return best
+
+
+static func creep(pic: Array, terrain: SimTerrain, d: SimUnitDef,
+		fx: float, fz: float, min_gain_m := CREEP_MIN_GAIN_M) -> PackedFloat32Array:
+	if d == null or d.build_radius_m <= 0.0:
+		return PackedFloat32Array()   # a relay with no ring carries nothing
+	var before := shortfall(pic, fx, fz)
+	if before <= 0.0 or before == INF:
+		return PackedFloat32Array()   # already in reach, or nothing to reach from
+	var src := rim_yard(pic, fx, fz)
+	if src == null:
+		return PackedFloat32Array()
+	var spot := walk_from(pic, terrain, d, src, fx, fz)
+	if spot.size() < 2:
+		return PackedFloat32Array()
+	var after := maxf(0.0, sqrt(pow(spot[0] - fx, 2.0) + pow(spot[1] - fz, 2.0))
+		- d.build_radius_m)
+	# THE LAST HOP IS ALWAYS WORTH IT, and forgetting that cost a measured
+	# afternoon. A relay that closes the gap ENTIRELY gains only as much as
+	# was left -- and what was left is, by definition, small. The AI had
+	# walked its refinery out to 283 m, which put the well 20 m outside the
+	# envelope, and then refused every relay that would have covered those
+	# 20 m because 20 is less than the 45 m a relay is supposed to gain. It
+	# stood the supply depot down, tried a barracks, stood that down, tried a
+	# helipad, and cycled like that for the rest of the match.
+	#
+	# The threshold is about PROGRESS, not about arrival. Reaching the target
+	# is not progress toward it; it is the thing progress was for.
+	if after > 0.0 and after > before - min_gain_m:
+		return PackedFloat32Array()
+	return spot
+
+
+## HOW MANY MORE RELAYS THIS TARGET WOULD TAKE, at best. Each one can carry the
+## frontier forward by its own build radius less the step it has to stand back
+## from the rim, so this is the optimistic count -- terrain and footprints can
+## only make it worse.
+##
+## The caller uses it to refuse a chain before it buys the first shed of one:
+## a field that needs six relays at 1,080 credits each is not an expansion, it
+## is a 6,500-credit walk to a 240-a-minute well, and the tanks that money
+## would have bought would have been on the map ten minutes sooner.
+static func relays_needed(pic: Array, d: SimUnitDef, fx: float,
+		fz: float) -> int:
+	if d == null or d.build_radius_m <= CREEP_MIN_GAIN_M:
+		return 9999
+	var gap := shortfall(pic, fx, fz)
+	if gap <= 0.0:
+		return 0
+	if gap == INF:
+		return 9999
+	# WHAT ONE RELAY IS ACTUALLY WORTH, and getting this wrong costs a whole
+	# field. toward() stands the relay at (source ring - its own footprint)
+	# along the line, and it then projects its own ring from there, so the
+	# frontier moves by (relay ring - relay footprint) -- 192 m for a supply
+	# depot, not the 140 m a TOWARD_MIN_M step would suggest. Measured, the
+	# pessimistic version priced skirmish_valley's own 500 m field at two
+	# relays when one covers it, which doubled the bill and refused the only
+	# expansion on the map that pays.
+	var per := maxf(1.0, d.build_radius_m - d.footprint_m)
+	return int(ceil(gap / per))

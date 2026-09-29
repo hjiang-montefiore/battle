@@ -237,6 +237,34 @@ func own_power_draw() -> float:
 	return p.power_draw if p != null else 0.0
 
 
+## THE CRUDE LINE OFF ITS OWN SIDEBAR: how much crude this player pumps a
+## minute, and how much of it its refineries can actually turn into money.
+##
+## SimEconomy pays out `min(extraction, refine) + trickle`, so these two
+## numbers are the whole shape of an oil economy: crude above the refining
+## line earns NOTHING, and refining above the crude line earns nothing either.
+## An AI that cannot see them has no way to tell "buy another derrick" from
+## "buy another refinery", and the measured consequence was that it did
+## neither -- it sized its refineries off its income, which is the OUTPUT of
+## this pair, and so could never notice it was pumping into a full pipe.
+##
+## docs/09 §1.2 lists another player's income as a leak. This is the player's
+## own, and SimEconomy prints it on its own status line in these same words:
+## "crude %.0f/min, refining %.0f/min".
+func own_extraction_per_min() -> float:
+	if economy == null:
+		return 0.0
+	var p := economy.purse(player_id)
+	return p.extraction_per_min if p != null else 0.0
+
+
+func own_refine_capacity() -> float:
+	if economy == null:
+		return 0.0
+	var p := economy.purse(player_id)
+	return p.refine_capacity if p != null else 0.0
+
+
 ## WHAT THIS PLAYER HAS ACTUALLY EARNED, cumulative. Its own bank statement.
 ##
 ## The AI used to estimate its income as "the change in my balance plus what I

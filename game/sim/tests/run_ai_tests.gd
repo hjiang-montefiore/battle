@@ -17,6 +17,7 @@ const SUITES := [
 	"res://sim/tests/test_ai.gd",        # fairness: the firewall
 	"res://sim/tests/test_ai_works.gd",  # siting, budget, build order
 	"res://sim/tests/test_ai_hunt.gd",   # is it actually dangerous
+	"res://sim/tests/test_ai_expansion.gd",  # can it reach the money
 ]
 
 

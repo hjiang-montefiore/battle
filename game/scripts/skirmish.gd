@@ -154,6 +154,34 @@ var _sell_btn: Button
 var _collapse_label: Label
 var _queue_label: Label
 var _queue_bar: ProgressBar
+var _hud_layer: CanvasLayer
+
+# ── the shell ────────────────────────────────────────────────────────────────
+## ATTRACT MODE. The title screen runs a real match behind its menu, and this
+## is the flag that turns this scene into that backdrop: both seats played by
+## the AI, no HUD, no input, and a camera that drifts over the fighting instead
+## of obeying a player who is not there. It is the same scene and the same
+## simulation -- a title screen showing a canned video would be a lie about
+## what the game looks like.
+@export var attract_mode := false
+
+## What this match was started FROM, kept so Restart can deal the same match
+## again. The copy matters: SimDoctrine.adapt() mutates a doctrine during play,
+## so restarting from the object the last match used would not be the same
+## match, it would be the same match against an opponent who had already
+## learned something.
+var _boot_setup: SimMatchSetup = null
+var _boot_arena := SimArena.SKIRMISH_VALLEY
+
+var _menu_layer: CanvasLayer
+var _menu_root: Control
+var _menu_list: MenuList
+var _menu_title: Label
+var _menu_hint: Label
+var _menu_page := ""          ## "" = closed, else "root" / "load" / "options"
+var _menu_body: VBoxContainer
+var _menu_paths: Array = []   ## Array[String], parallel to the load list
+var _sun: DirectionalLight3D
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -162,9 +190,11 @@ var _queue_bar: ProgressBar
 
 func _ready() -> void:
 	_headless = DisplayServer.get_name() == "headless"
-	_match = SimMatch.start(_default_setup(), SimArena.SKIRMISH_VALLEY)
-	if _match.phase == SimMatch.Phase.SETUP:
-		push_error("match setup invalid: " + ", ".join(_match.problems()))
+	AppState.load_options()
+	_boot()
+	if _match == null or _match.phase == SimMatch.Phase.SETUP:
+		push_error("match setup invalid: " + ", ".join(
+			_match.problems() if _match != null else PackedStringArray(["no match"])))
 		return
 	_me = _match.human_player_id
 	_my_team = (_match.setup.players[_me] as SimPlayerSetup).team
@@ -176,18 +206,74 @@ func _ready() -> void:
 	_build_ore_markers()
 	_audio = GameAudioScript.new()
 	add_child(_audio)
-	if not _headless:
+	# The title owns its own score while the attract match plays behind it,
+	# so the battle stems are not started here for a match nobody is in.
+	if not _headless and not attract_mode:
 		_music = GameMusicScript.new()
 		add_child(_music)
 	_build_hud()
 	_sync_proxies()
 	_frame_on_base()
 
+	if attract_mode:
+		# Nothing on screen but the battle: the title draws its own menu over
+		# this, and a second HUD underneath it would show through the blur.
+		if _hud_layer != null:
+			_hud_layer.visible = false
+		if _overlay != null:
+			_overlay.visible = false
+		set_process_unhandled_input(false)
+		if _rig != null:
+			_rig.set_process(false)
+			_rig.set_process_unhandled_input(false)
+		# Open on a battle already joined rather than on two idle base camps.
+		_match.run_ticks(int(ATTRACT_WARM_S * SimWorld.SIM_HZ))
+		# Snap, don't ease, on the first frame: the ease exists so the backdrop
+		# never cuts DURING the title, and starting it 5 km behind the fighting
+		# would mean the first thing anyone sees is an empty back yard.
+		_attract_camera(1.0e6)
+		_sync_proxies()
+		return
+
 	var argv := OS.get_cmdline_user_args()
 	if "--test" in argv:
 		_run_headless_check()
 	elif "--shot" in argv and not _headless:
 		_capture()
+
+
+## Where the match comes from. In order: a save the shell asked us to resume,
+## a setup the setup screen chose, or -- when the scene is launched directly,
+## which is what every headless check does -- this file's own default. That
+## last fallback is why adding a menu did not change a single test command.
+func _boot() -> void:
+	var save_path := AppState.take_save()
+	if save_path != "" and FileAccess.file_exists(save_path):
+		var restored = SimSave.from_json(FileAccess.get_file_as_string(save_path))
+		if restored is SimMatch:
+			_match = restored
+			_boot_setup = AppState.clone_setup(_match.setup)
+			_boot_arena = _match.arena_key
+			return
+		push_error("could not resume " + save_path)
+	var chosen := AppState.take_setup()
+	if chosen != null:
+		_boot_setup = chosen
+		_boot_arena = AppState.pending_arena
+	else:
+		_boot_setup = _default_setup()
+		_boot_arena = SimArena.SKIRMISH_VALLEY
+	# Deal the match from a COPY, so _boot_setup stays the pristine deal and
+	# Restart can use it again.
+	_match = SimMatch.start(AppState.clone_setup(_boot_setup), _boot_arena,
+		attract_mode)
+
+
+## How far into the fight the title's backdrop opens. Two minutes is roughly
+## first contact on these maps -- far enough that something is happening,
+## near enough that neither side has been wiped out by the time anyone reads
+## the menu.
+const ATTRACT_WARM_S := 150.0
 
 
 ## Save a framing render, so the HUD can be reviewed without a human at the
@@ -260,6 +346,10 @@ func _capture() -> void:
 	_refresh_ui_rects()
 	_update_hud()
 	_overlay.queue_redraw()
+	# `--shot --menu` opens the pause menu over the frame, which is the only
+	# way to review the one screen that exists on top of a live battle.
+	if "--menu" in argv:
+		_open_menu()
 	await RenderingServer.frame_post_draw
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
@@ -329,8 +419,14 @@ func _build_environment() -> void:
 	sun.rotation_degrees = Vector3(-48, 136, 0)
 	sun.light_energy = 2.0
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 900.0
+	# 900 m is a tight, sharp cascade at the zoom the game is PLAYED at. The
+	# title's backdrop is pulled much further out, and there the cascade's far
+	# edge crosses the frame as a hard vertical line down the middle of the
+	# picture -- so the backdrop trades shadow resolution for not having a seam
+	# in it.
+	sun.directional_shadow_max_distance = 3200.0 if attract_mode else 900.0
 	add_child(sun)
+	_sun = sun
 
 	var t := _match.terrain
 	_rig = RTS_CAMERA.new()
@@ -921,6 +1017,20 @@ func _process(dt: float) -> void:
 		return
 	if not _paused and not _match.is_finished():
 		_match.step(dt * _speed)
+	if attract_mode:
+		# A backdrop, not a spectator mode: no HUD to update, no picture to
+		# project, no selection to prune. Just the ground truth of whatever the
+		# two AIs are doing, drifting past behind the menu.
+		#
+		# One side eventually wins, and a finished match is a FROZEN one -- the
+		# title would quietly become a still photograph of the moment the game
+		# ended. So it deals again.
+		if _match.is_finished():
+			_restart_attract()
+		_attract_camera(dt)
+		_follow_ground()
+		_sync_proxies()
+		return
 	_follow_ground()
 	_audio_tick()
 	_music_tick()
@@ -933,6 +1043,44 @@ func _process(dt: float) -> void:
 	_update_hud(dt)
 	if _overlay:
 		_overlay.queue_redraw()
+
+
+func _restart_attract() -> void:
+	_adopt_match(SimMatch.start(
+		AppState.clone_setup(_boot_setup), _boot_arena, true))
+	_match.run_ticks(int(ATTRACT_WARM_S * SimWorld.SIM_HZ))
+	_attract_camera(1.0e6)
+
+
+## Where the fighting is, gently. The camera eases toward the centre of mass
+## of every unit on the map and turns slowly, so the title's backdrop always
+## has something moving in it without ever cutting.
+var _attract_yaw := 0.0
+
+
+func _attract_camera(dt: float) -> void:
+	if _rig == null:
+		return
+	# ONE SIDE's army, not everybody's. The centre of mass of both armies is
+	# the point BETWEEN them, which on a 6.4 km map is a patch of empty ground
+	# -- the first version of this pointed the camera at exactly the place
+	# where nothing was happening.
+	var e := _match.world.entities
+	var cx := 0.0
+	var cz := 0.0
+	var n := 0
+	for i in _match.own_units(_me):
+		if e.is_alive(i) and e.is_structure[i] == 0:
+			cx += e.pos_x[i]
+			cz += e.pos_z[i]
+			n += 1
+	if n > 0:
+		var to := Vector3(cx / float(n), _rig.position.y, cz / float(n))
+		_rig.position = _rig.position.lerp(to, clampf(dt * 0.35, 0.0, 1.0))
+	_attract_yaw += dt * 0.045
+	_rig.set("_yaw", _attract_yaw)
+	_rig.set("_dist", float(_rig.get("zoom_start")) * 1.7)
+	_rig.call("_apply")
 
 
 ## Sound. Reads what the simulation DID this tick and asks the mixer to voice
@@ -1225,6 +1373,10 @@ func _track_at(screen: Vector2) -> int:
 func _unhandled_input(ev: InputEvent) -> void:
 	if _match == null or _match.phase == SimMatch.Phase.SETUP:
 		return
+	# The menu is a modal sheet over the whole board. Nothing behind it is
+	# clickable, and no hotkey behind it fires.
+	if _menu_page != "":
+		return
 	if ev is InputEventKey and ev.pressed and not ev.echo:
 		_key(ev as InputEventKey)
 		return
@@ -1332,14 +1484,21 @@ func _unhandled_input(ev: InputEvent) -> void:
 func _key(k: InputEventKey) -> void:
 	match k.keycode:
 		KEY_ESCAPE:
+			# Esc unwinds the thing you are HOLDING first -- a building on the
+			# cursor, an armed attack-move -- and opens the menu once there is
+			# nothing left to put down. It used to clear the selection here
+			# instead, which meant Esc was the one key in the game that could
+			# never reach a menu; clicking bare ground still deselects, and
+			# that gesture was already the one players use.
 			if _placing_role != "":
 				_placing_role = ""
 				_refresh_panels()
-			elif _attack_move_armed:
+			elif _attack_move_armed or _patrol_armed:
 				_attack_move_armed = false
-				_flash("attack-move cancelled")
+				_patrol_armed = false
+				_flash("order cancelled")
 			else:
-				_selected.clear()
+				_open_menu()
 		KEY_A:
 			# Arm attack-move for the next left click. A also pans the camera
 			# (WASD); a tap is a negligible nudge, and A+click never notices.
@@ -1464,12 +1623,246 @@ func _quickload() -> void:
 	if not (restored is SimMatch):
 		_flash("quickload FAILED -- see the log")
 		return
+	# The world behind every cached index just changed, and so, possibly, has
+	# the GROUND: a save carries its own arena, and now that a player can start
+	# a match on any theatre or authored map, a quicksave taken on one map and
+	# loaded on another would have left the old terrain mesh on screen with the
+	# units walking through it. _same_ground decides which of the two loads
+	# this is -- the instant in-place swap, or a scene rebuild.
+	if not _same_ground(restored as SimMatch):
+		AppState.pending_save = QUICKSAVE_PATH
+		get_tree().reload_current_scene()
+		return
+	_adopt_match(restored as SimMatch)
+	_flash("quickloaded (t+%.0f s)" % _match.elapsed_s())
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# THE PAUSE MENU
+# ═══════════════════════════════════════════════════════════════════════════
+## Esc in a match. Resume, Save, Load, Options, Restart, Quit to title.
+##
+## The simulation is fixed-step and deterministic and the scene only ever
+## READS it, so freezing it costs nothing and breaks nothing: _process simply
+## stops calling step(). That is why this menu can be a real pause rather than
+## the "menu while the battle carries on behind you" that a continuous-time
+## game is stuck with.
+##
+## It is rebuilt on every open and freed on every close. A menu kept alive and
+## merely hidden still receives _unhandled_key_input in Godot, which would mean
+## the arrow keys drove an invisible list for the rest of the match.
+
+var _paused_before_menu := false
+
+
+func _open_menu() -> void:
+	if _menu_page != "" or attract_mode:
+		return
+	_paused_before_menu = _paused
+	_paused = true
+	if _rig != null:
+		_rig.set_process(false)
+	_build_menu()
+	_show_menu_root()
+	_refresh_ui_rects()
+
+
+func _close_menu() -> void:
+	if _menu_page == "":
+		return
+	_menu_page = ""
+	if _menu_layer != null:
+		_menu_layer.queue_free()
+		_menu_layer = null
+	_menu_list = null
+	_menu_body = null
+	# Space is still the player's own pause. Resuming from the menu must not
+	# silently undo it.
+	_paused = _paused_before_menu
+	if _rig != null:
+		_rig.set_process(true)
+	_refresh_ui_rects()
+
+
+func _build_menu() -> void:
+	_menu_layer = CanvasLayer.new()
+	_menu_layer.layer = 20
+	add_child(_menu_layer)
+
+	# The board, blurred. Headless has no screen texture to read, so it gets a
+	# flat scrim -- the menu still exists and still answers keys, which is what
+	# the headless check is there to assert.
+	var back: ColorRect = MenuUI.scrim(0.80) if _headless else MenuUI.blur_rect(2.4, 0.52)
+	back.mouse_filter = Control.MOUSE_FILTER_STOP
+	_menu_layer.add_child(back)
+
+	var centre := CenterContainer.new()
+	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_menu_layer.add_child(centre)
+	_menu_root = centre
+
+	var panel := MenuUI.panel()
+	panel.custom_minimum_size = Vector2(520, 0)
+	centre.add_child(panel)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 12)
+	panel.add_child(col)
+
+	_menu_title = MenuUI.heading("PAUSED", 26)
+	col.add_child(_menu_title)
+
+	var sub := MenuUI.body("", 13)
+	col.add_child(sub)
+	_menu_hint = sub
+
+	_menu_body = VBoxContainer.new()
+	_menu_body.add_theme_constant_override("separation", 6)
+	col.add_child(_menu_body)
+
+
+func _clear_menu_body() -> void:
+	for c in _menu_body.get_children():
+		_menu_body.remove_child(c)
+		c.queue_free()
+	_menu_list = null
+
+
+func _show_menu_root() -> void:
+	_menu_page = "root"
+	_clear_menu_body()
+	_menu_title.text = "PAUSED"
+	_menu_hint.text = "%s  --  t+%s  --  %s" % [
+		_match.setup.name, _clock(_match.elapsed_s()), _match.terrain.name]
+	var list := MenuList.new()
+	_menu_body.add_child(list)
+	_menu_list = list
+	list.add_entry("resume", "Resume", true, "Esc")
+	list.add_entry("save", "Save", true, "F5 quicksaves")
+	list.add_entry("load", "Load", AppState.has_continue(),
+		"no saves yet" if not AppState.has_continue() else "F9 quickloads")
+	list.add_entry("options", "Options")
+	list.add_entry("restart", "Restart", true, "same seed, same deal")
+	list.add_entry("quit", "Quit to title")
+	list.chosen.connect(_menu_choose)
+	list.cancelled.connect(_close_menu)
+
+
+func _show_menu_load() -> void:
+	_menu_page = "load"
+	_clear_menu_body()
+	_menu_title.text = "LOAD"
+	var saves := AppState.list_saves()
+	_menu_hint.text = "%d save%s" % [saves.size(), "" if saves.size() == 1 else "s"]
+	var list := MenuList.new()
+	_menu_body.add_child(list)
+	_menu_list = list
+	_menu_paths.clear()
+	for i in range(saves.size()):
+		var row: Dictionary = saves[i]
+		_menu_paths.append(str(row["path"]))
+		list.add_entry("slot%d" % i, str(row["label"]), true,
+			AppState.when_label(int(row["when"])))
+	if saves.is_empty():
+		list.add_entry("none", "nothing saved yet", false)
+	list.add_entry("back", "Back")
+	list.chosen.connect(func(id: String):
+		if id == "back":
+			_show_menu_root()
+		elif id.begins_with("slot"):
+			_load_save(_menu_paths[int(id.substr(4))]))
+	list.cancelled.connect(_show_menu_root)
+
+
+func _show_menu_options() -> void:
+	_menu_page = "options"
+	_clear_menu_body()
+	_menu_title.text = "OPTIONS"
+	_menu_hint.text = "changes take effect immediately"
+	var panel := OptionsPanel.new()
+	panel.closed.connect(_show_menu_root)
+	_menu_body.add_child(panel)
+
+
+func _menu_choose(id: String) -> void:
+	match id:
+		"resume":
+			_close_menu()
+		"save":
+			var path := _save_to_slot()
+			_menu_hint.text = ("saved to " + path.get_file()) if path != "" \
+				else "SAVE FAILED -- could not write to the save folder"
+		"load":
+			_show_menu_load()
+		"options":
+			_show_menu_options()
+		"restart":
+			_restart_match()
+		"quit":
+			_close_menu()
+			get_tree().change_scene_to_file(AppState.TITLE_SCENE)
+
+
+## A named save, distinct from the quicksave so that F5 cannot silently
+## overwrite the one the player made on purpose.
+func _save_to_slot() -> String:
+	AppState.ensure_save_dir()
+	var when := Time.get_datetime_dict_from_system()
+	var name := "%s %04d-%02d-%02d %02d%02d" % [
+		_match.setup.name, when["year"], when["month"], when["day"],
+		when["hour"], when["minute"]]
+	var path: String = AppState.SAVE_DIR + "/" + name.replace(" ", "_") + ".json"
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return ""
+	f.store_string(SimSave.to_json(_match))
+	f.close()
+	return path
+
+
+func _load_save(path: String) -> void:
+	if not FileAccess.file_exists(path):
+		_menu_hint.text = "that save is gone"
+		return
+	var restored = SimSave.from_json(FileAccess.get_file_as_string(path))
+	if not (restored is SimMatch):
+		_menu_hint.text = "LOAD FAILED -- see the log"
+		return
+	if _same_ground(restored as SimMatch):
+		_close_menu()
+		_adopt_match(restored as SimMatch)
+		_flash("loaded (t+%.0f s)" % _match.elapsed_s())
+		return
+	# Different map. The terrain MESH, the scenery and the ore and oil markers
+	# were all built for the map we are standing on, and nothing short of
+	# rebuilding the scene is honest about that -- the save restores the
+	# simulation's terrain bit-exact, so leaving the old ground on screen would
+	# show the player a map the units are not walking on.
+	AppState.pending_save = path
+	get_tree().reload_current_scene()
+
+
+## Does a restored match stand on the same ground we have already built? The
+## arena key alone is not enough -- an authored map can be re-sculpted under
+## the same name -- so the heights decide.
+func _same_ground(other: SimMatch) -> bool:
+	if other.arena_key != _match.arena_key:
+		return false
+	if other.terrain.cells_x != _match.terrain.cells_x \
+			or other.terrain.cells_z != _match.terrain.cells_z:
+		return false
+	return SimMapFile.heights_hash(other.terrain) \
+		== SimMapFile.heights_hash(_match.terrain)
+
+
+## Swap a restored match in behind the presentation. Everything cached against
+## the OLD world -- proxies, selection, armed orders, the audio counters -- is
+## an index into a world that no longer exists.
+func _adopt_match(restored: SimMatch) -> void:
 	_match = restored
-	# The world behind every cached index just changed: drop the visual
-	# proxies (sync rebuilds them from the restored entities -- indices are
-	# stable, but a save older than now can hold FEWER of them), drop the
-	# selection, and fast-forward the audio counters so the mixer does not
-	# replay every shot since the save as one glorious chord.
+	_me = _match.human_player_id
+	_my_team = (_match.setup.players[_me] as SimPlayerSetup).team
 	for i in _proxies:
 		(_proxies[i] as Node3D).queue_free()
 	_proxies.clear()
@@ -1477,12 +1870,25 @@ func _quickload() -> void:
 	_attack_move_armed = false
 	_patrol_armed = false
 	_placing_role = ""
+	_known_tracks.clear()
+	_track_flash.clear()
+	_picture_primed = false
 	_seen_shots = _match.world.munitions.launched
 	_seen_kills = _match.world.damage.kills
 	_seen_impacts = 0
 	_music_kills = _match.world.damage.kills
-	_refresh_panels()
-	_flash("quickloaded (t+%.0f s)" % _match.elapsed_s())
+	if _minimap != null:
+		_minimap.setup(_match, _me, _my_team, _rig)
+	_refresh_panels(true)
+
+
+## Deal the SAME match again. Same seed, same factions, same doctrines --
+## which is the whole point, because a restart that reshuffled would make the
+## thing you just learned worthless.
+func _restart_match() -> void:
+	AppState.pending_setup = AppState.clone_setup(_boot_setup)
+	AppState.pending_arena = _boot_arena
+	get_tree().reload_current_scene()
 
 
 ## Put the camera over whatever is selected. Used by the double-tap on a
@@ -1854,6 +2260,14 @@ func _refresh_ui_rects() -> void:
 	_ui_rects.clear()
 	if _sidebar != null:
 		_ui_rects.append(Rect2(_sidebar.global_position, _sidebar.size))
+	# An open menu is furniture over the ENTIRE board, by the same rule the
+	# sidebar follows: if the pointer is on the furniture it is not on the
+	# board, so the camera must not edge-pan behind an open menu either.
+	# Appended, never prepended -- the sidebar stays rect 0, which is what the
+	# UI-guard assertions read.
+	if _menu_page != "":
+		_ui_rects.append(Rect2(Vector2.ZERO,
+			get_viewport().get_visible_rect().size))
 	if _rig != null:
 		_rig.set("ui_blockers", _ui_rects)
 
@@ -1861,6 +2275,7 @@ func _refresh_ui_rects() -> void:
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
+	_hud_layer = layer
 
 	_overlay = Control.new()
 	_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -2932,7 +3347,86 @@ func _run_headless_check() -> void:
 
 	print("[skirmish] " + _match.victory.describe().replace("\n", "\n[skirmish] "))
 	_check_audio()
+	await _check_shell()
 	get_tree().quit(1 if _headless_failures > 0 else 0)
+
+
+## THE SHELL, asserted. A menu is exactly the kind of thing that looks finished
+## in a screenshot and is broken in the hand: the keys do nothing, the board is
+## still clickable behind it, or Esc opens it and nothing closes it again. None
+## of that is visible in a render, so it is checked here instead.
+func _check_shell() -> void:
+	# 1. Esc opens it. Driven through the real key handler, not by calling
+	#    _open_menu() -- the thing under test is the BINDING.
+	var ev := InputEventKey.new()
+	ev.keycode = KEY_ESCAPE
+	ev.pressed = true
+	_key(ev)
+	_check("esc opens the pause menu", _menu_page == "root"
+		and _menu_list != null and _menu_list.count() == 6,
+		"page '%s', %d entries" % [_menu_page,
+			_menu_list.count() if _menu_list != null else -1])
+
+	# 2. It is a real pause. The simulation is fixed-step, so this is free --
+	#    and it is the difference between a menu and an overlay you die behind.
+	_check("the menu pauses the match", _paused, "paused=%s" % str(_paused))
+
+	# 3. The board is furniture while it is open: no click reaches the world
+	#    and the camera cannot edge-pan behind it.
+	_refresh_ui_rects()
+	var vp := get_viewport().get_visible_rect().size
+	var blockers: Array = _rig.get("ui_blockers")
+	var full := false
+	for b in blockers:
+		if (b as Rect2).has_point(vp * 0.5) and (b as Rect2).has_point(Vector2(4, 4)):
+			full = true
+	_check("nothing behind the menu is clickable",
+		_pointer_over_ui(Vector2(8.0, vp.y * 0.5)) and full,
+		"%d blocker(s)" % blockers.size())
+
+	# 4. The arrows move the highlight and Enter picks what is highlighted.
+	var first := _menu_list.selected_id()
+	_menu_list.handle_key(KEY_DOWN)
+	var second := _menu_list.selected_id()
+	_menu_list.handle_key(KEY_UP)
+	_check("arrows move the highlight",
+		first == "resume" and second == "save"
+			and _menu_list.selected_id() == "resume",
+		"%s -> %s -> %s" % [first, second, _menu_list.selected_id()])
+
+	# 5. Save writes a file the load page can then see.
+	var before := AppState.list_saves().size()
+	_menu_choose("save")
+	var after := AppState.list_saves().size()
+	_check("save writes a slot", after > before,
+		"%d save(s) -> %d" % [before, after])
+	_menu_choose("load")
+	_check("the load page lists it",
+		_menu_page == "load" and _menu_list.count() >= after,
+		"%d row(s)" % (_menu_list.count() if _menu_list != null else -1))
+
+	# 6. And it closes again, handing the board back.
+	_show_menu_root()
+	_menu_choose("resume")
+	_refresh_ui_rects()
+	_check("resume closes it and returns the board",
+		_menu_page == "" and _menu_layer == null
+			and not _pointer_over_ui(Vector2(8.0, vp.y * 0.5)),
+		"page '%s', %d ui rect(s)" % [_menu_page, _ui_rects.size()])
+
+	# 7. The two shell scenes load, instantiate and reach _ready without
+	#    erroring. Cheap, and it is the check that catches a typo in a screen
+	#    nobody opened this run.
+	for path in [AppState.TITLE_SCENE, AppState.SETUP_SCENE]:
+		var packed := load(path) as PackedScene
+		var ok := packed != null and packed.can_instantiate()
+		var node: Node = packed.instantiate() if ok else null
+		if node != null:
+			add_child(node)
+			await get_tree().process_frame
+			ok = node.is_inside_tree()
+			node.queue_free()
+		_check("%s loads" % path.get_file(), ok)
 
 
 ## Audio can be verified WITHOUT a sound device: the interesting thing is not

@@ -203,6 +203,26 @@ var _growth_plan_cost: float = 0.0
 var _build_cool: Dictionary = {}
 ## role -> consecutive refused sitings (Ironfront's rq.failN).
 var _build_fail: Dictionary = {}
+## THE EXPANSION IN PROGRESS. `_creep_role` is the role currently being sited
+## AT `_creep_x/_creep_z` rather than beside the base -- a derrick standing on
+## a field, or a relay walking toward one. Empty when growth is not expanding,
+## and cleared on every _choose_growth so a stale target cannot misroute the
+## siting of an ordinary shed.
+var _creep_role: String = ""
+var _creep_x: float = 0.0
+var _creep_z: float = 0.0
+## Oil field index -> the time it may be attempted again. A field the engine
+## refused is a field somebody else is probably pumping, and the AI is not
+## allowed to ask which -- so it does what a player does: tries the next one
+## and comes back later.
+var _field_cool: Dictionary = {}
+## Relays bought to reach money, against SimAiWorks.CREEP_MAX_RELAYS.
+var relays_built: int = 0
+## HAS EXPANSION HAD ITS TURN? True from the moment a derrick lands until the
+## next epoch step is taken. See _choose_growth: this is the alternation that
+## stops the two halves of growth starving each other.
+var _expanded_since_step: bool = false
+
 ## [role, x, z] of a build order whose structure has not appeared yet.
 var _pending_build: Array = []
 ## Which of our own structures already stood when the pending order went in.
@@ -685,6 +705,84 @@ const BUILD_PERIOD_S := 8.0
 const BUILD_CONFIRM_M := 80.0
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EXPANSION: reaching the money
+#
+# THE MEASUREMENT. The AI's epoch was 4 at the first tick and 4 at the last,
+# on every arena, in every match. Not because it would not climb -- it wants
+# to, and _choose_growth has wanted to since the research facility moved up
+# the build order -- but because it could not AFFORD to. Its income was the
+# 520 credits a minute its two starting derricks pump, for the whole match,
+# because it never built a third derrick, because every oil field on
+# skirmish_valley is ~500 m or ~1,400 m from a base and the entire build
+# envelope of a start is the headquarters' 340 m ring.
+#
+# THE ECONOMY IS A PAIR OF TAPS, and this is the part the AI was blind to.
+# SimEconomy pays out min(extraction, refine) -- crude pumped, capped by crude
+# the refineries can process. A start pumps 480 a minute against 520 of
+# refining, so there is 40 a minute of spare pipe and no more: a third derrick
+# on its own is worth 40 credits a minute, and a second refinery on its own is
+# worth nothing at all. They are only worth buying IN THE RIGHT ORDER, and the
+# AI could not see the order because it sized its refineries off its income,
+# which is the OUTPUT of the pair.
+#
+# So expansion here is one rule with two halves: buy a derrick while there is
+# spare refining, buy refining while there is spare crude, and when the next
+# field is out of reach, walk to it -- SimAiWorks.creep, a chain of relays
+# from the rim. The human player has had that chain available the whole time.
+# ═══════════════════════════════════════════════════════════════════════════
+
+## THE RUNGS EXPANSION NEVER JUMPS -- see _econ_rung_missing, which is where
+## the judgement lives. Kept as a set so the build order and this agree on the
+## names, and so a roster rename breaks one place rather than two.
+const ECON_FIRST := {"power_plant": true, "refinery": true}
+
+## Crude a minute a field is worth, as the AI prices one before it walks to it.
+## Read off the derrick's own card (its extraction_per_min) rather than written
+## down here -- this is only the floor below which a field is not worth a walk.
+const FIELD_WORTH_MIN := 1.0
+
+## HOW LONG A WALK MAY TAKE TO PAY FOR ITSELF, in seconds.
+##
+## This is the number that makes expansion COMPETE rather than always win, and
+## it is worth being exact about what it buys, because the first value tried
+## here was 300 and it refused every field on every arena -- the AI behaved
+## exactly as it had before and the probe output was byte-identical to the
+## baseline, which is the most useful kind of failure.
+##
+## THE BILL for skirmish_valley's own field, at epoch 4: a supply depot to
+## carry the ring out (1,080), the derrick (1,620), and the share of a
+## refinery its crude needs to be worth anything (2,520 x 240/520 = 1,163).
+## 3,863 credits. THE RETURN is the derrick's whole 240 a minute, 4 credits a
+## second. It pays for itself in 966 seconds, and the second well on the same
+## chain -- the relay is already standing -- in 696.
+##
+## So 300 s was not a strict criterion, it was an impossible one: nothing in
+## this economy returns 3,863 credits in five minutes. 1,200 s admits the two
+## fields a player can call its own and refuses everything else on cost, and
+## it is honest about what it is -- a judgement that a well which has paid for
+## itself by the twentieth minute was worth buying, against an army that would
+## have had two more tanks in the eighth. It is a balance dial and it is meant
+## to be turned.
+##
+## What it does NOT do is police the contested ring at 1,400 m. That is
+## refused by SimAiWorks.CREEP_MAX_RELAYS -- seven relays' worth of walk -- and
+## the cap is the right rule for it, because the objection to a seven-shed
+## chain is that it dies to one raid rather than that it is expensive.
+const EXPANSION_PAYBACK_S := 1200.0
+
+## How near a field a derrick has to stand to be pumping it. SimEconomy's own
+## OIL_CLAIM_M, repeated rather than imported: this is the AI's belief about
+## which of ITS OWN derricks is on which field, and a belief that silently
+## tracked an engine constant would be a belief nobody could test.
+const OIL_CLAIM_M := 90.0
+
+## Most refineries a base will own. Not a balance number -- a backstop, so a
+## roster change that made crude cheap could not turn the AI into a refinery
+## farm. The crude/refining pair is what actually decides the count.
+const REFINERY_CAP := 4
+
+
 ## WHAT DID THE ECONOMY ACTUALLY DELIVER? Read off the purse's own cumulative
 ## earnings, which is the same choice Ironfront makes and for the same reason:
 ## "What the haulers LANDED, not what the vault credited ... stats.hauled is
@@ -841,12 +939,40 @@ func _choose_growth(own_roles: Dictionary) -> void:
 	_growth_want_cost = 0.0
 	_growth_is_advance = false
 	_growth_plan_cost = 0.0
+	_creep_role = ""
 	if not has_home:
 		return
 
 	var next_build := _next_structure(own_roles)
 	_growth_plan_cost = _plan_cost(own_roles)
 	var ceiling: int = view.setup.ceiling_epoch if view.setup != null else 7
+
+	# ═══ POWER FIRST, ALWAYS ═════════════════════════════════════════════
+	# docs/12: a brownout slows work. Everything below this line is work.
+	if not next_build.is_empty() and String(next_build[0]) == "power_plant":
+		_growth_want_key = "power_plant"
+		_growth_want_cost = float(next_build[1]) + GROWTH_ITEM_MARGIN
+		return
+
+	# ═══ THE PIPE SECOND, AND AHEAD OF THE EPOCH STEP ════════════════════
+	#
+	# Crude above the refining line is money on the floor: SimEconomy pays
+	# min(extraction, refine), so an unrefined barrel is not deferred income,
+	# it is income that never existed. Nothing else growth can buy has a
+	# return that certain.
+	#
+	# IT IS AHEAD OF THE STEP BECAUSE IT WAS MEASURED BEHIND IT. A commander
+	# with a research facility up passes _core_is_up, so the advance clause
+	# below won every strategic tick from minute five onward -- and with a
+	# derrick standing and only one refinery, it sat saving for epoch 5 while
+	# flaring 200 credits a minute for fifteen straight minutes. It would
+	# have bought the refinery out of four minutes of the money it was
+	# burning.
+	var pipe := _pipe_want(own_roles)
+	if not pipe.is_empty():
+		_growth_want_key = String(pipe[0])
+		_growth_want_cost = float(pipe[1]) + GROWTH_ITEM_MARGIN
+		return
 	# PRESENT OR ON ITS WAY, deliberately -- a research facility takes
 	# forty-five seconds to build, and what matters here is that growth stops
 	# buying OTHER things the moment the enabler is paid for. Whether the
@@ -860,10 +986,64 @@ func _choose_growth(own_roles: Dictionary) -> void:
 	# credit step was years of income away.
 	var can_advance := view.epoch() < ceiling \
 		and int(own_roles.get("research_facility", 0)) > 0
+	var advance_price := 0.0
 	if can_advance:
 		var cost := view.epoch_advance_cost()
 		if cost <= 0.0:
 			cost = SimAiPlan.TECH_RESERVE
+		advance_price = cost + _advance_margin()
+		# IF IT IS PAID FOR, TAKE IT. This clause is ahead of expansion for one
+		# reason: expansion never runs out on a map with six oil fields, so an
+		# AI that always preferred the next well over the step it could already
+		# afford would be the old bug wearing a new hat -- an economy that
+		# grows forever and a commander that never uses it.
+		if view.credits() >= advance_price:
+			_growth_want_key = "epoch %d" % (view.epoch() + 1)
+			_growth_want_cost = advance_price
+			_growth_is_advance = true
+			return
+
+	# EXPANSION, and WHERE IT SITS IS THE WHOLE BALANCE QUESTION. It is ahead
+	# of the rest of the build order -- ahead of the second factory, the SAM
+	# belt, the radar -- because those are bought with income and this IS the
+	# income. It is behind the two rungs in ECON_FIRST, because a derrick with
+	# no refinery earns nothing and a base in a brownout builds slowly. And it
+	# is behind an epoch step that is already paid for, above.
+	#
+	# It competes with tanks by the ordinary route: the growth bucket fills at
+	# _growth_share() of income and the army spends the rest freely. A near
+	# field wins that competition, a far one does not -- see
+	# EXPANSION_PAYBACK_S.
+	# ONE WELL PER EPOCH, and this alternation is the answer to a measured
+	# failure of the version without it. Expansion outranks the build order,
+	# so with four wells on the map and a relay cap of four it simply never
+	# stopped: twenty-five minutes of a quiet fixture went
+	# relay-derrick-refinery-relay-derrick-refinery, income climbed 520 -> 1,080
+	# a minute, and the research facility -- which the AI genuinely wanted at
+	# minute 13 -- was pre-empted every single strategic tick. An AI that
+	# grows an economy and never spends it is the old bug with better numbers.
+	#
+	# So expansion takes its turn and then stands aside: from the moment a
+	# derrick lands until the next epoch step is taken, growth belongs to the
+	# ladder. At the ceiling epoch there is no step to wait for, so the turn
+	# never ends and expansion runs freely -- which is right, because at the
+	# ceiling the economy is the only thing left to improve.
+	# ...and the turn ends if there is nothing for the ladder to spend on: no
+	# step available and a build order with nothing left to ask for. Without
+	# that clause an AI whose research facility is off its menu would stand
+	# down from expansion permanently, waiting for a turn that never comes.
+	var tech_has_the_turn := _expanded_since_step and view.epoch() < ceiling \
+		and (can_advance or not next_build.is_empty())
+	var expansion := _expansion_want(own_roles) if not tech_has_the_turn else []
+	if not expansion.is_empty() and not _econ_rung_missing(own_roles, next_build):
+		_growth_want_key = String(expansion[0])
+		_growth_want_cost = float(expansion[1]) + GROWTH_ITEM_MARGIN
+		_creep_role = String(expansion[0])
+		_creep_x = float(expansion[2])
+		_creep_z = float(expansion[3])
+		return
+
+	if can_advance:
 		# THE EPOCH STEP WINS ONCE THE CORE IS UP. THE THIRD FAULT was that it
 		# never won at all: the advance was gated on `doctrine.tech_bias >
 		# 0.45`, so better than half the profiles in the game could not climb
@@ -873,12 +1053,231 @@ func _choose_growth(own_roles: Dictionary) -> void:
 		if next_build.is_empty() or _core_is_up(own_roles) \
 				or doctrine.tech_bias >= 0.55:
 			_growth_want_key = "epoch %d" % (view.epoch() + 1)
-			_growth_want_cost = cost + _advance_margin()
+			_growth_want_cost = advance_price
 			_growth_is_advance = true
 			return
 	if not next_build.is_empty():
 		_growth_want_key = String(next_build[0])
 		_growth_want_cost = float(next_build[1]) + GROWTH_ITEM_MARGIN
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# THE EXPANSION DECISION
+# ═══════════════════════════════════════════════════════════════════════════
+
+## IS THE BUILD ORDER ASKING FOR SOMETHING EXPANSION MUST NOT JUMP?
+##
+## A POWER PLANT ALWAYS IS. The opening base is already in a brownout and
+## docs/12 says a brownout slows work -- including the work of putting up the
+## relay expansion wants, so jumping it is not even fast.
+##
+## THE FIRST REFINERY IS, because a derrick with nowhere to refine earns
+## nothing at all: min(extraction, refine) is zero when either is.
+##
+## A SECOND REFINERY IS NOT, and that distinction is worth 200 seconds. The
+## second one is bought to shorten an ore haul, not to process crude -- and
+## measured, testing "is the next rung an economic one" without asking "do we
+## already own it" put a 2,520-credit refinery in front of the whole
+## expansion, so the first relay went up at 428 s instead of at 230.
+func _econ_rung_missing(own_roles: Dictionary, next_build: Array) -> bool:
+	if next_build.is_empty():
+		return false
+	var role := String(next_build[0])
+	if not ECON_FIRST.has(role):
+		return false
+	if role == "power_plant":
+		return true
+	return int(own_roles.get(role, 0)) <= 0
+
+
+## A REFINERY, WHEN THERE IS CRUDE GOING UNREFINED: [role, cost], or [].
+##
+## Counts refining that is paid for and on its way as well as refining that
+## works, for the same reason the power rule does -- see _refine_coming.
+func _pipe_want(own_roles: Dictionary) -> Array:
+	if not has_home:
+		return []
+	if view.own_refine_capacity() + _refine_coming() \
+			>= view.own_extraction_per_min():
+		return []
+	if int(own_roles.get("refinery", 0)) >= REFINERY_CAP:
+		return []
+	if float(_build_cool.get("refinery", -1.0e9)) > elapsed_s:
+		return []
+	var d := view.def_for("refinery")
+	if d == null or not d.is_structure or d.refine_capacity <= 0.0:
+		return []
+	var menu := view.buildable()
+	var allowed := false
+	for role in menu:
+		if role == "refinery":
+			allowed = true
+	if not allowed:
+		return []
+	return ["refinery", d.cost]
+
+
+## WHAT EXPANSION WANTS NEXT: [role, cost, target_x, target_z], or [].
+##
+## Three answers are possible and only three. A derrick, when a field is in
+## reach and there is spare refining to pay for its crude. A refinery, when
+## there is crude going unrefined -- which is the OTHER half of the same tap
+## and is why this function owns both. A relay, when the nearest field worth
+## having is outside the build envelope and a chain can be walked to it.
+##
+## Every fact read here is this player's own: its purse's crude and refining
+## lines, its own structures' positions and rings, and the published
+## coordinates of the fields. Nothing says who holds a field -- the engine
+## answers that by refusing the placement, and _confirm_pending_build turns
+## the refusal into a cooldown on that field. That IS the fog: the AI finds
+## out a well is taken by walking to it, exactly as a player does.
+func _expansion_want(own_roles: Dictionary) -> Array:
+	if not has_home:
+		return []
+	var fields := view.oil_points()
+	if fields.is_empty():
+		return []
+	var derrick := view.def_for("oil_derrick")
+	if derrick == null or not derrick.is_structure \
+			or derrick.extraction_per_min < FIELD_WORTH_MIN:
+		return []
+
+	# THE PIPE BEFORE THE WELL. A derrick whose crude cannot be refined earns
+	# nothing, so when the taps are level there is no point walking to another
+	# well -- _pipe_want above has already asked for the refinery.
+	var crude := view.own_extraction_per_min()
+	var pipe := view.own_refine_capacity() + _refine_coming()
+	if crude >= pipe:
+		return []
+
+	if float(_build_cool.get("oil_derrick", -1.0e9)) > elapsed_s:
+		return []
+	var pic := SimAiWorks.base_picture(view)
+	if pic.is_empty():
+		return []
+
+	# ONE BUILDING AT A TIME WHILE A RING IS STILL GOING UP. An unfinished
+	# structure projects no build radius -- SimEconomy only counts operational
+	# ones -- so a second relay sited now would be measured against the
+	# envelope the first one has not yet extended, land on top of it, and be
+	# refused. Four of those refusals stand the whole chain down for seventy
+	# seconds, which is how a chain that was working stops working.
+	for row in pic:
+		var y := row as SimAiWorks.Yard
+		if not y.operational and y.radius_m > 0.0:
+			return []
+
+	var relay := _relay_def()
+	# What a well's worth of crude costs in refining, at list price.
+	var pipe_share := 0.0
+	var refinery_def := view.def_for("refinery")
+	if refinery_def != null and refinery_def.refine_capacity > 0.0:
+		pipe_share = refinery_def.cost \
+			* derrick.extraction_per_min / refinery_def.refine_capacity
+	var best: Vector2 = Vector2.ZERO
+	var best_d := INF
+	var best_hops := 0x7FFFFFFF
+	for k in range(fields.size()):
+		if float(_field_cool.get(k, -1.0e9)) > elapsed_s:
+			continue
+		var f: Vector2 = fields[k]
+		if _own_derrick_near(f):
+			continue
+		var hops := SimAiWorks.relays_needed(pic, relay, f.x, f.y) \
+			if relay != null else 9999
+		if SimAiWorks.shortfall(pic, f.x, f.y) <= 0.0:
+			hops = 0
+		if relays_built + hops > SimAiWorks.CREEP_MAX_RELAYS:
+			continue
+		# IS THE WALK WORTH IT? The bill is the relays, the derrick, AND the
+		# share of a refinery the crude will need -- pricing the walk without
+		# the pipe is how you talk yourself into a well you cannot sell from.
+		# The return is the well's whole output, because by the time it is
+		# pumping the pipe for it is bought.
+		var bill := derrick.cost + float(hops) \
+			* (relay.cost if relay != null else 0.0) + pipe_share
+		var per_s := derrick.extraction_per_min / 60.0
+		if per_s <= 0.0 or bill / per_s > EXPANSION_PAYBACK_S:
+			continue
+		# FEWEST RELAYS FIRST, then nearest, then field order -- a total
+		# order, so the walk is identical on every run. Hops before distance
+		# because a well already inside the envelope costs a derrick and
+		# nothing else: taking that one before buying a shed to reach a
+		# slightly nearer one is free money.
+		var d2 := pow(f.x - home_x, 2.0) + pow(f.y - home_z, 2.0)
+		if hops < best_hops or (hops == best_hops and d2 < best_d):
+			best_d = d2
+			best = f
+			best_hops = hops
+	if best_d == INF:
+		return []
+	if best_hops <= 0:
+		return ["oil_derrick", derrick.cost, best.x, best.y]
+	return [relay.role, relay.cost, best.x, best.y]
+
+
+## THE CHEAPEST METRE OF REACH. A relay is bought for its build radius and for
+## nothing else, so it is chosen on credits per metre of that radius -- which
+## is what makes a supply depot win it (600 credits for 200 m) over a power
+## plant (700 for 140) or a barracks (500 for 120), and it means the roster
+## rather than a hardcoded role name decides. A depot is a fair thing to buy
+## twice over anyway: it pushes supply out along the same line.
+##
+## Roles that cannot be sited freely are out: a derrick must stand on a field
+## and a naval yard must stand in water, so neither can carry a chain overland.
+func _relay_def() -> SimUnitDef:
+	var best: SimUnitDef = null
+	var best_score := INF
+	for role in view.buildable():
+		if SimAiWorks.FIELD_ROLES.has(role) or role == "naval_yard":
+			continue
+		var d := view.def_for(role)
+		if d == null or not d.is_structure or d.build_radius_m <= 0.0:
+			continue
+		if float(_build_cool.get(role, -1.0e9)) > elapsed_s:
+			continue
+		var score := d.cost / d.build_radius_m
+		if score < best_score:
+			best_score = score
+			best = d
+	return best
+
+
+## Do we already have a derrick standing on this field? Our OWN derricks only.
+## Whether anybody else has one is not a question this bundle can answer, and
+## must not become one -- SimEconomy.derrick_on() walks every structure on the
+## map whoever owns it.
+func _own_derrick_near(f: Vector2) -> bool:
+	for i in view.forces.indices():
+		if not view.forces.is_structure(i):
+			continue
+		var d := view.own_def(i)
+		if d == null or d.role != "oil_derrick":
+			continue
+		var p := view.forces.position(i)
+		if pow(p[0] - f.x, 2.0) + pow(p[2] - f.y, 2.0) \
+				<= OIL_CLAIM_M * OIL_CLAIM_M:
+			return true
+	return false
+
+
+## Refining that is paid for and on its way. The same trap as _power_coming():
+## a refinery under construction processes nothing but IS one of our
+## structures, so without this the AI asks for another one every eight seconds
+## until it owns four and is pumping into three empty pipes.
+func _refine_coming() -> float:
+	var coming := 0.0
+	for i in view.forces.indices():
+		if not view.forces.is_structure(i) or view.own_is_operational(i):
+			continue
+		var d := view.own_def(i)
+		if d != null:
+			coming += d.refine_capacity
+	if not _pending_build.is_empty():
+		var pd := view.def_for(String(_pending_build[0]))
+		if pd != null:
+			coming += pd.refine_capacity
+	return coming
 
 
 ## HOW MUCH MORE THAN THE PRICE A COMMANDER WANTS BANKED BEFORE IT SPENDS
@@ -938,7 +1337,28 @@ func _wanted_count(role: String, own_roles: Dictionary) -> int:
 		_income_ema - INDUSTRY_FIRST_CR_S) / INDUSTRY_PER_CR_S))
 	match role:
 		"refinery":
-			return mini(3, allowance)
+			# SIZED TO THE CRUDE, not to the income, and the difference is
+			# the reason the AI could never grow an economy. SimEconomy pays
+			# min(extraction, refine): income is the OUTPUT of that pair, so
+			# sizing refineries by income is reading the answer to decide the
+			# question. A start pumps 480 a minute against 520 of refining,
+			# so income says "you are fine" at the exact moment the next
+			# derrick would earn 40 credits a minute instead of 240.
+			#
+			# COUNTS WHAT IS COMING, for the same reason the power rule does:
+			# a refinery under construction refines nothing but IS one of our
+			# structures, so the naive version asks for another every eight
+			# seconds until the base is a refinery farm.
+			var have_ref := int(own_roles.get(role, 0))
+			if view.own_refine_capacity() + _refine_coming() \
+					< view.own_extraction_per_min():
+				return mini(REFINERY_CAP, have_ref + 1)
+			# Crude is covered. A SECOND refinery is still worth something --
+			# it is also where ore harvesters unload, and a second drop-off
+			# halves a haul -- and that is the thing the income allowance was
+			# always really measuring. It is capped at two, because beyond
+			# that a refinery is neither pipe nor a shorter drive.
+			return mini(REFINERY_CAP, maxi(1, mini(2, allowance)))
 		"heavy_factory", "light_factory":
 			return mini(3, allowance)
 		"barracks":
@@ -1039,6 +1459,7 @@ func _advance_epoch(credits: float) -> void:
 	if not view.begin_epoch_advance():
 		return
 	epoch_advances_requested += 1
+	_expanded_since_step = false        # expansion's turn comes round again
 	_econ_spent += cost
 	_growth_budget = maxf(0.0, _growth_budget - cost)
 	_claim_since_s = -1.0
@@ -1076,6 +1497,8 @@ func _build_out(credits: float, own_roles: Dictionary) -> void:
 		_note_build_failure(role, "nowhere legal inside our own radius")
 		return
 	view.order_build(role, site[0], site[1])
+	if _creep_role == role and role != "oil_derrick" and role != "refinery":
+		relays_built += 1
 	orders_production += 1
 	_last_build_s = elapsed_s
 	_econ_spent += d.cost
@@ -1123,6 +1546,8 @@ func _confirm_pending_build() -> void:
 		if pow(p[0] - x, 2.0) + pow(p[2] - z, 2.0) \
 				<= BUILD_CONFIRM_M * BUILD_CONFIRM_M:
 			structures_placed += 1
+			if role == "oil_derrick":
+				_expanded_since_step = true
 			_build_fail.erase(role)
 			_claim_since_s = -1.0
 			_pending_build = []
@@ -1138,8 +1563,37 @@ func _confirm_pending_build() -> void:
 		_growth_budget += d2.cost
 		_econ_spent -= d2.cost
 	structures_refused += 1
+	if role != "oil_derrick" and role != "refinery" \
+			and _creep_role == role and relays_built > 0:
+		relays_built -= 1               # it never went up; it is not a relay
+	# A DERRICK REFUSED IS A FIELD SOMEBODY ELSE IS PROBABLY PUMPING -- or one
+	# whose ground is occupied -- and the AI is not allowed to ask which. So
+	# it does what a player with a red cursor does: leaves that well alone for
+	# a while and walks to the next one. Without this the nearest field is
+	# re-chosen every eight seconds until the role itself stands down, and the
+	# second field is never even tried.
+	if role == "oil_derrick":
+		var k := _nearest_field_index(x, z)
+		if k >= 0:
+			_field_cool[k] = elapsed_s + SimAiWorks.FAIL_COOL_S
+			log_decision("the well at %.0f, %.0f will not take a derrick -- leaving it %.0f s"
+				% [x, z, SimAiWorks.FAIL_COOL_S])
 	_pending_build = []
 	_note_build_failure(role, "the engine refused the spot")
+
+
+## Which published oil field a point was aimed at, or -1. Coordinates only.
+func _nearest_field_index(x: float, z: float) -> int:
+	var fields := view.oil_points()
+	var best := -1
+	var best_d := OIL_CLAIM_M * OIL_CLAIM_M
+	for k in range(fields.size()):
+		var f: Vector2 = fields[k]
+		var d := pow(f.x - x, 2.0) + pow(f.y - z, 2.0)
+		if d < best_d:
+			best_d = d
+			best = k
+	return best
 
 
 func _note_build_failure(role: String, why: String) -> void:
@@ -1211,6 +1665,16 @@ func _build_site(d: SimUnitDef) -> PackedFloat32Array:
 	var pic := SimAiWorks.base_picture(view)
 	if pic.is_empty():
 		return PackedFloat32Array()
+
+	# EXPANSION HAS ALREADY CHOSEN A POINT, and it is a specific field rather
+	# than "the nearest one". A derrick goes ON it; anything else going there
+	# is a relay, and a relay is sited by the creep -- the only rule that is
+	# allowed to come back empty because the spot it found would not have
+	# moved the frontier.
+	if _creep_role != "" and d.role == _creep_role and d.role != "refinery":
+		if d.role == "oil_derrick":
+			return SimAiWorks.near(pic, view.terrain, d, _creep_x, _creep_z)
+		return SimAiWorks.creep(pic, view.terrain, d, _creep_x, _creep_z)
 
 	# A DERRICK STANDS ON A WELL and nowhere else -- the engine says so in
 	# those words -- so there is no fallback for it.
@@ -2513,6 +2977,13 @@ func to_dict() -> Dictionary:
 		"build_cool": _sf_out(_build_cool),
 		"build_fail": _si_out(_build_fail),
 		"pending_build": _pending_out(),
+		# THE EXPANSION. Where the base is walking to, which wells it has
+		# given up on for the moment, and how many relays it has spent doing
+		# it -- all of it own state, and all of it needed or a restored AI
+		# re-walks a chain it already paid for.
+		"creep": [_creep_role, SimSave.enc_float(_creep_x),
+			SimSave.enc_float(_creep_z), relays_built, _expanded_since_step],
+		"field_cool": _sf_out(_field_cool),
 	}
 
 
@@ -2598,6 +3069,20 @@ func from_dict(d: Dictionary) -> void:
 	if pb.size() >= 3:
 		_pending_build = [String(pb[0]), SimSave.dec_float(pb[1]),
 			SimSave.dec_float(pb[2])]
+	_creep_role = ""
+	_creep_x = 0.0
+	_creep_z = 0.0
+	relays_built = 0
+	var cr: Array = d.get("creep", [])
+	if cr.size() >= 4:
+		_creep_role = String(cr[0])
+		_creep_x = SimSave.dec_float(cr[1])
+		_creep_z = SimSave.dec_float(cr[2])
+		relays_built = int(cr[3])
+	_expanded_since_step = bool(cr[4]) if cr.size() >= 5 else false
+	_field_cool.clear()
+	for k in (d.get("field_cool", {}) as Dictionary):
+		_field_cool[int(String(k))] = SimSave.dec_float(d["field_cool"][k])
 
 
 ## Group-cell assignments and remembered sites, in the encodings SimSave takes.

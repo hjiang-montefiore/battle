@@ -29,6 +29,7 @@ var _calm: AudioStreamPlayer
 var _action: AudioStreamPlayer
 var _peril: AudioStreamPlayer
 var _sting: AudioStreamPlayer
+var _menu: AudioStreamPlayer
 var _clips: Dictionary = {}
 var _combat_until := -1.0e9
 var _t := 0.0
@@ -37,6 +38,10 @@ var _last_epoch := -1
 
 
 func _ready() -> void:
+	# BEFORE any player is made: assigning a bus that does not exist yet is a
+	# silent no-op, and the stem would stay on Master where no music fader can
+	# reach it.
+	AppState.ensure_buses()
 	for base in ["battle_calm", "battle_action", "battle_peril",
 			"sting_contact", "sting_epoch", "menu_theme"]:
 		var s := _load_wav(DIR + base + ".wav")
@@ -46,6 +51,9 @@ func _ready() -> void:
 	_action = _mk("battle_action", -60.0)
 	_peril = _mk("battle_peril", -60.0)
 	_sting = AudioStreamPlayer.new()
+	# Every stem, the stings included, goes through the music bus -- that is
+	# what the options screen's music fader actually moves.
+	_sting.bus = AppState.MUSIC_BUS
 	add_child(_sting)
 	# One shared playhead: start together, loop by length. calm and action are
 	# the same 120.000 s so they never drift; peril is exactly half and is
@@ -63,12 +71,30 @@ func _mk(clip: String, db: float) -> AudioStreamPlayer:
 		s.loop_end = s.data.size() / 2
 		p.stream = s
 	p.volume_db = db
+	p.bus = AppState.MUSIC_BUS
 	add_child(p)
 	return p
 
 
+## THE TITLE'S TRACK. menu_theme.wav has been sitting in the bank since the
+## score was written and nothing ever played it, because until now there was no
+## menu to play it over. The battle stems are stopped rather than faded: there
+## is no match here to cross-fade against, and a calm layer running silently
+## under the menu is a voice spent on nothing.
+func menu_mode() -> void:
+	for p in [_calm, _action, _peril]:
+		if p != null:
+			p.stop()
+	if _menu == null:
+		_menu = _mk("menu_theme", 0.0)
+	if _menu.stream != null:
+		_menu.play()
+
+
 func _process(dt: float) -> void:
 	_t += dt
+	if _menu != null:
+		return          # the title is not a battle; there is nothing to mix
 	var fighting := _t < _combat_until
 	_slide(_action, 0.0 if fighting else -60.0,
 		dt * 60.0 / (XFADE_IN if fighting else XFADE_OUT))

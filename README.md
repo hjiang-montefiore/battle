@@ -44,15 +44,35 @@ munitions simulated from launch to hit — are designed but unimplemented. Build
 Requires **Godot 4.5**. No other dependencies.
 
 ```bash
-godot --path game                          # play a skirmish
+godot --path game                          # the title screen
+godot --path game res://scenes/skirmish.tscn         # straight into a default skirmish
+godot --path game res://scenes/map_editor.tscn       # the map editor
 godot --path game res://scenes/proving_ground.tscn   # the art harness
 godot --path game --headless --script res://sim/tests/run_sim_tests.gd   # sim tests
 godot --path game --headless res://scenes/skirmish.tscn -- --test        # play it headless
-godot --path game -- --shot                # render a framed screenshot
+godot --path game res://scenes/skirmish.tscn -- --shot   # render the match
+godot --path game res://scenes/skirmish.tscn -- --shot --menu   # ...with the pause menu open
+godot --path game -- --shot                # render the title
 ```
 
-The main scene is the **skirmish**: two bases at opposite corners of a 12.8 km valley
-with a ridge down the middle, one human against one AI. The proving ground is still
+The game boots to a **title screen** with a live match running blurred behind it:
+Continue, Skirmish, Scenarios, Campaign (listed and honestly disabled), Load,
+Map Editor, Options, Quit. Arrows move, Enter confirms, Esc backs out.
+
+**Skirmish setup** is a table — one row per seat, with faction, skill, doctrine and
+team, an Advanced panel for allowed domains, starting force and per-seat epoch band,
+a theatre list of the three arenas plus anything authored into `data/maps/`, and one
+1950s-to-now timeline with two handles for the start and ceiling epochs.
+`SimMatchSetup.validate()` runs on every change and its sentences are shown as they
+become true; Start is never greyed out and refuses with the reason instead.
+
+**Esc in a match** opens the pause menu — Resume, Save, Load, Options, Restart (same
+seed, same deal) and Quit to title. The simulation is fixed-step, so the pause is a
+real one.
+
+The match scene is the **skirmish**: two bases at opposite corners of a 6.4 km valley
+with a ridge down the middle, one human against one AI. Launched directly it deals its
+own default match, which is what every headless check does. The proving ground is still
 there and still runs its own self-test; it is the art harness, not the game.
 
 `-- --test` boots the skirmish headless and plays it — selecting, moving, building,
