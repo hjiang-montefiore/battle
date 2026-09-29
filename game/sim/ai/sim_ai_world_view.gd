@@ -181,3 +181,76 @@ func oil_points() -> Array:
 ## home-on-jam gives away for free.
 func emitters() -> Array:
 	return tracks.emitters() if tracks != null else []
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# OWN BASE. Everything below is a fact about a unit THIS PLAYER OWNS, and
+# every one of them refuses an index it does not hold -- the same fence
+# SimOwnForcesView puts around position() and fuel_fraction().
+#
+# They exist because siting a building is a decision about one's own base:
+# a player looks at the build-radius rings the HUD draws, at the footprints
+# already on the ground, and at the map. docs/09 §1 allows all three. What is
+# NOT here, and must never be, is SimEconomy.placement_problem(): that call
+# tests clearance against EVERY structure on the map whoever owns it, so an
+# AI that probed it on a grid would read the enemy's base off the refusals.
+# The AI checks its own clearance and accepts that a refused placement is
+# something it has to notice and retry -- which is exactly what a player
+# with a red cursor does.
+# ═══════════════════════════════════════════════════════════════════════════
+
+## The def behind one of this player's own units: its cost, footprint, build
+## radius and role. The same card its own build menu showed when it bought it.
+## Note `_allow` rather than `owns`: SimOwnForcesView counts every refused
+## query, and a fence nobody can count is a fence nobody can test. Its own
+## accessors all go through the same call for the same reason.
+func own_def(unit: int) -> SimUnitDef:
+	if economy == null or forces == null or not forces._allow(unit):
+		return null
+	return economy.def_of(unit)
+
+
+## Is one of this player's own structures FINISHED? An unfinished building
+## projects no build radius (SimEconomy.placement_problem tests
+## is_operational), so an AI that did not ask this would site against a ring
+## that is not there yet.
+func own_is_operational(unit: int) -> bool:
+	if economy == null or forces == null or not forces._allow(unit):
+		return false
+	return economy.is_operational(unit)
+
+
+## Own power supply and draw, the two numbers the player's sidebar shows.
+## docs/12: "a brownout slows work" -- so an AI that cannot see its own
+## brownout cannot fix it, and ours starts in one.
+func own_power_supply() -> float:
+	if economy == null:
+		return 0.0
+	var p := economy.purse(player_id)
+	return p.power_supply if p != null else 0.0
+
+
+func own_power_draw() -> float:
+	if economy == null:
+		return 0.0
+	var p := economy.purse(player_id)
+	return p.power_draw if p != null else 0.0
+
+
+## WHAT THIS PLAYER HAS ACTUALLY EARNED, cumulative. Its own bank statement.
+##
+## The AI used to estimate its income as "the change in my balance plus what I
+## chose to spend", which is exact only if every order it gives is charged for
+## at the price it expected. It is not: a production order can be refused, and
+## in the opening seconds a commander spending a large starting float looks
+## like a commander earning one. Measured, that put the income estimate at 168
+## credits a second against a true 5, which sized the industry to a fantasy
+## and put two refineries in front of the research facility.
+##
+## docs/09 §1.2 lists ANOTHER player's income as a leak; this is the player's
+## own, which is the number its own sidebar shows.
+func own_earned_total() -> float:
+	if economy == null:
+		return 0.0
+	var p := economy.purse(player_id)
+	return p.earned_total if p != null else 0.0

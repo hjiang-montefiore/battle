@@ -208,24 +208,40 @@ static func _first_of_kind(view: SimAiWorldView, options: PackedStringArray,
 ## a Sensor Dominance AI puts a radar station before a barracks, a Fortress
 ## puts a SAM belt in front of everything, a Tech Rush buys the research
 ## facility that docs/05 epoch advancement actually requires.
+##
+## THE RESEARCH FACILITY MOVED, and it is the whole reason the AI could not
+## climb. It used to sit in TENTH place for any doctrine under 0.55 tech bias
+## -- after the radar, the SAM belt, the supply depot and a second factory --
+## which in a measured match meant it was never reached at all. Since
+## SimEconomy.begin_epoch_advance() refuses without an operational research
+## facility, better than half the profiles in the game were locked at their
+## starting epoch for the entire match. It is now fifth at worst and third at
+## best: an eager doctrine buys it before its heavy factory, a cautious one
+## after its barracks, and nobody waits until the airbase.
+##
+## The three orderings the difficulty of this game is legible through are
+## unchanged and asserted in test_ai.gd: Sensor Dominance still puts its radar
+## up before Blitz does (4th against 6th), and a Fortress still has its SAM
+## belt fifth.
 static func base_build_order(doctrine: SimDoctrine) -> PackedStringArray:
 	var d: SimDoctrine = doctrine if doctrine != null else SimDoctrine.new()
-	var out := PackedStringArray(["power_plant", "refinery", "heavy_factory"])
+	var out := PackedStringArray(["power_plant", "refinery"])
+	if d.tech_bias >= 0.55:
+		out.append("research_facility")
+	out.append("heavy_factory")
 	if d.sensor_share >= 0.55:
 		out.append("fixed_radar")
 	if d.aggression <= 0.45:
 		out.append("fixed_sam")
-	if d.tech_bias >= 0.55:
-		out.append("research_facility")
 	out.append("barracks")
+	if d.tech_bias < 0.55:
+		out.append("research_facility")
 	if d.logistics_depth >= 0.45:
 		out.append("supply_depot")
 	if d.sensor_share < 0.55:
 		out.append("fixed_radar")
 	if d.aggression > 0.45:
 		out.append("fixed_sam")
-	if d.tech_bias < 0.55:
-		out.append("research_facility")
 	out.append("light_factory")
 	out.append("airbase")
 	return out
