@@ -137,7 +137,7 @@ func _seek(i: int) -> void:
 	var f: Vector2 = economy.ore_fields[field]
 	if _dist(i, f.x, f.y) <= ARRIVE_M:
 		entities.harvest_state[i] = State.MINING
-		movement.stop(i)
+		movement.order_stop(i)
 	else:
 		_drive(i, f.x, f.y)
 
@@ -177,7 +177,7 @@ func _return(i: int) -> void:
 	var hz := entities.pos_z[home]
 	if _dist(i, hx, hz) <= ARRIVE_M:
 		entities.harvest_state[i] = State.UNLOADING
-		movement.stop(i)
+		movement.order_stop(i)
 	else:
 		_drive(i, hx, hz)
 

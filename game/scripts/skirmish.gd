@@ -171,6 +171,7 @@ func _ready() -> void:
 
 	_build_environment()
 	_build_terrain_mesh()
+	add_child(preload("res://scripts/scenery.gd").new().build(_match))
 	_build_oil_markers()
 	_build_ore_markers()
 	_audio = GameAudioScript.new()
@@ -428,9 +429,36 @@ func _build_terrain_mesh() -> void:
 	# colour, so the hillshade, the contour banding and the water all survive
 	# underneath it. Triplanar because the mesh carries no UVs: it is built
 	# from a heightfield, and projecting from world position needs none.
-	mat.albedo_texture = _ground_detail()
+	# 192 rather than 256 texels: the tile is 24 m of ground, so this is still
+	# 12 cm a texel, and the fine layer below is what actually resolves at
+	# close zoom. It is a third fewer pixels to generate, and generating them
+	# in GDScript is the single most expensive thing in a map load.
+	mat.albedo_texture = _ground_detail(192, [12, 32, 96], 0.22, 26.0)
 	mat.uv1_triplanar = true
-	mat.uv1_scale = Vector3(0.11, 0.11, 0.11)   # ~9 m per tile
+	# TWO SCALES, because one cannot serve both ends of the zoom. The camera
+	# ranges from 45 m to 2400 m out; at the opening 260 m the screen shows
+	# 411 m of ground, or about 26 cm per pixel, and at the closest zoom about
+	# 4 cm. A single 9 m tile (what was here) is 35 pixels across at the
+	# opening zoom -- everything in it mipmaps to a flat grey, which is why
+	# the ground was smooth exactly where the game is played.
+	#   uv1, 24 m per tile: the grain you read at 400 m of view.
+	#   uv2, 3 m per tile, multiplied on top: the grain you read at 70 m,
+	#        when the camera is down among the tanks.
+	# Same image both times, so the second scale costs one texture fetch and
+	# no memory.
+	mat.uv1_scale = Vector3(1.0 / 24.0, 1.0 / 24.0, 1.0 / 24.0)
+	# The fine scale is a SEPARATE, much fainter tile, not the same one shown
+	# smaller. Reusing the coarse tile at 8 m was tried and it striped: a 22 %
+	# contrast pattern repeating every 20 screen pixels reads as corduroy on a
+	# ground plane in perspective, because depth compresses one axis of the
+	# repeat and not the other. At 9 % contrast and 3.5 m it disappears into
+	# grain at the opening zoom and only resolves when the camera comes down.
+	mat.uv2_triplanar = true
+	mat.uv2_scale = Vector3(1.0 / 3.5, 1.0 / 3.5, 1.0 / 3.5)
+	mat.detail_enabled = true
+	mat.detail_uv_layer = BaseMaterial3D.DETAIL_UV_2
+	mat.detail_blend_mode = BaseMaterial3D.BLEND_MODE_MUL
+	mat.detail_albedo = _ground_detail(128, [16, 48], 0.09, 14.0)
 	# The palette below is written in sRGB, the way a colour picker gives it.
 	# Left as linear it renders about two stops brighter and the whole map
 	# comes out a pale sage that hides every contour on it.
@@ -449,28 +477,67 @@ func _build_terrain_mesh() -> void:
 ## and because anything that reaches for randomness at load time is one more
 ## thing that can desync a replay.
 ##
-## Kept close to white (0.86-1.12) and very slightly warm: this multiplies the
-## terrain palette, so a texture with colour of its own would tint the whole
-## map rather than texture it.
-func _ground_detail() -> ImageTexture:
-	const N := 256
-	var img := Image.create(N, N, true, Image.FORMAT_RGB8)
-	for y in range(N):
-		for x in range(N):
+## IT NOW CARRIES COLOUR. It used to be deliberately grey so it could not tint
+## the palette -- and the cost of that was a ground that varied in BRIGHTNESS
+## and never in hue, which is what painted plastic looks like. Real ground at
+## metres varies in both: bleached, trampled and bare patches are warmer as
+## well as lighter, and the turf between them is cooler and darker. The swing
+## is small and it MULTIPLIES, so the palette above still decides what colour
+## the ground is; this only decides where it dries out.
+##
+## Called twice, for the two uv scales the material uses -- a coarse tile for
+## the zoom the game opens at and a fine, much fainter one for when the camera
+## is down among the tanks.
+func _ground_detail(n: int, octaves: Array, contrast: float,
+		warp_px: float) -> ImageTexture:
+	var img := Image.create(n, n, true, Image.FORMAT_RGB8)
+	for y in range(n):
+		for x in range(n):
+			# DOMAIN WARP. Value noise sits on a SQUARE lattice, so every
+			# octave in it has features aligned to x and y -- and a tile of
+			# axis-aligned features, laid on a ground plane and looked at down
+			# those same axes, reads as ruled lines. It did: the ground came
+			# out in horizontal bands at every zoom. Displacing the sample
+			# point by a coarse noise first bends those rows into something
+			# organic. The warp field wraps on n like everything else here, so
+			# the tile still has no seam.
+			var wx := x
+			var wy := y
+			if warp_px > 0.0:
+				wx = x + int(round((_value_noise(x, y, 8, n) - 0.5) * warp_px))
+				wy = y + int(round((_value_noise(y, x, 8, n) - 0.5) * warp_px))
 			var v := 0.0
 			var amp := 1.0
 			var total := 0.0
-			# Four octaves of value noise, each wrapping on N so the tile has
-			# no seam. Wrapping is why the lattice period divides N.
-			for oct in [8, 16, 32, 96]:
-				v += _value_noise(x, y, oct, N) * amp
+			var coarse := 0.0
+			# Octaves of value noise, each wrapping on n so the tile has no
+			# seam -- which is why every lattice period divides n. The coarse
+			# tile is 24 m of ground and the largest thing in it is a 2 m
+			# clump, and that is deliberate: anything larger repeats as a
+			# RECOGNISABLE shape twenty times across the screen, and a 16 m
+			# tile with 3 m blobs in it read as printed wallpaper. Everything
+			# above 2 m is the vertex patches' job, and those do not repeat.
+			for oct in octaves:
+				var o := _value_noise(wx, wy, oct, n)
+				if total == 0.0:
+					coarse = o
+				v += o * amp
 				total += amp
 				amp *= 0.55
 			v = v / total
 			# Darkens only. 8-bit cannot store above 1.0, so a range that
-			# straddled white threw half its variation away as clipping.
-			var g: float = 0.74 + 0.26 * v
-			img.set_pixel(x, y, Color(g * 1.02, g, g * 0.94))
+			# straddled white would throw half its variation away as clipping.
+			# The two tiles multiply each other as well as the vertex colour,
+			# so their means have to sit high or the ground goes dark.
+			var g: float = (1.0 - contrast) + contrast * v
+			# Hue rides the coarsest octave: the dry patches are the pale
+			# ones, which is how bleached ground actually works, and it saves
+			# a second noise field over sixty-five thousand pixels.
+			var w: float = coarse - 0.5
+			img.set_pixel(x, y, Color(
+				clampf(g * (1.0 + 0.55 * contrast * w), 0.0, 1.0),
+				clampf(g * (1.0 + 0.09 * contrast * w), 0.0, 1.0),
+				clampf(g * (1.0 - 0.60 * contrast * w), 0.0, 1.0)))
 	img.generate_mipmaps()
 	return ImageTexture.create_from_image(img)
 
@@ -649,19 +716,40 @@ func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3,
 		st.add_vertex(v[k])
 
 
-## Height as colour, with a contour band every 40 m.
+## Ground colour: elevation, SLOPE, patchy cover, then the hillshade.
 ##
-## The band is not decoration. Terrain decides line of sight in this game, and
-## on a map whose relief is 340 m over 12 km a smooth gradient is invisible
-## from a playing camera -- you cannot tell which way the ground falls, so you
-## cannot tell what your radar can see. Banding makes the slope readable at a
-## glance, the way a contour map does, without drawing anything on top of it.
+## SLOPE is the addition that makes this read as ground rather than as a
+## painted height map. Before, a cliff face and a meadow at the same altitude
+## were the same colour -- and on Skirmish Valley that is most of what you
+## look at, because ninety per cent of the land sits between 30 and 40 m and
+## the only interesting surface on the map is the FLANK of the ridge, which
+## the height ramp could not distinguish from the flat beside it. Real ground
+## goes to rock and scree where it is steep because nothing holds soil there;
+## the terrain's own gradient is already computed for the hillshade, and here
+## it picks the cover.
 func _ground_colour(h: float, cx: int, cz: int) -> Color:
 	if h < 0.0:
 		# Water reads as water at a glance, which matters: a naval yard can
 		# only go here and nothing else can.
 		return Color(0.05, 0.14, 0.26).lerp(Color(0.10, 0.26, 0.40),
 			clampf(1.0 + h / 200.0, 0.0, 1.0))
+	var t := _match.terrain
+	# The gradient in metres per metre, from the same central difference the
+	# hillshade uses -- but divided by the span actually sampled, so the map
+	# edge (where the neighbour is the cell itself) does not read as half the
+	# grade it has. Measured on this map: the valley floor is under 3 %, the
+	# ridge flanks run 30 % to 100 %. Those two populations are what the blend
+	# below separates.
+	var x0: int = maxi(cx - 1, 0)
+	var x1: int = mini(cx + 1, t.cells_x - 1)
+	var z0: int = maxi(cz - 1, 0)
+	var z1: int = mini(cz + 1, t.cells_z - 1)
+	var dhdx: float = (t.height_at_cell(x1, cz) - t.height_at_cell(x0, cz)) \
+			/ maxf(float(x1 - x0) * t.cell_size_m, 1.0)
+	var dhdz: float = (t.height_at_cell(cx, z1) - t.height_at_cell(cx, z0)) \
+			/ maxf(float(z1 - z0) * t.cell_size_m, 1.0)
+	var grade := sqrt(dhdx * dhdx + dhdz * dhdz)
+
 	# A RAMP, not a two-colour lerp. Lerping dark green straight to tan means
 	# every height between them is the same olive, and on this map almost all
 	# the ground IS between them -- which is why it rendered as one flat
@@ -670,39 +758,118 @@ func _ground_colour(h: float, cx: int, cz: int) -> Color:
 	# the eye gets colour to separate ground by, not just brightness.
 	var c := _ramp(h)
 
-	# Contour band. Raised from 0.13 to 0.22 -- at 0.13 on a hillshaded
-	# surface the band is quieter than the shading and disappears into it.
-	if int(floor(h / 40.0)) % 2 == 1:
-		c = c.darkened(0.22)
+	# PATCHY COVER at a human scale. The old mottle was a per-cell hash and
+	# two decimated copies of it, which shifted BRIGHTNESS only and put hard
+	# 200 m squares under the interpolation. Ground does not vary in
+	# brightness, it varies in how DRY it is: bleached khaki where it drains,
+	# green where it does not, in patches of a couple of hundred metres with
+	# smaller ones inside them. Two octaves of smooth value noise on the cell
+	# lattice give exactly that, and cells are 50 m, so the coarse octave is
+	# ~550 m and the fine one ~150 m -- the band the eye reads at the 400 m of
+	# ground the playing camera shows. Deterministic: integer hashing off the
+	# cell index, no RNG draw, so a replay paints the same ground.
+	var patch := 0.0
+	var amp := 1.0
+	var tot := 0.0
+	for period in [11, 3]:
+		var fx: float = float(cx) / float(period)
+		var fz: float = float(cz) / float(period)
+		var ix := int(floor(fx))
+		var iz := int(floor(fz))
+		var tx: float = fx - float(ix)
+		var tz: float = fz - float(iz)
+		tx = tx * tx * (3.0 - 2.0 * tx)
+		tz = tz * tz * (3.0 - 2.0 * tz)
+		var n0 := lerpf(_hash01(ix, iz), _hash01(ix + 1, iz), tx)
+		var n1 := lerpf(_hash01(ix, iz + 1), _hash01(ix + 1, iz + 1), tx)
+		patch += (lerpf(n0, n1, tz) - 0.5) * amp
+		tot += amp
+		amp *= 0.6
+	var dry: float = patch / tot * 2.0                     # about -1 .. 1
+	var grain: float = (_hash01(cx, cz) - 0.5) * 2.0       # 50 m grain
+	# Dry ground is LIGHTER as well as yellower -- bleached stubble against
+	# green turf -- so the swing is not a pure hue rotation.
+	c = Color(
+		clampf(c.r * (1.0 + 0.200 * dry + 0.060 * grain), 0.0, 1.0),
+		clampf(c.g * (1.0 + 0.095 * dry + 0.060 * grain), 0.0, 1.0),
+		clampf(c.b * (1.0 - 0.130 * dry + 0.060 * grain), 0.0, 1.0))
 
-	# Mottle. Deterministic per cell -- no randf() below the presentation
-	# line and none wanted here either, since the map must look identical on
-	# a replay. Two hashed octaves at different scales, so the ground reads as
-	# ground rather than as a painted surface, without implying detail that
-	# the simulation does not have.
-	var m := (_hash01(cx, cz) - 0.5) * 0.10 \
-			+ (_hash01(cx >> 2, cz >> 2) - 0.5) * 0.09 \
-			+ (_hash01(cx >> 5, cz >> 5) - 0.5) * 0.11
-	c = Color(clampf(c.r + m, 0.0, 1.0), clampf(c.g + m, 0.0, 1.0),
-			clampf(c.b + m * 0.7, 0.0, 1.0))
+	# ROCK WHERE IT IS STEEP. A blend, not a threshold: bare ground appears
+	# from about a 1-in-8 grade and has taken over by 1-in-2, which is where
+	# the ridge flanks live. Never quite 1.0, so the slope keeps a trace of
+	# the cover it sits in and a rock face on high ground still reads paler
+	# than one down in the valley.
+	var rocky: float = smoothstep(0.12, 0.45, grade)
+	if rocky > 0.0:
+		var rock := Color(0.330, 0.312, 0.292).lerp(
+				Color(0.520, 0.508, 0.492), clampf(h / 400.0, 0.0, 1.0))
+		# Scree is not flat paint either -- the same grain, doubled, because
+		# loose rock is coarser than turf.
+		var s: float = 1.0 + 0.130 * grain
+		rock = Color(rock.r * s, rock.g * s, rock.b * s)
+		c = c.lerp(rock, rocky * 0.86)
+
+	# CONTOUR SHADING, softened. It used to be a hard step every 40 m: below
+	# the band boundary one colour, above it a colour 22 % darker. That was
+	# right when the ground was a flat wash with no relief in it, and wrong
+	# now -- on this map the boundary at 40 m runs straight through the middle
+	# of a flat valley floor, drawing a painted line across ground that has no
+	# feature there. A cosine over the same 40 m interval carries the same
+	# information (dark and light alternate with height, so a slope is read as
+	# a gradient perpendicular to the fall line) with no edge to notice, and
+	# on flat ground it fades to nothing because consecutive cells barely move
+	# through the cycle.
+	c = c.darkened(0.12 * (0.5 - 0.5 * cos(TAU * h / 40.0)))
 
 	# ...and the hillshade, which is the reason any of the above is visible.
-	var idx := cz * _match.terrain.cells_x + cx
+	var idx := cz * t.cells_x + cx
 	var sh: float = _shade[idx] if idx < _shade.size() else 0.7
-	var k: float = 0.46 + 0.86 * sh
+	# Gentle ground occupies a NARROW slice of the shade term -- measured on
+	# this map, the whole valley floor lies between 0.68 and 0.83 -- and the
+	# old code got the contrast it needed out of the hard contour step instead
+	# of out of the shading. With that step gone the floor went nearly
+	# uniform, so the deviation is stretched about its own middle to put the
+	# relief back where it belongs: in the light, not in a painted band.
+	sh = clampf(0.75 + (sh - 0.75) * 1.75, 0.0, 1.0)
+	# 0.46 + 0.86 sh put the shadowed flank of the ridge at 46 % of its own
+	# colour -- and then the scene light, which can see that flank perfectly
+	# well, darkened it AGAIN on top of that. A 1-in-3 slope came out a black
+	# smear with nothing legible in it.
+	#
+	# The point of a hillshade is to show relief the scene light CANNOT show:
+	# a 2 % slope returns almost the same lambert term as flat ground, which
+	# is why the valley floor was unreadable without one. A 1-in-3 flank is
+	# not that case. So the exaggeration is now weighted out as the real grade
+	# takes over -- full strength on the flats, where it is the only cue there
+	# is, and about a third of it on the ridge faces, where the sun is already
+	# doing the work. The valley floor keeps exactly the brightness swing it
+	# had; the flanks keep their texture instead of clipping to black.
+	var w: float = 1.0 - 0.62 * smoothstep(0.06, 0.30, grade)
+	var k: float = 1.0 + (0.46 + 0.86 * sh - 1.0) * w
 	return Color(clampf(c.r * k, 0.0, 1.0), clampf(c.g * k, 0.0, 1.0),
 			clampf(c.b * k, 0.0, 1.0))
 
 
 ## Height -> terrain colour, through named stops.
+##
+## RETUNED FOR THE HEIGHTS THAT EXIST. The old stops were spread over 0-440 m,
+## which is a mountain map; the arenas the game is played on are not. Measured:
+## Skirmish Valley runs 30 m to 137 m, Open Steppe 60 m to 68 m, Coastal Shelf
+## -45 m to 137 m. The whole of every one of them landed in the first stop and
+## a half, so the ramp did no work at all and the ground came out one green.
+## The stops below put the readable part of the ramp where the ground actually
+## is -- lowland to dry grass across the first 160 m -- and keep climbing above
+## that so a real-geography theatre still bares off at altitude. The greens are
+## also pulled toward olive: a saturated green from overhead reads as felt, and
+## real grassland photographs khaki.
 static func _ramp(h: float) -> Color:
 	const STOPS := [
-		[0.0,   Color(0.16, 0.27, 0.13)],   # valley floor, damp green
-		[70.0,  Color(0.25, 0.35, 0.15)],   # meadow
-		[150.0, Color(0.38, 0.39, 0.19)],   # scrub
-		[250.0, Color(0.50, 0.44, 0.27)],   # dry ground
-		[340.0, Color(0.58, 0.55, 0.44)],   # bare earth
-		[440.0, Color(0.69, 0.68, 0.66)],   # rock
+		[0.0,   Color(0.183, 0.231, 0.134)],   # valley floor, damp and dark
+		[45.0,  Color(0.262, 0.288, 0.161)],   # meadow
+		[95.0,  Color(0.320, 0.325, 0.205)],   # grass going over to scrub
+		[165.0, Color(0.405, 0.385, 0.265)],   # dry grass
+		[320.0, Color(0.490, 0.455, 0.340)],   # bare earth
+		[700.0, Color(0.585, 0.565, 0.520)],   # rock
 	]
 	if h <= float(STOPS[0][0]):
 		return STOPS[0][1]
