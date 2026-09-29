@@ -147,6 +147,7 @@ var _headless := false
 ## countdown, and the production-queue readout on the side panel.
 var _bottleneck_label: Label
 var _power_label: Label
+var _era_bar: Control
 var _ore_nodes: Array = []
 var _sidebar: PanelContainer
 var _repair_btn: Button
@@ -2279,6 +2280,7 @@ func _refresh_ui_rects() -> void:
 
 
 const ManualScript := preload("res://scripts/manual.gd")
+const EraBarScript := preload("res://scripts/era_bar.gd")
 var _manual: Control
 var _manual_layer: CanvasLayer
 
@@ -2329,7 +2331,7 @@ func _build_hud() -> void:
 	# ground, and the top-bar income number alone cannot say WHY it is low.
 	_bottleneck_label = _label(layer, Vector2.ZERO, 14)
 	_bottleneck_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_anchor(_bottleneck_label, 0.5, 0.0, -300.0, 8.0, 300.0, 30.0)
+	_anchor(_bottleneck_label, 0.5, 0.0, -300.0, 76.0, 300.0, 98.0)
 	_bottleneck_label.add_theme_color_override("font_color", COL_UNKNOWN)
 	_bottleneck_label.visible = false
 
@@ -2337,9 +2339,20 @@ func _build_hud() -> void:
 	# day it was written -- power_satisfaction() scales the work done -- and
 	# the HUD never said so. A player whose factories have quietly halved
 	# their rate needs to be told why, in the place they are already looking.
+	# THE ERA BAR, top centre above the power warning: the seven epochs as a
+	# ladder. Epoch progression is half this game's pitch and it used to be
+	# the word "epoch 4" in a stats line.
+	_era_bar = EraBarScript.new()
+	_era_bar.custom_minimum_size = Vector2(520, 30)
+	# The top-centre column is a STACK, not a pile. The era bar, the power
+	# warning and the refining warning were all anchored to the same few pixels
+	# and drew straight through one another the first time the bar existed.
+	_anchor(_era_bar, 0.5, 0.0, -260.0, 6.0, 260.0, 38.0)
+	layer.add_child(_era_bar)
+
 	_power_label = _label(layer, Vector2.ZERO, 16)
 	_power_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_anchor(_power_label, 0.5, 0.0, -300.0, 28.0, 300.0, 52.0)
+	_anchor(_power_label, 0.5, 0.0, -300.0, 46.0, 300.0, 70.0)
 	_power_label.add_theme_color_override("font_color", COL_HOSTILE)
 	_power_label.visible = false
 
@@ -2347,7 +2360,7 @@ func _build_hud() -> void:
 	# rebuild; a countdown buried in the stats block is not a warning.
 	_collapse_label = _label(layer, Vector2.ZERO, 24)
 	_collapse_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_anchor(_collapse_label, 0.5, 0.0, -430.0, 40.0, 430.0, 104.0)
+	_anchor(_collapse_label, 0.5, 0.0, -430.0, 104.0, 430.0, 168.0)
 	_collapse_label.add_theme_color_override("font_color", COL_HOSTILE)
 	_collapse_label.visible = false
 
@@ -2748,6 +2761,9 @@ func _update_hud(dt := 0.0) -> void:
 				break
 		_repair_btn.disabled = not hurt
 		_sell_btn.disabled = mine.is_empty()
+	if _era_bar != null:
+		_era_bar.call("set_state", p.epoch, p.ceiling_epoch, p.advance_progress,
+			p.is_advancing())
 	if _power_label != null:
 		var sat := p.power_satisfaction()
 		_power_label.visible = sat < 0.999
