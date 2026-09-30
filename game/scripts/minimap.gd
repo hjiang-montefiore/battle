@@ -126,6 +126,25 @@ func _to_world(p: Vector2) -> Vector2:
 	return Vector2(wx, wz)
 
 
+## WHERE YOU ARE BEING HIT. A pulsing red ring per live alert, drawn over the
+## terrain so it is the first thing the eye finds. Clicking it uses the same
+## left-click-to-fly the whole minimap already has, so no new control is
+## needed to answer "where is that". It reads the scene's own alert list, which
+## only ever holds hits on the player's OWN units.
+func _draw_alerts() -> void:
+	var host := get_parent()
+	while host != null and not host.has_method("live_alerts"):
+		host = host.get_parent()
+	if host == null:
+		return
+	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 160.0)
+	for a in host.call("live_alerts"):
+		var p := _to_map(float(a[0]), float(a[1]))
+		var c := Color(0.95, 0.24, 0.20, 0.55 + 0.45 * pulse)
+		draw_arc(p, 6.0 + 4.0 * pulse, 0.0, TAU, 20, c, 2.0)
+		draw_circle(p, 2.5, c)
+
+
 ## Oil fields, drawn under everything else: they never move, and a player
 ## planning an expansion is reading the map for exactly this.
 ## Ore, in the gold it is drawn on the ground in. Sized by what is LEFT, so
@@ -167,6 +186,7 @@ func _draw() -> void:
 		draw_texture_rect(_terrain_tex, Rect2(Vector2.ZERO, size), false)
 	_draw_ore()
 	_draw_oil()
+	_draw_alerts()
 
 	# OWN FORCES, from ground truth: dots for units, squares for structures.
 	var e := _match.world.entities

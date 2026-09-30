@@ -1036,6 +1036,7 @@ func _process(dt: float) -> void:
 	_audio_tick()
 	_music_tick()
 	_update_ore()
+	_alert_tick(dt)
 	_refresh_ui_rects()
 	_sync_proxies()
 	_prune_selection()
@@ -1092,6 +1093,74 @@ func _attract_camera(dt: float) -> void:
 ## Everything below is driven by a counter the sim already maintains, so there
 ## is no parallel event bus to keep in sync -- if the sim did not record it,
 ## there is no sound for it.
+## ATTACK ALERTS -- "your base is under attack", which nothing said before.
+##
+## Borrowed from the owner's other RTS (~/Desktop/redalert, #alerts / #attn).
+## Without it a player loses a building in a corner of the map they were not
+## looking at and learns about it from the sidebar losing a tab.
+##
+## FAIRNESS: only hits on the player's OWN entities raise an alert, and the
+## alert gives OUR unit's position -- which the player already knows -- and
+## nothing about who fired or from where. A shot that lands on you is not a
+## secret from you; the shooter still has to be found the honest way.
+##
+## Throttled per ~300 m cell, or a single artillery barrage would fill the
+## screen with forty copies of one message.
+const ALERT_HOLD_S := 12.0
+const ALERT_CELL_M := 300.0
+var _alerts: Array = []             ## [x, z, kind, raised_at_s]
+var _alert_banner: Label
+var _alert_time := 0.0
+
+
+func _note_hit(target: int) -> void:
+	var e := _match.world.entities
+	if target < 0 or target >= e.count() or e.owner[target] != _me:
+		return
+	var x := e.pos_x[target]
+	var z := e.pos_z[target]
+	var cell := Vector2i(int(floor(x / ALERT_CELL_M)), int(floor(z / ALERT_CELL_M)))
+	var now := _match.world.elapsed_s
+	for a in _alerts:
+		var ac := Vector2i(int(floor(a[0] / ALERT_CELL_M)), int(floor(a[1] / ALERT_CELL_M)))
+		if ac == cell and now - float(a[3]) < ALERT_HOLD_S:
+			return
+	var kind := "UNITS UNDER FIRE"
+	if e.is_structure[target] == 1:
+		kind = "BASE UNDER ATTACK"
+	elif _match.world.harvest_system != null \
+			and _match.world.harvest_system.is_harvester(target):
+		# Its own line, because a harvester is the one unit a raid is FOR.
+		kind = "HARVESTER UNDER ATTACK"
+	_alerts.append([x, z, kind, now])
+	_alert_time = 4.0
+	if _alert_banner != null:
+		_alert_banner.text = kind + "   ·   click the red ring on the map"
+		_alert_banner.visible = true
+	if _audio != null:
+		_audio.flat("ui_alert" if _audio.has_method("flat") else "ui_order", -3.0)
+
+
+## Alerts still worth showing, for the minimap. Read-only, and read by it.
+func live_alerts() -> Array:
+	var now := _match.world.elapsed_s if _match != null else 0.0
+	var out: Array = []
+	for a in _alerts:
+		if now - float(a[3]) < ALERT_HOLD_S:
+			out.append(a)
+	return out
+
+
+func _alert_tick(dt: float) -> void:
+	if _alert_time > 0.0:
+		_alert_time -= dt
+		if _alert_time <= 0.0 and _alert_banner != null:
+			_alert_banner.visible = false
+	# Forget stale alerts so the list cannot grow for the whole match.
+	var now := _match.world.elapsed_s
+	_alerts = _alerts.filter(func(a): return now - float(a[3]) < ALERT_HOLD_S * 3.0)
+
+
 func _audio_tick() -> void:
 	if _audio == null or _match == null:
 		return
@@ -1106,6 +1175,7 @@ func _audio_tick() -> void:
 		var z: float = im.z if "z" in im else 0.0
 		_audio.at("impact_blast" if im.blast_fraction > 0.5
 			else "impact_penetration", x, y, z)
+		_note_hit(im.target)
 	_seen_impacts = w.munitions.last_impacts.size()
 
 	# 2. LAUNCHES. Only the DELTA since last frame, so a pause or a speed-up
@@ -2360,7 +2430,13 @@ func _build_hud() -> void:
 	# rebuild; a countdown buried in the stats block is not a warning.
 	_collapse_label = _label(layer, Vector2.ZERO, 24)
 	_collapse_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_anchor(_collapse_label, 0.5, 0.0, -430.0, 104.0, 430.0, 168.0)
+	_anchor(_collapse_label, 0.5, 0.0, -430.0, 132.0, 430.0, 196.0)
+
+	_alert_banner = _label(layer, Vector2.ZERO, 16)
+	_alert_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_anchor(_alert_banner, 0.5, 0.0, -300.0, 102.0, 300.0, 126.0)
+	_alert_banner.add_theme_color_override("font_color", COL_HOSTILE)
+	_alert_banner.visible = false
 	_collapse_label.add_theme_color_override("font_color", COL_HOSTILE)
 	_collapse_label.visible = false
 
@@ -3293,6 +3369,10 @@ func _run_headless_check() -> void:
 			armed += 1
 	_check("armed", armed > 0, "%d of %d entities carry a weapon"
 		% [armed, e.count()])
+	# Early, while the player still HAS units. At the end of the run the AI has
+	# usually razed the base, and a check that needs an own unit to hit found
+	# none and reported "0 alerts" -- the same trap the build checks fell into.
+	_check_alerts()
 
 	# 1. SELECT. The same call the marquee makes, over the whole screen.
 	for i in _match.own_units(_me):
@@ -3585,6 +3665,36 @@ func _check_ui_guard() -> void:
 			rig_sees = true
 	_check("the camera will not edge-pan over the panel", rig_sees,
 		"%d blocker(s) handed to the rig" % blockers.size())
+
+
+## Alerts, asserted on the three properties that matter. The FAIRNESS one is
+## the one worth having: an alert raised by a hit on an ENEMY unit would put
+## that unit's position on the player's minimap -- information they never
+## earned -- so it must be impossible, not merely unlikely.
+func _check_alerts() -> void:
+	var e := _match.world.entities
+	var mine := -1
+	var theirs := -1
+	for i in range(e.count()):
+		if e.alive[i] == 0:
+			continue
+		if e.owner[i] == _me and mine < 0:
+			mine = i
+		elif e.owner[i] != _me and theirs < 0:
+			theirs = i
+	_alerts.clear()
+	_note_hit(mine)
+	_check("a hit on our unit raises an alert", _alerts.size() == 1,
+		"%d alert(s), own entity %d, enemy entity %d" % [_alerts.size(), mine, theirs])
+	_note_hit(mine)
+	_check("and a second hit there is not a second alert", _alerts.size() == 1,
+		"throttled to %d" % _alerts.size())
+	_note_hit(theirs)
+	_check("A HIT ON THE ENEMY RAISES NOTHING -- no position leaks",
+		_alerts.size() == 1, "%d alert(s) after an enemy hit" % _alerts.size())
+	_alerts.clear()
+	if _alert_banner != null:
+		_alert_banner.visible = false
 
 
 func _check(label: String, ok: bool, detail := "") -> void:
